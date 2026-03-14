@@ -1,0 +1,87 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    restart: always
+
+  extractous:
+    build: ./extractous-sidecar
+    ports:
+      - "8000:8000"
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: ../gateway/Dockerfile
+    ports:
+      - "7700:7700"
+    environment:
+      - QDRANT_HOST=qdrant:6334
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  node-alpha:
+    build:
+      context: ./node
+      dockerfile: ../node/Dockerfile
+    volumes:
+      - ./test_dir_alpha:/opt/emdexer/test_dir
+    environment:
+      - QDRANT_HOST=qdrant:6334
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - EMDEX_NAMESPACE=alpha
+      - NODE_HEALTH_PORT=8081
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  node-beta:
+    build:
+      context: ./node
+      dockerfile: ../node/Dockerfile
+    volumes:
+      - ./test_dir_beta:/opt/emdexer/test_dir
+    environment:
+      - QDRANT_HOST=qdrant:6334
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - EMDEX_NAMESPACE=beta
+      - NODE_HEALTH_PORT=8081
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mcp:
+    build:
+      context: ./mcp
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      - GATEWAY_URL=http://gateway:7700
+      - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: always

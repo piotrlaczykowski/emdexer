@@ -1,0 +1,27 @@
+replicaCount: 1
+
+image:
+  repository: laczyk/emdexer-node
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+config:
+  qdrantHost: "qdrant:6334"
+  namespace: "default"
+  mountPath: "/data"
+  extractousHost: "http://extractous:8000"
+
+secret:
+  googleApiKey: ""
+
+persistence:
+  enabled: false
+  accessMode: ReadOnlyMany
+  size: 10Gi
+  storageClass: ""
+  existingClaim: ""
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

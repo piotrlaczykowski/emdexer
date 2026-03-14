@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "emdexer-node.fullname" . }}
+  labels:
+    {{- include "emdexer-node.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "emdexer-node.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "emdexer-node.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: QDRANT_HOST
+              value: {{ .Values.config.qdrantHost | quote }}
+            - name: Emdexer_NAMESPACE
+              value: {{ .Values.config.namespace | quote }}
+            - name: EXTRACTOUS_HOST
+              value: {{ .Values.config.extractousHost | quote }}
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "emdexer-node.fullname" . }}-secret
+                  key: google-api-key
+          volumeMounts:
+            - name: data
+              mountPath: /opt/emdexer/test_dir
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz/liveness
+              port: 8081
+          readinessProbe:
+            httpGet:
+              path: /healthz/readiness
+              port: 8081
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "emdexer-node.fullname" .) }}
+          {{- else }}
+          hostPath:
+            path: {{ .Values.config.mountPath }}
+          {{- end }}

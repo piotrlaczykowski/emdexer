@@ -1,0 +1,9 @@
+Using embed provider: gemini:models/gemini-embedding-2-preview
+Initializing SFTP VFS: example.com:22
+panic: Failed to initialize VFS: failed to dial SSH: dial tcp 104.18.27.120:22: connect: connection timed out
+
+goroutine 1 [running]:
+main.initVFS()
+	/home/piotr.laczykowski/.openclaw/workspace/projects/emdexer/node/main.go:374 +0x434
+main.main()
+	/home/piotr.laczykowski/.openclaw/workspace/projects/emdexer/node/main.go:188 +0x7d9

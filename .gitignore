@@ -1,0 +1,21 @@
+# Binaries
+bin/
+emdex
+emdex-gateway
+emdex-node
+
+# Environment
+.env
+
+# Logs and Data
+logs/
+data/
+qdrant_storage/
+emdex_cache.db
+
+# Test artifacts
+test_dir/
+test_dir_alpha/
+test_dir_beta/
+*.bin
+*.tar.gz

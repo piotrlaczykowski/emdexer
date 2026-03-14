@@ -6,7 +6,7 @@ COPY src/gateway/ .
 COPY src/pkg/ /app/src/pkg/
 RUN go build -o emdexer-gateway main.go
 
-FROM alpine:latest
+FROM alpine:3.21
 RUN apk add --no-cache curl
 WORKDIR /app
 RUN addgroup -S emdexer && adduser -S emdexer -G emdexer

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/qdrant/go-client/qdrant"
@@ -24,6 +25,12 @@ type PersistentQueue struct {
 }
 
 func NewPersistentQueue(dbPath string) (*PersistentQueue, error) {
+	// Pre-secure the parent directory to ensure sidecars (-wal, -shm) inherit restricted permissions
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create secure directory: %w", err)
+	}
+
 	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite: %w", err)

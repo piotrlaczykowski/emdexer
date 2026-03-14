@@ -5,8 +5,8 @@ go 1.25.0
 require (
 	github.com/piotrlaczykowski/emdexer v0.0.0-00010101000000-000000000000
 	github.com/prometheus/client_golang v1.22.0
-	github.com/qdrant/go-client v1.15.2
-	google.golang.org/grpc v1.73.0-dev
+	github.com/qdrant/go-client v1.17.1
+	google.golang.org/grpc v1.79.2
 )
 
 require (
@@ -16,7 +16,7 @@ require (
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.63.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
-	golang.org/x/net v0.37.0 // indirect
+	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260209200024-4cfbd4190f57 // indirect

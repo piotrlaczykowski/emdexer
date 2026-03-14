@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/piotrlaczykowski/emdexer/pkg/version"
+	"github.com/piotrlaczykowski/emdexer/version"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"

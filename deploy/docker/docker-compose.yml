@@ -24,8 +24,8 @@ services:
 
   gateway:
     build:
-      context: ./gateway
-      dockerfile: ../gateway/Dockerfile
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.gateway
     ports:
       - "7700:7700"
     environment:
@@ -33,7 +33,7 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
     volumes:
-      - ./logs:/opt/emdexer/logs
+      - ../../logs:/opt/emdexer/logs
     networks:
       - emdexer-net
     restart: always
@@ -45,12 +45,12 @@ services:
 
   node:
     build:
-      context: ./node
-      dockerfile: ../node/Dockerfile
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.node
     ports:
       - "8081:8081"
     volumes:
-      - ./test_dir:/opt/emdexer/test_dir
+      - ../../test_dir:/opt/emdexer/test_dir
     environment:
       - QDRANT_HOST=qdrant:6334
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
@@ -67,8 +67,8 @@ services:
 
   mcp:
     build:
-      context: ./mcp
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.mcp
     ports:
       - "8002:8002"
     environment:

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"emdexer/pkg/vfs"
+	"github.com/piotrlaczykowski/emdexer/vfs"
 
 	_ "github.com/mattn/go-sqlite3"
 )

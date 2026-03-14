@@ -20,9 +20,9 @@ LDFLAGS         := -ldflags="-s -w -extldflags=-static $(LD_VARS)"
 
 BIN_DIR         := $(PROJECT_ROOT)bin
 
-GATEWAY_DIR     := $(PROJECT_ROOT)gateway
-NODE_DIR        := $(PROJECT_ROOT)node
-CLI_DIR         := $(PROJECT_ROOT)cmd/emdex
+GATEWAY_DIR     := $(PROJECT_ROOT)src/gateway
+NODE_DIR        := $(PROJECT_ROOT)src/node
+CLI_DIR         := $(PROJECT_ROOT)src/cmd/emdex
 
 GATEWAY_BIN     := $(BIN_DIR)/emdex-gateway
 NODE_BIN        := $(BIN_DIR)/emdex-node
@@ -89,9 +89,9 @@ test:
 	@echo "[TEST] cli"
 	@cd $(CLI_DIR) && $(GOFLAGS) $(GO) test ./...
 	@echo "[TEST] integration"
-	@$(GO) test -v ./tests/integration/...
+	@$(GO) test -v ./src/tests/integration/...
 	@echo "[TEST] cli-shell"
-	@chmod +x ./tests/cli/cli_test.sh && ./tests/cli/cli_test.sh
+	@chmod +x ./src/tests/cli/cli_test.sh && ./src/tests/cli/cli_test.sh
 
 ## help: Show this help message
 help:

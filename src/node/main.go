@@ -15,14 +15,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"emdexer/pkg/embed"
-	"emdexer/pkg/extractor"
-	"emdexer/pkg/node"
-	"emdexer/pkg/queue"
-	"emdexer/pkg/vfs"
-	"emdexer/pkg/watcher"
+	"github.com/piotrlaczykowski/emdexer/embed"
+	"github.com/piotrlaczykowski/emdexer/extractor"
+	"github.com/piotrlaczykowski/emdexer/indexer"
+	"github.com/piotrlaczykowski/emdexer/queue"
+	"github.com/piotrlaczykowski/emdexer/vfs"
+	"github.com/piotrlaczykowski/emdexer/watcher"
 
-	"github.com/piotrlaczykowski/emdexer/pkg/version"
+	"github.com/piotrlaczykowski/emdexer/version"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -357,7 +357,7 @@ func main() {
 
 	go func() {
 		fmt.Println("Initial full-walk indexing started...")
-		idx := node.NewIndexer(globalFS)
+		idx := indexer.NewIndexer(globalFS)
 		
 		var batch []*qdrant.PointStruct
 		batchSizeStr := os.Getenv("EMDEX_BATCH_SIZE")

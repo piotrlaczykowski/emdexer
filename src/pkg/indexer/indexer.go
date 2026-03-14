@@ -1,9 +1,9 @@
-package node
+package indexer
 
 import (
 	"fmt"
 	"io"
-	"emdexer/pkg/vfs"
+	"github.com/piotrlaczykowski/emdexer/vfs"
 	"path/filepath"
 )
 

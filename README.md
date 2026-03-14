@@ -1,6 +1,6 @@
 # Emdexer (Network Attached Storage Document EXpert)
 
-![Emdexer Logo](https://raw.githubusercontent.com/laczyk/emdexer/main/assets/logo.png)
+![Emdexer Logo](assets/logo.png)
 
 Emdexer is a high-performance, multi-node RAG (Retrieval-Augmented Generation) system designed to turn your local storage, NAS, or document archives into a searchable, chat-ready knowledge base.
 

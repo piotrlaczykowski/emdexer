@@ -23,6 +23,7 @@ jobs:
         id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          repo-url: piotrlaczykowski/emdexer
           release-type: go
           target-branch: ${{ github.ref_name }}
 

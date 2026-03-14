@@ -4,8 +4,10 @@
 
 We follow a modified GitFlow branching model:
 
-- **`master` / `main`**: Production-ready code. Stable releases.
+- **`master` / `main`**: Production-ready code. Stable releases. **Accepts merges ONLY from `release/*` and `hotfix/*` branches.**
 - **`develop`**: Integration branch for features. Pre-releases and beta versions.
+- **`release/*`**: Preparation for a new production release. Branches off from `develop`, merges into `master` and back into `develop`.
+- **`hotfix/*`**: Urgent fixes for production. Branches off from `master`, merges into `master` and `develop`.
 - **`feature/*`**: Development of new features. Branch off from `develop`.
 
 ## Conventional Commits

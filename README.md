@@ -79,8 +79,10 @@ Emdexer follows **Semantic Versioning 2.0.0** and uses **Conventional Commits** 
 
 ### Branching Strategy
 
-- `master` / `main`: Production-ready code.
+- `master` / `main`: Production-ready code. Only accepts merges from `release/*` and `hotfix/*`.
 - `develop`: Integration branch for features and pre-releases.
+- `release/*`: Release preparation branches.
+- `hotfix/*`: Urgent production fixes.
 - `feature/*`: Active development of new features.
 
 ### Automated Releases

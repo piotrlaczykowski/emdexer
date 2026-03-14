@@ -1,0 +1,72 @@
+# Emdexer Delivery Plan
+> Roadmap to a bot that knows your entire filesystem.
+
+---
+
+## Status Key
+- ✅ **Done** — Implemented, compiles, tested end-to-end.
+- 🔧 **Done (Partial)** — Core path implemented; known gaps documented.
+- 🚧 **In Progress** — Work started, not production-ready.
+- 📋 **Planned** — Stub or future phase; not functional.
+
+---
+
+## P0–P5: Core (Done)
+| Phase | Description | Status | Notes |
+|-------|-------------|--------|-------|
+| P0 | Node-local Foundations (Walker, Chunker, Embedder) | ✅ Done | |
+| P1 | Gateway Core (Node registry, /v1/search, /v1/chat/completions) | ✅ Done | Registry is now persistent (nodes.json) |
+| P2 | Security & Isolation (Namespaces, Bearer Auth, Audit logging) | ✅ Done | Namespace bypass fixed in v1.0.1; `/v1/chat/completions` now enforces namespace strictly |
+| P3 | MCP Interface (Context-aware tools for Claude/OpenClaw) | ✅ Done | |
+| P4 | Real-time Incremental Sync (fsnotify watcher) | ✅ Done | Watcher implemented in `node/pkg/watcher/`; local nodes only. Remote VFS (SMB/SFTP/NFS) still one-shot walk only. |
+| P5 | Intelligent Agent (Multi-hop RAG, query refinement) | ✅ Done | Both hops now enforce namespace |
+
+## P6–P14: Extended Features
+| Phase | Description | Status | Notes |
+|-------|-------------|--------|-------|
+| P6 | Cloud Storage (node-s3) | 🔧 Done (Partial) | S3 object enumeration works. Download → extract → embed → upsert pipeline is a **stub** in `node-s3/main.go`. Full implementation planned for P15. |
+| P7 | Mobile Access (Telegram adapter) | ✅ Done | |
+| P8 | Enterprise Connect (Slack/Teams) | ✅ Done | |
+| P9 | Multi-modal Support (OCR/Video) | 📋 Planned | `pkg/extractor/ocr.go` and `video.go` are explicit **stubs** — both return `not yet implemented` errors. OCR routes through Extractous sidecar for supported formats (PDF, DOCX). Direct image OCR and video transcription require Tesseract and Whisper integration (post-P14). |
+| P10 | Infrastructure-as-Code (Helm charts) | ✅ Done | |
+| P11 | Native Protocol Support — SMB | ✅ Done | |
+| P12 | Native Protocol Support — NFS | ✅ Done | |
+| P13 | Native Protocol Support — SFTP | ✅ Done | |
+| P14 | Observability Suite (Prometheus, Grafana) | ✅ Done | |
+
+---
+
+## Phase 15: Enterprise Scale & High Availability
+The goal is to move from a "trusted tool" to "critical infrastructure."
+
+| Sub-phase | Description | Status |
+|-----------|-------------|--------|
+| 15.1 | Distributed Qdrant Clustering | 📋 Planned |
+| 15.2 | Gateway High Availability (multi-replica + shared registry) | 📋 Planned |
+| 15.3 | Global Namespace Aggregation | 📋 Planned |
+| 15.4 | OIDC/Active Directory Integration (per-file ACL) | 📋 Planned |
+| 15.5 | Air-Gapped Optimization — Ollama/vLLM local embeddings | 🚧 In Progress | `EmbedProvider` interface implemented; `OllamaProvider` is a stub. |
+| 15.6 | Delta-Only Re-indexing (checksum-based) | 📋 Planned |
+| 15.7 | S3 node full pipeline (P6 completion) | 📋 Planned |
+
+## Phase 18: Parameterization
+| Sub-phase | Description | Status |
+|-----------|-------------|--------|
+| 18.1 | Environment Variable Cleanup | ✅ Done |
+| 18.2 | Configurable Search/Chat Limits | ✅ Done |
+| 18.3 | Documentation Synchronization | ✅ Done |
+
+---
+
+## Integrity Notes (v1.0.1 Hard-Fix Sprint)
+The following structural issues were identified and fixed in the v1.0.1 sprint:
+
+1. **Namespace bypass** — `handleChatCompletions` was passing `""` to Qdrant on both RAG hops, allowing cross-tenant data access. Fixed: endpoint now requires `X-Emdex-Namespace` header; missing namespace returns 400.
+2. **Registry race condition** — `NodeRegistry` was storing `*NodeInfo` (shared pointers); callers could mutate live registry state. Fixed: registry now stores value types with deep copies on read/write.
+3. **Registry persistence** — Registry was in-memory only; a gateway restart lost all registered nodes. Fixed: registry now persists to `nodes.json` with atomic temp-file swap.
+4. **Gemini hard-lock** — Embedding was directly calling the Gemini API everywhere. Fixed: `EmbedProvider` interface introduced in both gateway and node; `GeminiProvider` is default, `OllamaProvider` stub ready for Phase 15.5.
+5. **P4 honesty** — Real-time watcher was marked Done but was one-shot only. Fixed: `pkg/watcher/` implements fsnotify with debounce + recursive directory watching.
+6. **P6 / P9 honesty** — Both were marked `[x] Done` despite being stubs. Fixed: marked accurately above.
+
+---
+*Time is a flat circle, but your data doesn't have to be lost in it.*

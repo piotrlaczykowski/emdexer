@@ -1,0 +1,31 @@
+{
+  "phase": 17,
+  "title": "Infrastructure Resilience & Fault Tolerance",
+  "status": "done",
+  "tasks": [
+    {
+      "id": "res-1",
+      "title": "Persistent Batch Queue (Node)",
+      "status": "done",
+      "description": "Implemented SQLite-backed WAL in node/pkg/queue/ to prevent data loss on Qdrant failure."
+    },
+    {
+      "id": "res-2",
+      "title": "Circuit Breaker (Node)",
+      "status": "done",
+      "description": "Implemented circuit breaker in node/pkg/extractor/sidecar.go to skip binaries on repeated failures."
+    },
+    {
+      "id": "res-3",
+      "title": "Strict Namespace Mode (Gateway)",
+      "status": "done",
+      "description": "Enforced mandatory namespace parameter in Gateway via EMDEX_STRICT_NAMESPACE."
+    },
+    {
+      "id": "deploy",
+      "title": "Deployment & Verification",
+      "status": "done",
+      "description": "Synced to .156, rebuilt, and verified resilience pillars. Node storage resized to 28G to accommodate build artifacts."
+    }
+  ]
+}

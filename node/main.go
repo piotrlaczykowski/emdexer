@@ -22,6 +22,7 @@ import (
 	"emdexer/pkg/vfs"
 	"emdexer/pkg/watcher"
 
+	"github.com/piotrlaczykowski/emdexer/pkg/version"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -136,7 +137,11 @@ func loadEnv(path string) {
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("emdexer-node version %s\n", Version)
+		version.Print()
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "--license" {
+		fmt.Printf("License: %s\n", version.LicenseType)
 		return
 	}
 	cwd, _ := os.Getwd()
@@ -596,7 +601,11 @@ func startHealthServer(qdrantConn *grpc.ClientConn) {
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/healthz/liveness", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "UP",
+			"version": version.Version,
+			"license": version.LicenseType,
+		})
 	})
 
 	mux.HandleFunc("/healthz/readiness", func(w http.ResponseWriter, r *http.Request) {

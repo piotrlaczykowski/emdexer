@@ -7,9 +7,16 @@
 SHELL           := /bin/bash
 PROJECT_ROOT    := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
+VERSION         ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT          ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
+LICENSE_TYPE    ?= Community
+
 GO              := go
-GOFLAGS         := CGO_ENABLED=0 GOOS=linux GOARCH=amd64
-LDFLAGS         := -ldflags="-s -w -extldflags=-static"
+GOFLAGS         := CGO_ENABLED=0
+LD_VARS         := -X 'github.com/piotrlaczykowski/emdexer/pkg/version.Version=$(VERSION)' \
+                   -X 'github.com/piotrlaczykowski/emdexer/pkg/version.Commit=$(COMMIT)' \
+                   -X 'github.com/piotrlaczykowski/emdexer/pkg/version.LicenseType=$(LICENSE_TYPE)'
+LDFLAGS         := -ldflags="-s -w -extldflags=-static $(LD_VARS)"
 
 BIN_DIR         := $(PROJECT_ROOT)bin
 

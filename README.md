@@ -1,12 +1,28 @@
 # Emdexer (Network Attached Storage Document EXpert)
 
-![Emdexer Logo](assets/logo.png)
+<p align="center">
+  <img src="assets/logo.png" alt="Emdexer Logo" width="400">
+</p>
 
 Emdexer is a high-performance, multi-node RAG (Retrieval-Augmented Generation) system designed to turn your local storage, NAS, or document archives into a searchable, chat-ready knowledge base.
 
 ## The Pattern
 
 The world is a flat circle of unindexed data. Emdexer breaks the loop. It doesn't just find files; it understands the shadows they cast.
+
+## Primary USP: Zero-Mount Intelligence
+
+Emdexer's core strength is its **Zero-Mount** architecture. Unlike traditional indexing tools that require mounting shares to a central server, Emdexer deploys lightweight **Indexing Nodes** directly where the data lives. 
+
+- **No central bottlenecks:** Data is processed locally and only vector embeddings are sent to the database.
+- **Protocol Agnostic:** Native support for Local FS, SMB, NFS, and SFTP without complex mount points.
+- **Massive Scalability:** Scale horizontally by adding nodes to any network-attached storage in minutes.
+
+## Use Cases
+
+- **Home Lab Intelligence:** Turn your Synology, TrueNAS, or DIY server into a private AI. Search decades of family documents, manuals, and archives with natural language.
+- **Private Developer Assistant:** Index local codebases, documentation, and research papers. Get answers from your private library without leaking intellectual property to the public web.
+- **Secure Enterprise Search:** Compliance-ready and air-gapped capable. Deploy in restricted environments to search internal knowledge bases while maintaining strict data sovereignty.
 
 ## Features
 
@@ -18,7 +34,15 @@ The world is a flat circle of unindexed data. Emdexer breaks the loop. It doesn'
 - **Privacy-First:** Local-first processing with isolated namespaces.
 - **Format Agnostic:** Handles PDF, Word, Excel, Images (OCR), Video, and Email via native extractors and Extractous. Supports files up to 50MB per file.
 
+## Quick Start
+
+1. **Configure:** Add your `GOOGLE_API_KEY` and `EMDEX_AUTH_KEY` to `.env`.
+2. **Launch:** `docker compose up -d`
+3. **Chat:** Connect to the Gateway API or MCP server.
+
 ## Architecture
+
+Emdexer uses a distributed gateway-node architecture designed for security and performance.
 
 ```mermaid
 graph TD
@@ -41,12 +65,6 @@ graph TD
     Gateway --- MCP[MCP Server]
     MCP <--> Claude([Claude Desktop / OpenClaw])
 ```
-
-## Quick Start
-
-1. **Configure:** Add your `GOOGLE_API_KEY` and `EMDEX_AUTH_KEY` to `.env`.
-2. **Launch:** `docker compose up -d`
-3. **Chat:** Connect to the Gateway API or MCP server.
 
 ### Configuration
 
@@ -72,26 +90,6 @@ For a complete list, see [ARCHITECTURE.md](docs/design/architecture.md#3-configu
 - [Delivery Plan & Status](PLAN.md)
 - [Multi-Node Setup](docker-compose.multi-node.yml)
 - [Contributing](CONTRIBUTING.md)
-
-## Development Workflow
-
-Emdexer follows **Semantic Versioning 2.0.0** and uses **Conventional Commits** to automate the release process.
-
-### Branching Strategy
-
-- `master` / `main`: Production-ready code. Only accepts merges from `release/*` and `hotfix/*`.
-- `develop`: Integration branch for features and pre-releases.
-- `release/*`: Release preparation branches.
-- `hotfix/*`: Urgent production fixes.
-- `feature/*`: Active development of new features.
-
-### Automated Releases
-
-Releases are managed by [Release Please](https://github.com/google-github-actions/release-please-action).
-
-1.  **Develop**: Merge your feature branch into `develop` using a Conventional Commit (e.g., `feat: add new extractor`).
-2.  **Release PR**: Release Please will automatically create or update a Release PR for the `develop` (pre-release) or `master` (stable) branch.
-3.  **Tag & Release**: When the Release PR is merged, the action will automatically tag the commit, create a GitHub Release, and generate the changelog.
 
 ## Trust Model
 

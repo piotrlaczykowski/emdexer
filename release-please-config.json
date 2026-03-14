@@ -1,0 +1,9 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "package-name": "emdexer"
+    }
+  },
+  "bootstrap-sha": "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"
+}

@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	Version        = "v0.1.0"
+	Version        = "v1.0.5"
 	EmbeddingModel = "models/gemini-embedding-exp-03-07"
 	EmbeddingDims  = 3072
 	CollectionName = "emdexer_v1"

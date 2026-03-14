@@ -27,7 +27,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
-const Version = "v0.1.0"
+const Version = "v1.0.5"
 
 // ============================================================
 // Config & .env loader

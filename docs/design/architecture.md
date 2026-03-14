@@ -316,4 +316,4 @@ Namespace: emdexer
   StatefulSet: qdrant
 ```
 
-See [INSTALL.md](./docs/INSTALL.md) for step-by-step instructions.
+See [INSTALL.md](../getting-started/installation.md) for step-by-step instructions.

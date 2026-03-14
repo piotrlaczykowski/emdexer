@@ -62,13 +62,13 @@ The following environment variables are used to configure Emdexer:
 | `EMDEX_SEARCH_LIMIT` | Max results for `/v1/search` | `10` |
 | `EMDEX_CHAT_LIMIT` | Max results for RAG context | `5` |
 
-For a complete list, see [ARCHITECTURE.md](docs/ARCHITECTURE.md#3-configuration-decoupling).
+For a complete list, see [ARCHITECTURE.md](docs/design/architecture.md#3-configuration-decoupling).
 
 ## Documentation
 
-- [Installation Guide](docs/INSTALL.md)
-- [API Reference](docs/API.md)
-- [Architecture & Design Decisions](docs/ARCHITECTURE.md)
+- [Installation Guide](docs/getting-started/installation.md)
+- [API Reference](docs/reference/api.md)
+- [Architecture & Design Decisions](docs/design/architecture.md)
 - [Delivery Plan & Status](PLAN.md)
 - [Multi-Node Setup](docker-compose.multi-node.yml)
 

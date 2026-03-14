@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/piotrlaczykowski/emdexer/pkg/version"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -761,6 +762,14 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if !version.IsEnterprise() {
+		// Example: In Community mode, enforce a hard limit on results
+		if searchLimit > 5 {
+			log.Printf("[search] Community mode: capping limit from %d to 5", searchLimit)
+			searchLimit = 5
+		}
+	}
+
 	results, err := searchQdrant(ctx, s.pointsClient, s.collection, vector, searchLimit, requestedNamespace)
 	status := http.StatusOK
 	if err != nil {
@@ -1022,8 +1031,11 @@ func (s *Server) streamResponse(w http.ResponseWriter, model, answer string) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]string{
-		"status":     "ok",
-		"collection": s.collection,
+		"status":      "ok",
+		"version":     version.Version,
+		"license":     version.LicenseType,
+		"enterprise":  fmt.Sprintf("%v", version.IsEnterprise()),
+		"collection":  s.collection,
 	})
 }
 
@@ -1168,7 +1180,11 @@ func min(a, b int) int {
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("emdexer-gateway version %s\n", Version)
+		version.Print()
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "--license" {
+		fmt.Printf("License: %s\n", version.LicenseType)
 		return
 	}
 	cwd, _ := os.Getwd()

@@ -1,0 +1,56 @@
+# To enable dependabot updates for every package, we need to enumerate them here
+version: 2
+updates:
+  # Docker updates for all Dockerfiles in deploy/docker
+  - package-ecosystem: "docker"
+    directory: "/deploy/docker"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # Go updates for Gateway
+  - package-ecosystem: "gomod"
+    directory: "/src/gateway"
+    schedule:
+      interval: "daily"
+    labels:
+      - "dependencies"
+      - "go"
+
+  # Go updates for Node
+  - package-ecosystem: "gomod"
+    directory: "/src/node"
+    schedule:
+      interval: "daily"
+    labels:
+      - "dependencies"
+      - "go"
+
+  # Go updates for MCP
+  - package-ecosystem: "gomod"
+    directory: "/src/mcp"
+    schedule:
+      interval: "daily"
+    labels:
+      - "dependencies"
+      - "go"
+
+  # Go updates for Shared Pkgs
+  - package-ecosystem: "gomod"
+    directory: "/src/pkg"
+    schedule:
+      interval: "daily"
+    labels:
+      - "dependencies"
+      - "go"
+
+  # GitHub Actions updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "github-actions"

@@ -1,3 +1,3 @@
 module emdexer/tests/e2e
 
-go 1.26.1
+go 1.25.0

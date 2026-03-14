@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 type TelegramUpdate struct {
@@ -21,15 +22,21 @@ type TelegramUpdate struct {
 
 func main() {
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
-	gatewayURL := os.Getenv("GATEWAY_URL") // http://gateway:7700/v1/chat/completions
+	gatewayURL := os.Getenv("GATEWAY_URL")
 	authKey := os.Getenv("Emdexer_AUTH_KEY")
+
+	client := &http.Client{
+		Timeout: 40 * time.Second,
+	}
 
 	offset := 0
 	for {
+		// #nosec G107 - Dynamic URL for Telegram API offset is required
 		url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=30", token, offset)
-		resp, err := http.Get(url)
+		resp, err := client.Get(url)
 		if err != nil {
-			log.Println(err)
+			log.Println("Telegram getUpdates error:", err)
+			time.Sleep(5 * time.Second)
 			continue
 		}
 
@@ -37,28 +44,34 @@ func main() {
 			OK     bool             `json:"ok"`
 			Result []TelegramUpdate `json:"result"`
 		}
-		json.NewDecoder(resp.Body).Decode(&result)
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			log.Println("Telegram decode error:", err)
+		}
 		resp.Body.Close()
 
 		for _, u := range result.Result {
 			offset = u.UpdateID + 1
 			log.Printf("Telegram: received %q from %d", u.Message.Text, u.Message.Chat.ID)
 
-			// Forward to Gateway
 			payload, _ := json.Marshal(map[string]interface{}{
 				"model": "emdexer",
 				"messages": []map[string]string{
 					{"role": "user", "content": u.Message.Text},
 				},
 			})
-			req, _ := http.NewRequest("POST", gatewayURL, bytes.NewBuffer(payload))
+
+			// #nosec G107 - gatewayURL is internal configuration
+			req, err := http.NewRequest("POST", gatewayURL, bytes.NewBuffer(payload))
+			if err != nil {
+				log.Println("Request creation error:", err)
+				continue
+			}
 			req.Header.Set("Authorization", "Bearer "+authKey)
 			req.Header.Set("Content-Type", "application/json")
 
-			client := &http.Client{}
 			gResp, err := client.Do(req)
 			if err != nil {
-				log.Println(err)
+				log.Println("Gateway call error:", err)
 				continue
 			}
 
@@ -69,17 +82,23 @@ func main() {
 					} `json:"message"`
 				} `json:"choices"`
 			}
-			json.NewDecoder(gResp.Body).Decode(&gRes)
+			if err := json.NewDecoder(gResp.Body).Decode(&gRes); err != nil {
+				log.Println("Gateway decode error:", err)
+			}
 			gResp.Body.Close()
 
 			if len(gRes.Choices) > 0 {
 				ans := gRes.Choices[0].Message.Content
+				// #nosec G107 - sendURL is standard Telegram endpoint
 				sendURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 				sendPayload, _ := json.Marshal(map[string]interface{}{
 					"chat_id": u.Message.Chat.ID,
 					"text":    ans,
 				})
-				http.Post(sendURL, "application/json", bytes.NewBuffer(sendPayload))
+				_, err := client.Post(sendURL, "application/json", bytes.NewBuffer(sendPayload))
+				if err != nil {
+					log.Println("Telegram send error:", err)
+				}
 			}
 		}
 	}

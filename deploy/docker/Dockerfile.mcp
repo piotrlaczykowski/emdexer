@@ -4,6 +4,9 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
+RUN useradd -m emdexer
+USER emdexer
+
 # Install fastmcp with prefab-ui support
 RUN pip install "fastmcp[apps]" requests
 

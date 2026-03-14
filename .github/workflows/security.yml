@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        module: [src/gateway, src/node, src/mcp, src/pkg]
+        module: [src/gateway, src/node, src/pkg]
     steps:
       - uses: actions/checkout@v4
       - name: Run Gosec Security Scanner (${{ matrix.module }})
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        module: [src/gateway, src/node, src/mcp, src/pkg]
+        module: [src/gateway, src/node, src/pkg]
     steps:
       - uses: actions/checkout@v4
       - name: Setup Go

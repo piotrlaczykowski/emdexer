@@ -71,6 +71,25 @@ For a complete list, see [ARCHITECTURE.md](docs/design/architecture.md#3-configu
 - [Architecture & Design Decisions](docs/design/architecture.md)
 - [Delivery Plan & Status](PLAN.md)
 - [Multi-Node Setup](docker-compose.multi-node.yml)
+- [Contributing](CONTRIBUTING.md)
+
+## Development Workflow
+
+Emdexer follows **Semantic Versioning 2.0.0** and uses **Conventional Commits** to automate the release process.
+
+### Branching Strategy
+
+- `master` / `main`: Production-ready code.
+- `develop`: Integration branch for features and pre-releases.
+- `feature/*`: Active development of new features.
+
+### Automated Releases
+
+Releases are managed by [Release Please](https://github.com/google-github-actions/release-please-action).
+
+1.  **Develop**: Merge your feature branch into `develop` using a Conventional Commit (e.g., `feat: add new extractor`).
+2.  **Release PR**: Release Please will automatically create or update a Release PR for the `develop` (pre-release) or `master` (stable) branch.
+3.  **Tag & Release**: When the Release PR is merged, the action will automatically tag the commit, create a GitHub Release, and generate the changelog.
 
 ## Trust Model
 

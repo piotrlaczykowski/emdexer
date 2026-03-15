@@ -62,6 +62,7 @@ The goal is to move from a "trusted tool" to "critical infrastructure."
 | Monorepo Fan-Out CI | Path-filtered fan-out builds per component (gateway/node/mcp) via GitHub Actions reusable workflow | ✅ Done |
 | Branch-based Tagging Suffixes | Automatic image tag suffixes: `-beta`, `-rc`, `-hotfix`, `-alpha`, `-PR` driven by branch name | ✅ Done |
 | Expert Copilot Instructions | `.github/copilot-instructions.md` with architecture, conventions, and security policies for AI-assisted development | ✅ Done |
+| Final Hardening Sprint | SSRF protection, archive size limits, HTTP timeouts, and Docker resource limits | ✅ Done |
 
 ---
 
@@ -84,6 +85,7 @@ The following structural issues were identified and fixed in the v1.0.1 sprint:
 3. **`EmbedProvider` refactored to `src/pkg/embed`** — Shared provider logic extracted from per-module copies into a single `src/pkg/embed` package. All modules import from there (DRY).
 4. **Cache directory permissions hardened (0700)** — `os.MkdirAll` calls for cache dirs now use `0700` instead of `0755`, preventing other local users from reading embedding caches.
 5. **Hardcoded secrets removed from E2E tests** — All API keys, tokens, and passwords inlined in test fixtures replaced with environment variable lookups (`os.Getenv`). No secrets in source.
+6. **HTTP server timeouts** — Strict `ReadTimeout` and `WriteTimeout` enforced in `gateway` and `node` HTTP servers to prevent Slowloris attacks and connection leakage.
 
 ---
 *Time is a flat circle, but your data doesn't have to be lost in it.*

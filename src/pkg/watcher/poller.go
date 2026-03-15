@@ -138,6 +138,7 @@ func NewPoller(
 
 func (p *Poller) Start() {
 	ticker := time.NewTicker(p.interval)
+	defer ticker.Stop()
 	log.Printf("[poller] Starting remote VFS poller on %s (interval=%v, delta=%v, fullHash=%v)",
 		p.root, p.interval, p.delta.enabled, p.delta.fullHash)
 

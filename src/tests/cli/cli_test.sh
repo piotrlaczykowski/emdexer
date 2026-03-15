@@ -2,10 +2,11 @@
 set -e
 
 # Path to the built binary
-EMDEX_BIN="$(pwd)/../../bin/emdex"
+EMDEX_BIN="$(dirname "$0")/../../../bin/emdex"
+EMDEX_BIN=$(realpath "$EMDEX_BIN")
 
 if [ ! -f "$EMDEX_BIN" ]; then
-    echo "Error: emdex binary not found in ./bin/. Run 'make cli' first."
+    echo "Error: emdex binary not found at $EMDEX_BIN. Run 'make cli' first."
     exit 1
 fi
 

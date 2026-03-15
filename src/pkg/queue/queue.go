@@ -30,6 +30,10 @@ func NewPersistentQueue(dbPath string) (*PersistentQueue, error) {
 	if err := os.MkdirAll(dbDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create secure directory: %w", err)
 	}
+	// Harden existing directories just in case they were created with weaker permissions
+	if err := os.Chmod(dbDir, 0700); err != nil {
+		log.Printf("[queue] Warning: Failed to set 0700 permissions on %s: %v", dbDir, err)
+	}
 
 	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL")
 	if err != nil {

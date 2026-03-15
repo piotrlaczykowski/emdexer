@@ -43,7 +43,10 @@ func CalculatePartialHash(r io.ReaderAt, size int64) (string, error) {
 	h := xxh3.New()
 
 	readChunk := func(offset, length int64) error {
-		buf := make([]byte, length)
+		if length > 32*1024*1024 { // Cap buffer at 32MB for safety
+			return fmt.Errorf("readChunk: length %d too large", length)
+		}
+		buf := make([]byte, int(length))
 		n, err := r.ReadAt(buf, offset)
 		if err != nil && err != io.EOF {
 			return fmt.Errorf("ReadAt offset=%d: %w", offset, err)

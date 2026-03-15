@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/piotrlaczykowski/emdexer/indexer"
@@ -69,13 +70,21 @@ func NewMetadataCache(dbPath string) (*MetadataCache, error) {
 	}
 
 	// Idempotent schema migrations for databases created before this release.
-	for _, col := range []struct{ name, def string }{
-		{"partial_hash", "TEXT"},
-		{"full_hash", "TEXT"},
-		{"algorithm", "TEXT"},
-	} {
-		stmt := fmt.Sprintf("ALTER TABLE file_cache ADD COLUMN %s %s", col.name, col.def)
-		_, _ = db.Exec(stmt) // Silently ignore "duplicate column" errors
+	// We use static SQL strings and handle errors properly, ignoring "duplicate column" errors.
+	migrations := []string{
+		"ALTER TABLE file_cache ADD COLUMN partial_hash TEXT",
+		"ALTER TABLE file_cache ADD COLUMN full_hash TEXT",
+		"ALTER TABLE file_cache ADD COLUMN algorithm TEXT",
+	}
+	for _, stmt := range migrations {
+		if _, err := db.Exec(stmt); err != nil {
+			// SQLite returns "duplicate column name: <name>" if it already exists.
+			// In some versions it might just be "duplicate column name".
+			// We check for the substring to be safe.
+			if !strings.Contains(err.Error(), "duplicate column name") {
+				return nil, fmt.Errorf("migration failed (%q): %w", stmt, err)
+			}
+		}
 	}
 
 	return &MetadataCache{db: db}, nil
@@ -219,7 +228,21 @@ func (p *Poller) pollPath(path string) {
 			return
 		}
 
+		// ── PREVENT RE-INDEXING STORM: Warm up cache if metadata matches but hash is missing ──
+		if statMatch && !cachedPartial.Valid {
+			log.Printf("[poller] Metadata match but no cached partial_hash for %s — warming cache", filePath)
+			p.updateCacheHashes(filePath, size, mtime, now, partialHash, "")
+			return
+		}
+
 		if cachedPartial.Valid && cachedPartial.String == partialHash {
+			// ── OPTIMIZE POLLING: Metadata changed but hash confirms content is same ──
+			if !statMatch {
+				log.Printf("[poller] Stat changed but partial hash match for %s — updating metadata cache", filePath)
+				p.updateCacheHashes(filePath, size, mtime, now, partialHash, "")
+				return
+			}
+
 			if !p.delta.fullHash {
 				// Content confirmed unchanged — skip Qdrant, update last_seen only.
 				log.Printf("[poller] Partial hash match: %s — skipping (%s)", filePath, indexer.DeltaStatChanged)
@@ -409,4 +432,25 @@ func (p *Poller) computeFullHash(path string) (string, error) {
 	}
 	defer f.Close()
 	return indexer.CalculateFullHash(f.(io.Reader))
+}
+
+// updateCacheHashes updates the metadata and hashes in the database WITHOUT triggering re-indexing.
+func (p *Poller) updateCacheHashes(path string, size, mtime, now int64, partialHash, fullHash string) {
+	var phVal interface{}
+	if partialHash != "" {
+		phVal = partialHash
+	}
+	var fhVal interface{}
+	if fullHash != "" {
+		fhVal = fullHash
+	}
+
+	_, err := p.cache.db.Exec(
+		`UPDATE file_cache SET size = ?, mtime = ?, partial_hash = ?, full_hash = ?, last_seen = ?
+		 WHERE path = ?`,
+		size, mtime, phVal, fhVal, now, path,
+	)
+	if err != nil {
+		log.Printf("[poller] Metadata update failed for %s: %v", path, err)
+	}
 }

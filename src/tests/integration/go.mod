@@ -1,5 +1,5 @@
 module emdexer/tests/integration
 
-go 1.22
+go 1.25.0
 
 replace emdexer => ../../node

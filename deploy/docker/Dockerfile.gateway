@@ -7,7 +7,10 @@ COPY src/pkg/ /app/src/pkg/
 RUN go build -o emdexer-gateway main.go
 
 FROM alpine:latest
-WORKDIR /app
 RUN apk add --no-cache curl
+WORKDIR /app
+RUN addgroup -S emdexer && adduser -S emdexer -G emdexer
 COPY --from=builder /app/emdexer-gateway .
+RUN chown -R emdexer:emdexer /app
+USER emdexer
 CMD ["./emdexer-gateway"]

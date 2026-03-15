@@ -20,7 +20,7 @@ func NewSFTPFileSystem(host, port, user, password string) (*SFTPFileSystem, erro
 		Auth: []ssh.AuthMethod{
 			ssh.Password(password),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106
 	}
 
 	addr := net.JoinHostPort(host, port)

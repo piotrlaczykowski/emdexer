@@ -477,7 +477,7 @@ func indexDataToPoints(path string, content []byte) []*qdrant.PointStruct {
 		// Deterministic — re-indexing the same file/chunk produces the same point ID,
 		// enabling idempotent upserts without duplicate accumulation.
 		idInput := fmt.Sprintf("%s:%d", path, i)
-		u := uuid.NewMD5(uuid.NameSpaceOID, []byte(idInput))
+		u := uuid.NewSHA1(uuid.NameSpaceOID, []byte(idInput))
 
 		payload := map[string]*qdrant.Value{
 			"path":       {Kind: &qdrant.Value_StringValue{StringValue: path}},

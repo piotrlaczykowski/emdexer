@@ -37,6 +37,8 @@ const (
 	EmbeddingModel = "models/gemini-embedding-exp-03-07"
 	EmbeddingDims  = 3072
 	CollectionName = "emdexer_v1"
+	// Project-specific stable namespace for UUID v5 generation
+	ProjectNamespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8" // Example project UUID
 )
 
 var (
@@ -473,11 +475,11 @@ func indexDataToPoints(path string, content []byte) []*qdrant.PointStruct {
 			vector = make([]float32, EmbeddingDims)
 		}
 
-		// Content-addressable stable ID: UUID v5(NamespaceOID, path + ":" + chunkIndex).
-		// Deterministic — re-indexing the same file/chunk produces the same point ID,
-		// enabling idempotent upserts without duplicate accumulation.
+		// UUID stability: using SHA1 (v5) with a stable project-specific namespace.
+		// This ensures consistency across different environments/deployments.
+		ns := uuid.MustParse(ProjectNamespace)
 		idInput := fmt.Sprintf("%s:%d", path, i)
-		u := uuid.NewSHA1(uuid.NameSpaceOID, []byte(idInput))
+		u := uuid.NewSHA1(ns, []byte(idInput))
 
 		payload := map[string]*qdrant.Value{
 			"path":       {Kind: &qdrant.Value_StringValue{StringValue: path}},

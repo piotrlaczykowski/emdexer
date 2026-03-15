@@ -1,10 +1,14 @@
 FROM golang:1.26.1-alpine AS builder
+
 WORKDIR /app
-COPY src/node/go.mod src/node/go.sum ./
+
+# Copy shared pkg first as it's a dependency for go mod download in node
+COPY src/pkg/ src/pkg/
+COPY src/node/ src/node/
+
+WORKDIR /app/src/node
 RUN go mod download
-COPY src/node/ .
-COPY src/pkg/ /app/src/pkg/
-RUN go build -o emdexer-node main.go
+RUN go build -o /app/emdexer-node .
 
 FROM alpine:3.21
 RUN apk add --no-cache curl

@@ -9,6 +9,10 @@ on:
       image_name:
         required: true
         type: string
+      chart_path:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   build-and-push:
@@ -61,3 +65,23 @@ jobs:
           tags: |
             ${{ steps.tag.outputs.tag }}
             ${{ steps.tag.outputs.latest_tag }}
+
+      - name: Set up Helm
+        if: inputs.chart_path != ''
+        uses: azure/setup-helm@v4
+
+      - name: Lint and Package Helm Chart
+        if: inputs.chart_path != ''
+        run: |
+          helm lint ${{ inputs.chart_path }}
+          mkdir -p dist/charts
+          # Use short SHA as version for development builds if not on main
+          VERSION=$(git rev-parse --short HEAD)
+          helm package ${{ inputs.chart_path }} --version "0.0.0-${VERSION}" --app-version "${VERSION}" -d dist/charts
+
+      - name: Upload Helm Chart Artifact
+        if: inputs.chart_path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart-${{ inputs.service_name }}
+          path: dist/charts/*.tgz

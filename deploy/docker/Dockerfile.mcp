@@ -4,14 +4,14 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m emdexer
-USER emdexer
+# Install fastmcp with prefab-ui support before dropping privileges
+RUN pip install --no-cache-dir "fastmcp[apps]" requests
 
-# Install fastmcp with prefab-ui support
-RUN pip install "fastmcp[apps]" requests
+RUN useradd -m emdexer && chown emdexer:emdexer /app
 
 COPY src/mcp/main.py .
 
+USER emdexer
+
 # Use SSE by default for interactive apps, or stdio for Claude Desktop
-# Here we use the standard fastmcp run which supports both depending on CMD
 CMD ["python", "main.py", "run", "--port", "8002", "--transport", "sse"]

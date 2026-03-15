@@ -16,10 +16,14 @@ jobs:
         module: [src/gateway, src/node, src/pkg]
     steps:
       - uses: actions/checkout@v4
-      - name: Run Gosec Security Scanner (${{ matrix.module }})
-        uses: securego/gosec@master
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          args: ./${{ matrix.module }}/...
+          go-version: '1.26.1'
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+      - name: Run Gosec Security Scanner (${{ matrix.module }})
+        run: gosec ./${{ matrix.module }}/...
 
   govulncheck:
     runs-on: ubuntu-latest

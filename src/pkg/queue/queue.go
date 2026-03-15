@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/qdrant/go-client/qdrant"
@@ -24,6 +25,16 @@ type PersistentQueue struct {
 }
 
 func NewPersistentQueue(dbPath string) (*PersistentQueue, error) {
+	// Pre-secure the parent directory to ensure sidecars (-wal, -shm) inherit restricted permissions
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create secure directory: %w", err)
+	}
+	// Harden existing directories just in case they were created with weaker permissions
+	if err := os.Chmod(dbDir, 0700); err != nil {
+		log.Printf("[queue] Warning: Failed to set 0700 permissions on %s: %v", dbDir, err)
+	}
+
 	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite: %w", err)
@@ -35,8 +46,13 @@ func NewPersistentQueue(dbPath string) (*PersistentQueue, error) {
 	}
 
 	// Security: restrict database file permissions to 0600
-	if err := os.Chmod(dbPath, 0600); err != nil {
-		log.Printf("[queue] Warning: Failed to set 0600 permissions on %s: %v", dbPath, err)
+	for _, ext := range []string{"", "-wal", "-shm"} {
+		fPath := dbPath + ext
+		if _, err := os.Stat(fPath); err == nil {
+			if err := os.Chmod(fPath, 0600); err != nil {
+				log.Printf("[queue] Warning: Failed to set 0600 permissions on %s: %v", fPath, err)
+			}
+		}
 	}
 
 	return &PersistentQueue{db: db}, nil

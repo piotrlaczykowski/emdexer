@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"os"
+	"path/filepath"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 type SFTPFileSystem struct {
@@ -15,12 +18,34 @@ type SFTPFileSystem struct {
 }
 
 func NewSFTPFileSystem(host, port, user, password string) (*SFTPFileSystem, error) {
+	// Security: Use knownhosts for verification (Trust-On-First-Use)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home dir: %w", err)
+	}
+	knownHostsPath := filepath.Join(home, ".ssh", "known_hosts")
+
+	// Ensure the file exists (even if empty) to avoid callback failure if missing
+	if _, err := os.Stat(knownHostsPath); os.IsNotExist(err) {
+		if err := os.MkdirAll(filepath.Dir(knownHostsPath), 0700); err != nil {
+			return nil, fmt.Errorf("failed to create .ssh dir: %w", err)
+		}
+		if err := os.WriteFile(knownHostsPath, []byte(""), 0600); err != nil {
+			return nil, fmt.Errorf("failed to create known_hosts: %w", err)
+		}
+	}
+
+	hostKeyCallback, err := knownhosts.New(knownHostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load known_hosts: %w", err)
+	}
+
 	config := &ssh.ClientConfig{
 		User: user,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(password),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106
+		HostKeyCallback: hostKeyCallback,
 	}
 
 	addr := net.JoinHostPort(host, port)

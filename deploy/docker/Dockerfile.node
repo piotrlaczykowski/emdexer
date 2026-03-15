@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26.1-alpine AS builder
 WORKDIR /app
 COPY src/node/go.mod src/node/go.sum ./
 RUN go mod download
@@ -6,7 +6,7 @@ COPY src/node/ .
 COPY src/pkg/ /app/src/pkg/
 RUN go build -o emdexer-node main.go
 
-FROM alpine:latest
+FROM alpine:3.21
 RUN apk add --no-cache curl
 WORKDIR /app
 RUN addgroup -S emdexer && adduser -S emdexer -G emdexer

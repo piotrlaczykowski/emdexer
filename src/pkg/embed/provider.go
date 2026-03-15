@@ -139,7 +139,10 @@ func (g *GeminiProvider) Embed(text string) ([]float32, error) {
 		Content: embedContent{Parts: []embedPart{{Text: text}}},
 	})
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{
+		Transport: newSafeOllamaTransport(),
+		Timeout:   30 * time.Second,
+	}
 	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("gemini embed HTTP: %w", err)

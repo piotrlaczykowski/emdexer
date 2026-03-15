@@ -70,17 +70,21 @@ jobs:
         if: inputs.chart_path != ''
         uses: azure/setup-helm@v4
 
-      - name: Lint and Package Helm Chart
+      - name: Lint Helm Chart
         if: inputs.chart_path != ''
         run: |
           helm lint ${{ inputs.chart_path }}
+
+      - name: Package Helm Chart
+        if: inputs.chart_path != '' && github.event_name != 'pull_request'
+        run: |
           mkdir -p dist/charts
           # Use short SHA as version for development builds if not on main
           VERSION=$(git rev-parse --short HEAD)
           helm package ${{ inputs.chart_path }} --version "0.0.0-${VERSION}" --app-version "${VERSION}" -d dist/charts
 
       - name: Upload Helm Chart Artifact
-        if: inputs.chart_path != ''
+        if: inputs.chart_path != '' && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: helm-chart-${{ inputs.service_name }}

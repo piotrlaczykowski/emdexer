@@ -30,39 +30,41 @@ jobs:
       - name: Calculate tag
         id: tag
         run: |
-          BRANCH_NAME=${GITHUB_REF_NAME}
-          if [[ "${BRANCH_NAME}" == "main" ]]; then
-            SUFFIX=""
-          elif [[ "${BRANCH_NAME}" == "develop" ]]; then
-            SUFFIX="-beta"
-          elif [[ "${BRANCH_NAME}" == /^release\/.*/ ]]; then
-            SUFFIX="-rc"
-          else
-            SUFFIX="-alpha"
-          fi
+          EVENT_NAME="${{ github.event_name }}"
+          BRANCH_NAME="${{ github.ref_name }}"
           
-          # Refined suffix logic for bash shell
-          if [[ "${BRANCH_NAME}" == "main" ]]; then
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            SUFFIX="-PR"
+            PUSH="false"
+          elif [[ "${BRANCH_NAME}" == "main" ]]; then
             SUFFIX=""
+            PUSH="true"
           elif [[ "${BRANCH_NAME}" == "develop" ]]; then
             SUFFIX="-beta"
+            PUSH="true"
           elif [[ "${BRANCH_NAME}" =~ ^release/ ]]; then
             SUFFIX="-rc"
+            PUSH="true"
+          elif [[ "${BRANCH_NAME}" =~ ^hotfix/ ]]; then
+            SUFFIX="-hotfix"
+            PUSH="true"
           else
             SUFFIX="-alpha"
+            PUSH="true"
           fi
           
           # Version could be short SHA or tag if present
           VERSION=$(git rev-parse --short HEAD)
           echo "tag=ghcr.io/piotrlaczykowski/emdexer-${{ inputs.service_name }}:${VERSION}${SUFFIX}" >> $GITHUB_OUTPUT
           echo "latest_tag=ghcr.io/piotrlaczykowski/emdexer-${{ inputs.service_name }}:latest${SUFFIX}" >> $GITHUB_OUTPUT
+          echo "push=${PUSH}" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           file: deploy/docker/Dockerfile.${{ inputs.service_name }}
-          push: true
+          push: ${{ steps.tag.outputs.push }}
           tags: |
             ${{ steps.tag.outputs.tag }}
             ${{ steps.tag.outputs.latest_tag }}

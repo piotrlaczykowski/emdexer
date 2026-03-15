@@ -45,6 +45,9 @@ jobs:
           elif [[ "${BRANCH_NAME}" =~ ^release/ ]]; then
             SUFFIX="-rc"
             PUSH="true"
+          elif [[ "${BRANCH_NAME}" =~ ^hotfix/ ]]; then
+            SUFFIX="-hotfix"
+            PUSH="true"
           else
             SUFFIX="-alpha"
             PUSH="true"

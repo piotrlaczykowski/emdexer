@@ -2,13 +2,20 @@ FROM golang:1.26.1-alpine AS builder
 
 WORKDIR /app
 
-# Copy shared pkg first as it's a dependency for go mod download in gateway
+# OPTIMIZE CACHING: Copy only go.mod/go.sum first
+COPY src/pkg/go.mod src/pkg/go.sum src/pkg/
+COPY src/gateway/go.mod src/gateway/go.sum src/gateway/
+
+WORKDIR /app/src/gateway
+RUN go mod download
+
+# Copy source code and build
+WORKDIR /app
 COPY src/pkg/ src/pkg/
 COPY src/gateway/ src/gateway/
 
 WORKDIR /app/src/gateway
-RUN go mod download
-RUN go build -o /app/emdexer-gateway .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app/emdexer-gateway .
 
 FROM alpine:3.21
 RUN apk add --no-cache curl

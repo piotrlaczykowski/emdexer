@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -53,8 +54,8 @@ jobs:
           
           # Version could be short SHA or tag if present
           VERSION=$(git rev-parse --short HEAD)
-          echo "tag=ghcr.io/piotrlaczykowski/emdexer-${{ inputs.service_name }}:${VERSION}${SUFFIX}" >> $GITHUB_OUTPUT
-          echo "latest_tag=ghcr.io/piotrlaczykowski/emdexer-${{ inputs.service_name }}:latest${SUFFIX}" >> $GITHUB_OUTPUT
+          echo "tag=ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${VERSION}${SUFFIX}" >> $GITHUB_OUTPUT
+          echo "latest_tag=ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:latest${SUFFIX}" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v7

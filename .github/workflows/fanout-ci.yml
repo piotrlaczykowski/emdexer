@@ -8,6 +8,7 @@ on:
       - 'release/*'
       - 'feature/*'
       - 'bugfix/*'
+      - 'feat/*'
   pull_request:
     branches:
       - main
@@ -15,6 +16,7 @@ on:
       - 'release/*'
       - 'feature/*'
       - 'bugfix/*'
+      - 'feat/*'
 
 permissions:
   packages: write
@@ -27,6 +29,8 @@ jobs:
       gateway: ${{ steps.filter.outputs.gateway }}
       node: ${{ steps.filter.outputs.node }}
       mcp: ${{ steps.filter.outputs.mcp }}
+      pkg: ${{ steps.filter.outputs.pkg }}
+      tests: ${{ steps.filter.outputs.tests }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -42,10 +46,17 @@ jobs:
             mcp:
               - 'src/mcp/**'
               - 'deploy/docker/Dockerfile.mcp'
+            pkg:
+              - 'src/pkg/**'
+            tests:
+              - 'src/tests/**'
 
   build-gateway:
     needs: changes
-    if: needs.changes.outputs.gateway == 'true'
+    if: |
+      needs.changes.outputs.gateway == 'true' ||
+      needs.changes.outputs.pkg == 'true' ||
+      needs.changes.outputs.tests == 'true'
     uses: ./.github/workflows/docker-build-template.yml
     with:
       service_name: gateway
@@ -53,7 +64,10 @@ jobs:
 
   build-node:
     needs: changes
-    if: needs.changes.outputs.node == 'true'
+    if: |
+      needs.changes.outputs.node == 'true' ||
+      needs.changes.outputs.pkg == 'true' ||
+      needs.changes.outputs.tests == 'true'
     uses: ./.github/workflows/docker-build-template.yml
     with:
       service_name: node
@@ -61,7 +75,10 @@ jobs:
 
   build-mcp:
     needs: changes
-    if: needs.changes.outputs.mcp == 'true'
+    if: |
+      needs.changes.outputs.mcp == 'true' ||
+      needs.changes.outputs.pkg == 'true' ||
+      needs.changes.outputs.tests == 'true'
     uses: ./.github/workflows/docker-build-template.yml
     with:
       service_name: mcp

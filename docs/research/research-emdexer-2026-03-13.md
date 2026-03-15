@@ -64,7 +64,7 @@ This is the most important question, and the answer is: **the privacy benefit is
 
 **Arguments that it's NOT meaningful:**
 
-1. **You store file paths.** File paths are often as sensitive as their contents (`/home/piotr/taxes-2025/contract-NDA-Polkomtel.pdf`). A path leak is already a data leak.
+1. **You store file paths.** File paths are often as sensitive as their contents (`/home/piotr/taxes-2025/contract-NDA-ExampleCorp.pdf`). A path leak is already a data leak.
 
 2. **Embeddings are NOT anonymized data.** Recent ML research (Vec2Text, 2023; IronCore Labs, 2024; arXiv 2411.05034, 2024; GEIA 2025) demonstrates that text can be substantially recovered from embeddings:
    - Vec2Text achieves **92% perfect reconstruction** for 32-token chunks with iterative refinement.

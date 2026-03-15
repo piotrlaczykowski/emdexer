@@ -16,6 +16,10 @@ on:
       - 'feature/*'
       - 'bugfix/*'
 
+permissions:
+  packages: write
+  contents: read
+
 jobs:
   changes:
     runs-on: ubuntu-latest

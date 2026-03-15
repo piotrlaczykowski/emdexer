@@ -19,7 +19,7 @@ func getEnv(key, fallback string) string {
 
 var (
 	gatewayURL = getEnv("EMDEX_GATEWAY_URL", "")
-	authKey    = getEnv("EMDEX_AUTH_KEY", "44886d4f5d0e5a30ea1dd2d390928df76aec4bcbf96d81750991e9767229362e")
+	authKey    = getEnv("EMDEX_AUTH_KEY", "emdex-test-key-primary")
 )
 
 func setupMockGateway() *httptest.Server {

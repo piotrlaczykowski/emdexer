@@ -761,6 +761,13 @@ func main() {
 
 	addr := ":" + port
 	log.Printf("Gateway starting on %s", addr)
-	http.ListenAndServe(addr, mux)
+	server := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	server.ListenAndServe()
 }
 // Trigger CI: Sun Mar 15 10:48:42 AM CET 2026

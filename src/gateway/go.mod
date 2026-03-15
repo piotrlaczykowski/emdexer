@@ -1,6 +1,6 @@
 module github.com/piotrlaczykowski/emdexer/gateway
 
-go 1.25.0
+go 1.26.1.0
 
 require (
 	github.com/piotrlaczykowski/emdexer v0.0.0-00010101000000-000000000000

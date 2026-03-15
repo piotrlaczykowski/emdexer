@@ -20,7 +20,7 @@ Emdexer's core strength is its **Zero-Mount** architecture. Unlike traditional i
 
 ## Use Cases
 
-- **Home Lab Intelligence:** Turn your Synology, TrueNAS, or DIY server into a private AI. Search decades of family documents, manuals, and archives with natural language.
+- **Home Lab Intelligence:** Turn your NAS (e.g., TrueNAS or DIY server) into a private AI. Search decades of family documents, manuals, and archives with natural language.
 - **Private Developer Assistant:** Index local codebases, documentation, and research papers. Get answers from your private library without leaking intellectual property to the public web.
 - **Secure Enterprise Search:** Compliance-ready and air-gapped capable. Deploy in restricted environments to search internal knowledge bases while maintaining strict data sovereignty.
 

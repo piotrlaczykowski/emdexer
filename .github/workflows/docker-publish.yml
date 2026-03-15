@@ -17,7 +17,7 @@ jobs:
         component: [gateway, node, mcp]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Log in to GHCR
         uses: docker/login-action@v4

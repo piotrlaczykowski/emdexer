@@ -36,7 +36,7 @@ jobs:
             type=sha
 
       - name: Build and Push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.component == 'mcp' && 'mcp/Dockerfile' || (matrix.component == 'gateway' && 'gateway/Dockerfile' || 'node/Dockerfile') }}

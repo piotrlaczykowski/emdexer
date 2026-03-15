@@ -232,7 +232,7 @@ helm install emdex-node-nas deploy/helm/emdexer-node \
   --set config.gatewayUrl=https://emdex-gateway.internal \
   --set config.namespace=nas-docs \
   --set config.nodeType=smb \
-  --set secret.smbHost=192.168.0.10 \
+  --set secret.smbHost=10.0.0.10 \
   --set secret.smbUser=nas_user \
   --set secret.smbPass=secure_pass \
   --set secret.smbShare=documents
@@ -247,7 +247,7 @@ helm install emdex-node-nas deploy/helm/emdexer-node \
 ```ini
 NODE_TYPE=smb
 NODE_ROOT=.
-SMB_HOST=192.168.0.10
+SMB_HOST=10.0.0.10
 SMB_USER=nas_user
 SMB_PASS=secure_password
 SMB_SHARE=documents
@@ -259,7 +259,7 @@ EMDEX_POLL_INTERVAL=120s
 ```ini
 NODE_TYPE=nfs
 NODE_ROOT=.
-NFS_HOST=192.168.0.11
+NFS_HOST=10.0.0.11
 NFS_PATH=/export/docs
 EMDEX_POLL_INTERVAL=60s
 ```
@@ -269,7 +269,7 @@ EMDEX_POLL_INTERVAL=60s
 ```ini
 NODE_TYPE=sftp
 NODE_ROOT=/home/user/docs
-SFTP_HOST=192.168.0.12
+SFTP_HOST=10.0.0.12
 SFTP_PORT=22
 SFTP_USER=ssh_user
 SFTP_PASS=secure_password

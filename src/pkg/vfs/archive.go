@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -54,6 +55,27 @@ type ArchiveEntry struct {
 	MTime   time.Time
 }
 
+var (
+	maxArchiveBytes     int64
+	maxArchiveBytesOnce sync.Once
+)
+
+// getMaxArchiveBytes returns the maximum archive size in bytes, parsed once from
+// EMDEX_MAX_ARCHIVE_MB (default 512 MB). The result is cached via sync.Once.
+func getMaxArchiveBytes() int64 {
+	maxArchiveBytesOnce.Do(func() {
+		maxSizeStr := os.Getenv("EMDEX_MAX_ARCHIVE_MB")
+		maxMB := int64(512) // 512 MB default
+		if maxSizeStr != "" {
+			if _, err := fmt.Sscanf(maxSizeStr, "%d", &maxMB); err != nil || maxMB <= 0 {
+				maxMB = 512 // fall back to default on invalid input
+			}
+		}
+		maxArchiveBytes = maxMB * 1024 * 1024
+	})
+	return maxArchiveBytes
+}
+
 func (a *ArchiveFileSystem) IndexArchive(path string) ([]ArchiveEntry, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 	file, err := a.baseFS.Open(path)
@@ -62,9 +84,14 @@ func (a *ArchiveFileSystem) IndexArchive(path string) ([]ArchiveEntry, error) {
 	}
 	defer file.Close()
 
-	buf, err := io.ReadAll(file)
+	// Check archive size limit
+	maxSize := getMaxArchiveBytes()
+	buf, err := io.ReadAll(io.LimitReader(file, maxSize+1))
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(buf)) > maxSize {
+		return nil, fmt.Errorf("archive exceeds maximum size limit of %d MB", maxSize/(1024*1024))
 	}
 
 	switch {
@@ -156,9 +183,14 @@ func (a *ArchiveFileSystem) readTarGz(buf []byte) ([]ArchiveEntry, error) {
 	}
 	defer gr.Close()
 
-	uncompressed, err := io.ReadAll(gr)
+	// Limit decompression size to prevent ZIP bomb
+	maxSize := getMaxArchiveBytes()
+	uncompressed, err := io.ReadAll(io.LimitReader(gr, maxSize+1))
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(uncompressed)) > maxSize {
+		return nil, fmt.Errorf("decompressed archive exceeds maximum size limit of %d MB", maxSize/(1024*1024))
 	}
 
 	return a.readTar(uncompressed)

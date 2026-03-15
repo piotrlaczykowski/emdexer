@@ -128,8 +128,12 @@ func (p *Poller) pollPath(path string) {
 				p.indexFile(filePath, size, mtime, now)
 			} else {
 				// Update last_seen
-				p.cache.db.Exec("UPDATE file_cache SET last_seen = ? WHERE path = ?", now, filePath)
+				if _, err := p.cache.db.Exec("UPDATE file_cache SET last_seen = ? WHERE path = ?", now, filePath); err != nil {
+					log.Printf("[poller] Failed to update last_seen for %s: %v", filePath, err)
+				}
 			}
+		} else {
+			log.Printf("[poller] Query/Scan error for %s: %v", filePath, err)
 		}
 	})
 
@@ -144,7 +148,10 @@ func (p *Poller) pollPath(path string) {
 		for rows.Next() {
 			var pth string
 			var ls int64
-			rows.Scan(&pth, &ls)
+			if err := rows.Scan(&pth, &ls); err != nil {
+				log.Printf("[poller] Scan error: %v", err)
+				continue
+			}
 			log.Printf("[poller] Cache entry: %s (last_seen=%d, now=%d)", pth, ls, now)
 			if ls < now {
 				log.Printf("[poller] Deleted file: %s", pth)
@@ -152,6 +159,9 @@ func (p *Poller) pollPath(path string) {
 					p.cache.db.Exec("DELETE FROM file_cache WHERE path = ?", pth)
 				}
 			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[poller] Rows error: %v", err)
 		}
 	}
 }

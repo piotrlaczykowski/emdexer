@@ -11,6 +11,8 @@ require (
 	github.com/qdrant/go-client v1.17.1
 	github.com/willscott/go-nfs-client v0.0.0-20251022144359-801f10d98886
 	golang.org/x/crypto v0.49.0
+	go.opentelemetry.io/otel v1.42.0
+	github.com/shirou/gopsutil/v4 v4.26.2
 )
 
 require (

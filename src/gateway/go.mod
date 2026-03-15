@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/piotrlaczykowski/emdexer v0.0.0-00010101000000-000000000000
-	github.com/prometheus/client_golang v1.22.0
+	github.com/prometheus/client_golang v1.23.2
 	github.com/qdrant/go-client v1.17.1
 	google.golang.org/grpc v1.79.2
 )
@@ -25,4 +25,4 @@ require (
 
 replace github.com/piotrlaczykowski/emdexer => ../pkg
 
-replace golang.org/x/net => golang.org/x/net v0.37.0
+replace golang.org/x/net => golang.org/x/net v0.52.0

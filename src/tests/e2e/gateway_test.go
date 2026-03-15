@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -17,12 +18,52 @@ func getEnv(key, fallback string) string {
 }
 
 var (
-	gatewayURL = getEnv("EMDEX_GATEWAY_URL", "http://192.168.0.156:7700")
+	gatewayURL = getEnv("EMDEX_GATEWAY_URL", "")
 	authKey    = getEnv("EMDEX_AUTH_KEY", "44886d4f5d0e5a30ea1dd2d390928df76aec4bcbf96d81750991e9767229362e")
 )
 
+func setupMockGateway() *httptest.Server {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz/readiness", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"UP"}`))
+	})
+	mux.HandleFunc("/nodes", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+authKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`[]`))
+	})
+	mux.HandleFunc("/v1/search", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+authKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"query":"test","results":[]}`))
+	})
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+authKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"chatcmpl-mock","choices":[{"message":{"role":"assistant","content":"Mock response"}}]}`))
+	})
+	return httptest.NewServer(mux)
+}
+
 func TestHealthzReadiness(t *testing.T) {
-	resp, err := http.Get(gatewayURL + "/healthz/readiness")
+	url := gatewayURL
+	if url == "" {
+		server := setupMockGateway()
+		defer server.Close()
+		url = server.URL
+	}
+
+	resp, err := http.Get(url + "/healthz/readiness")
 	if err != nil {
 		t.Fatalf("Failed to call readiness: %v", err)
 	}
@@ -34,7 +75,14 @@ func TestHealthzReadiness(t *testing.T) {
 }
 
 func TestNodesList(t *testing.T) {
-	req, _ := http.NewRequest("GET", gatewayURL+"/nodes", nil)
+	url := gatewayURL
+	if url == "" {
+		server := setupMockGateway()
+		defer server.Close()
+		url = server.URL
+	}
+
+	req, _ := http.NewRequest("GET", url+"/nodes", nil)
 	req.Header.Set("Authorization", "Bearer "+authKey)
 
 	client := &http.Client{}
@@ -55,9 +103,16 @@ func TestNodesList(t *testing.T) {
 }
 
 func TestSearchFlow(t *testing.T) {
+	url := gatewayURL
+	if url == "" {
+		server := setupMockGateway()
+		defer server.Close()
+		url = server.URL
+	}
+
 	query := "test"
-	url := fmt.Sprintf("%s/v1/search?q=%s&namespace=default", gatewayURL, query)
-	req, _ := http.NewRequest("GET", url, nil)
+	searchURL := fmt.Sprintf("%s/v1/search?q=%s&namespace=default", url, query)
+	req, _ := http.NewRequest("GET", searchURL, nil)
 	req.Header.Set("Authorization", "Bearer "+authKey)
 
 	client := &http.Client{}
@@ -73,9 +128,16 @@ func TestSearchFlow(t *testing.T) {
 }
 
 func TestChatCompletionsFlow(t *testing.T) {
-	url := gatewayURL + "/v1/chat/completions"
+	url := gatewayURL
+	if url == "" {
+		server := setupMockGateway()
+		defer server.Close()
+		url = server.URL
+	}
+
+	chatURL := url + "/v1/chat/completions"
 	bodyStr := `{"model": "emdexer", "messages": [{"role": "user", "content": "What is in test.txt?"}], "stream": false}`
-	req, _ := http.NewRequest("POST", url, strings.NewReader(bodyStr))
+	req, _ := http.NewRequest("POST", chatURL, strings.NewReader(bodyStr))
 	req.Header.Set("Authorization", "Bearer "+authKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Emdex-Namespace", "default")

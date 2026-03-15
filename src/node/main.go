@@ -497,4 +497,3 @@ func startQueueWorker() {
 		}
 	}
 }
-// Trigger CI: Sun Mar 15 10:48:42 AM CET 2026

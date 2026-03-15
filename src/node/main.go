@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"bufio"
 	"bytes"
 	"context"
@@ -475,7 +476,9 @@ func startHealthServer(qdrantConn *grpc.ClientConn) {
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  30 * time.Second,
 	}
-	server.ListenAndServe()
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("health server error: %v", err)
+	}
 }
 
 func smartChunk(text string, size, overlap int) []string {

@@ -49,7 +49,9 @@ jobs:
           elif [[ "${BRANCH_NAME}" =~ ^hotfix/ ]]; then
             SUFFIX="-hotfix"
           else
-            SUFFIX="-alpha"
+            # Sanitize branch name: lowercase, replace non-alphanumeric with '-', trim leading/trailing dashes
+            SANITIZED_BRANCH=$(echo "${BRANCH_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-\+//;s/-\+$//')
+            SUFFIX="-alpha-${SANITIZED_BRANCH}"
           fi
           
           # Version could be short SHA or tag if present

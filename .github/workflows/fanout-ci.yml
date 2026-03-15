@@ -8,6 +8,7 @@ on:
       - 'release/*'
       - 'feature/*'
       - 'bugfix/*'
+      - 'hotfix/*'
   pull_request:
     branches:
       - main
@@ -15,6 +16,7 @@ on:
       - 'release/*'
       - 'feature/*'
       - 'bugfix/*'
+      - 'hotfix/*'
 
 permissions:
   packages: write
@@ -36,9 +38,11 @@ jobs:
           filters: |
             gateway:
               - 'src/gateway/**'
+              - 'src/pkg/**'
               - 'deploy/docker/Dockerfile.gateway'
             node:
               - 'src/node/**'
+              - 'src/pkg/**'
               - 'deploy/docker/Dockerfile.node'
             mcp:
               - 'src/mcp/**'

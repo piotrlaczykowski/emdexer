@@ -761,6 +761,14 @@ func main() {
 
 	addr := ":" + port
 	log.Printf("Gateway starting on %s", addr)
-	http.ListenAndServe(addr, mux)
+	server := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("gateway server error: %v", err)
+	}
 }
-// Trigger CI: Sun Mar 15 10:48:42 AM CET 2026

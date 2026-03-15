@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"bufio"
 	"bytes"
 	"context"
@@ -464,8 +465,20 @@ func startHealthServer(qdrantConn *grpc.ClientConn) {
 	})
 
 	port := os.Getenv("NODE_HEALTH_PORT")
-	if port == "" { port = "8081" }
-	http.ListenAndServe(":"+port, mux)
+	if port == "" {
+		port = "8081"
+	}
+	addr := ":" + port
+	server := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  30 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("health server error: %v", err)
+	}
 }
 
 func smartChunk(text string, size, overlap int) []string {
@@ -497,4 +510,3 @@ func startQueueWorker() {
 		}
 	}
 }
-// Trigger CI: Sun Mar 15 10:48:42 AM CET 2026

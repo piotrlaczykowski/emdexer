@@ -3,12 +3,13 @@ set -e
 
 # Path to the built binary
 EMDEX_BIN="$(dirname "$0")/../../../bin/emdex"
-EMDEX_BIN=$(realpath "$EMDEX_BIN")
 
 if [ ! -f "$EMDEX_BIN" ]; then
     echo "Error: emdex binary not found at $EMDEX_BIN. Run 'make cli' first."
     exit 1
 fi
+
+EMDEX_BIN=$(realpath "$EMDEX_BIN")
 
 echo "--- Test: --version ---"
 $EMDEX_BIN --version | grep "emdex version"

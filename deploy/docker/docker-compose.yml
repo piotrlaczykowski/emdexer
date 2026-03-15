@@ -1,6 +1,6 @@
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.12.0
     # No host port mappings — Qdrant is internal only.
     # Access via the emdexer-net Docker network (qdrant:6333/6334).
     volumes:

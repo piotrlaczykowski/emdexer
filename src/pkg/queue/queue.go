@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"sync"
 
 	"github.com/qdrant/go-client/qdrant"
@@ -30,6 +32,11 @@ func NewPersistentQueue(dbPath string) (*PersistentQueue, error) {
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS queue (id INTEGER PRIMARY KEY AUTOINCREMENT, data BLOB, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create table: %w", err)
+	}
+
+	// Security: restrict database file permissions to 0600
+	if err := os.Chmod(dbPath, 0600); err != nil {
+		log.Printf("[queue] Warning: Failed to set 0600 permissions on %s: %v", dbPath, err)
 	}
 
 	return &PersistentQueue{db: db}, nil

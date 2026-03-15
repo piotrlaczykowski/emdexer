@@ -11,8 +11,6 @@ require (
 	github.com/qdrant/go-client v1.17.1
 	github.com/willscott/go-nfs-client v0.0.0-20251022144359-801f10d98886
 	golang.org/x/crypto v0.49.0
-	go.opentelemetry.io/otel v1.42.0
-	github.com/shirou/gopsutil/v4 v4.26.2
 )
 
 require (
@@ -36,6 +34,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 // indirect
 	github.com/ssor/bom v0.0.0-20170718123548-6386211fdfcf // indirect
+	go.opentelemetry.io/otel v1.42.0 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect

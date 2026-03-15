@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"io"
@@ -349,6 +350,10 @@ func (p *Poller) touchLastSeen(path string, now int64) {
 // indexFile opens the file via VFS, calls the handler, computes a partial hash,
 // and writes the cache row. Computing the partial hash here means subsequent
 // polls can use Stage 2 to skip unchanged files even after a first-time index.
+//
+// I/O optimisation: the file is opened and read exactly once. The partial hash
+// is computed from the already-in-memory content bytes via a bytes.Reader, so
+// there is no second VFS open call for the hash step.
 func (p *Poller) indexFile(path string, size int64, mtime int64, now int64) {
 	log.Printf("[poller] indexFile called for %s", path)
 	f, err := p.fs.Open(path)
@@ -370,7 +375,8 @@ func (p *Poller) indexFile(path string, size int64, mtime int64, now int64) {
 	}
 
 	// Best-effort partial hash so the cache is warm for the next poll.
-	partialHash, herr := p.computePartialHash(path, size)
+	// Compute directly from in-memory bytes — no second VFS open required.
+	partialHash, herr := indexer.CalculatePartialHash(bytes.NewReader(content), int64(len(content)))
 	if herr != nil {
 		log.Printf("[poller] Partial hash skipped for %s: %v", path, herr)
 		partialHash = ""
@@ -390,7 +396,8 @@ func (p *Poller) indexFile(path string, size int64, mtime int64, now int64) {
 	}
 }
 
-// indexFileWithHashes is like indexFile but also persists computed hash values.
+// indexFileWithHashes is like indexFile but callers supply pre-computed hash
+// values (e.g. from Stage 2/3 in poll()). The file is opened only once.
 func (p *Poller) indexFileWithHashes(path string, size, mtime, now int64, partialHash, fullHash string) {
 	log.Printf("[poller] indexFileWithHashes called for %s", path)
 	f, err := p.fs.Open(path)

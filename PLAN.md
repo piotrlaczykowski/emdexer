@@ -46,7 +46,7 @@ The goal is to move from a "trusted tool" to "critical infrastructure."
 | 15.3 | Global Namespace Aggregation | 📋 Planned |
 | 15.4 | OIDC/Active Directory Integration (per-file ACL) | 📋 Planned |
 | 15.5 | Air-Gapped Optimization — Ollama/vLLM local embeddings | ✅ Done | `EmbedProvider` interface implemented; `OllamaProvider` fully implemented. Refactored into `src/pkg/embed` (DRY). |
-| 15.6 | Delta-Only Re-indexing (checksum-based) | 📋 Planned |
+| 15.6 | Delta-Only Re-indexing (checksum-based) | ✅ Done | 3-stage pipeline (stat → partial XXH3 → full XXH3); `EMDEX_DELTA_ENABLED` / `EMDEX_FULL_HASH` env vars; 7 tests; design doc at `docs/design/delta-indexing.md`. |
 | 15.7 | S3 node full pipeline (P6 completion) | 📋 Planned |
 
 ## Phase 18: Parameterization

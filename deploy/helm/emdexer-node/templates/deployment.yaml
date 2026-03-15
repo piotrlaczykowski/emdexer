@@ -21,7 +21,7 @@ spec:
           env:
             - name: QDRANT_HOST
               value: {{ .Values.config.qdrantHost | quote }}
-            - name: Emdexer_NAMESPACE
+            - name: EMDEX_NAMESPACE
               value: {{ .Values.config.namespace | quote }}
             - name: EXTRACTOUS_HOST
               value: {{ .Values.config.extractousHost | quote }}

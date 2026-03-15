@@ -45,7 +45,7 @@ The goal is to move from a "trusted tool" to "critical infrastructure."
 | 15.2 | Gateway High Availability (multi-replica + shared registry) | 📋 Planned |
 | 15.3 | Global Namespace Aggregation | 📋 Planned |
 | 15.4 | OIDC/Active Directory Integration (per-file ACL) | 📋 Planned |
-| 15.5 | Air-Gapped Optimization — Ollama/vLLM local embeddings | 🚧 In Progress | `EmbedProvider` interface implemented; `OllamaProvider` is a stub. |
+| 15.5 | Air-Gapped Optimization — Ollama/vLLM local embeddings | ✅ Done | `EmbedProvider` interface implemented; `OllamaProvider` fully implemented. Refactored into `src/pkg/embed` (DRY). |
 | 15.6 | Delta-Only Re-indexing (checksum-based) | 📋 Planned |
 | 15.7 | S3 node full pipeline (P6 completion) | 📋 Planned |
 
@@ -55,6 +55,13 @@ The goal is to move from a "trusted tool" to "critical infrastructure."
 | 18.1 | Environment Variable Cleanup | ✅ Done |
 | 18.2 | Configurable Search/Chat Limits | ✅ Done |
 | 18.3 | Documentation Synchronization | ✅ Done |
+
+## Phase 19: Advanced CI/CD & Automation ✅ Done
+| Feature | Description | Status |
+|---------|-------------|--------|
+| Monorepo Fan-Out CI | Path-filtered fan-out builds per component (gateway/node/mcp) via GitHub Actions reusable workflow | ✅ Done |
+| Branch-based Tagging Suffixes | Automatic image tag suffixes: `-beta`, `-rc`, `-hotfix`, `-alpha`, `-PR` driven by branch name | ✅ Done |
+| Expert Copilot Instructions | `.github/copilot-instructions.md` with architecture, conventions, and security policies for AI-assisted development | ✅ Done |
 
 ---
 
@@ -67,6 +74,16 @@ The following structural issues were identified and fixed in the v1.0.1 sprint:
 4. **Gemini hard-lock** — Embedding was directly calling the Gemini API everywhere. Fixed: `EmbedProvider` interface introduced in both gateway and node; `GeminiProvider` is default, `OllamaProvider` stub ready for Phase 15.5.
 5. **P4 honesty** — Real-time watcher was marked Done but was one-shot only. Fixed: `pkg/watcher/` implements fsnotify with debounce + recursive directory watching.
 6. **P6 / P9 honesty** — Both were marked `[x] Done` despite being stubs. Fixed: marked accurately above.
+
+---
+
+## Integrity Notes (Go 1.26.1 Hardening Sprint — 2026-03-15)
+
+1. **Full Go 1.26.1 migration** — All 6 modules (`gateway`, `node`, `node-s3`, `node-smb`, `node-nfs`, `mcp`) migrated to Go 1.26.1. `go.mod` and CI matrix updated across the board.
+2. **Native `gosec` in CI** — `gosec` static analysis integrated as a mandatory CI step; blocks merge on high-severity findings. Replaces ad-hoc manual audits.
+3. **`EmbedProvider` refactored to `src/pkg/embed`** — Shared provider logic extracted from per-module copies into a single `src/pkg/embed` package. All modules import from there (DRY).
+4. **Cache directory permissions hardened (0700)** — `os.MkdirAll` calls for cache dirs now use `0700` instead of `0755`, preventing other local users from reading embedding caches.
+5. **Hardcoded secrets removed from E2E tests** — All API keys, tokens, and passwords inlined in test fixtures replaced with environment variable lookups (`os.Getenv`). No secrets in source.
 
 ---
 *Time is a flat circle, but your data doesn't have to be lost in it.*

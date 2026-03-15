@@ -238,14 +238,14 @@ func (p *Poller) pollPath(path string) {
 		if cachedPartial.Valid && cachedPartial.String == partialHash {
 			// ── OPTIMIZE POLLING: Metadata changed but hash confirms content is same ──
 			if !statMatch {
-				log.Printf("[poller] Stat changed but partial hash match for %s — updating metadata cache", filePath)
+				log.Printf("[poller] Stat changed but partial hash match for %s — updating metadata cache (%s)", filePath, indexer.DeltaStatChanged)
 				p.updateCacheHashes(filePath, size, mtime, now, partialHash, "")
 				return
 			}
 
 			if !p.delta.fullHash {
 				// Content confirmed unchanged — skip Qdrant, update last_seen only.
-				log.Printf("[poller] Partial hash match: %s — skipping (%s)", filePath, indexer.DeltaStatChanged)
+				log.Printf("[poller] Partial hash match: %s — skipping (%s)", filePath, indexer.DeltaUnchanged)
 				p.touchLastSeen(filePath, now)
 				return
 			}
@@ -357,7 +357,13 @@ func (p *Poller) indexFile(path string, size int64, mtime int64, now int64) {
 	}
 	defer f.Close()
 
-	if err := p.handler(path, nil); err != nil {
+	content, err := io.ReadAll(f)
+	if err != nil {
+		log.Printf("[poller] Failed to read %s: %v", path, err)
+		return
+	}
+
+	if err := p.handler(path, content); err != nil {
 		log.Printf("[poller] Handler failed for %s: %v", path, err)
 		return
 	}
@@ -393,7 +399,13 @@ func (p *Poller) indexFileWithHashes(path string, size, mtime, now int64, partia
 	}
 	defer f.Close()
 
-	if err := p.handler(path, nil); err != nil {
+	content, err := io.ReadAll(f)
+	if err != nil {
+		log.Printf("[poller] Failed to read %s: %v", path, err)
+		return
+	}
+
+	if err := p.handler(path, content); err != nil {
 		log.Printf("[poller] Handler failed for %s: %v", path, err)
 		return
 	}
@@ -446,7 +458,7 @@ func (p *Poller) updateCacheHashes(path string, size, mtime, now int64, partialH
 	}
 
 	_, err := p.cache.db.Exec(
-		`UPDATE file_cache SET size = ?, mtime = ?, partial_hash = ?, full_hash = ?, last_seen = ?
+		`UPDATE file_cache SET size = ?, mtime = ?, partial_hash = ?, full_hash = ?, algorithm = 'xxh3', last_seen = ?
 		 WHERE path = ?`,
 		size, mtime, phVal, fhVal, now, path,
 	)

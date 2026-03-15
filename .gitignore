@@ -19,3 +19,6 @@ test_dir_alpha/
 test_dir_beta/
 *.bin
 *.tar.gz
+
+# Local agent configuration
+.claude/

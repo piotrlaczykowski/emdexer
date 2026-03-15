@@ -1,9 +1,3 @@
-// Package embed defines the EmbedProvider interface and its implementations.
-//
-// Design intent: Emdexer must never be hard-locked to a single embedding
-// backend. Phase 15.5 targets air-gapped deployments with local Ollama/vLLM.
-// All indexing paths use EmbedProvider; swapping the backend requires only an
-// env var change, not a code change.
 package embed
 
 import (
@@ -44,8 +38,6 @@ func isPrivateIP(ip net.IP) bool {
 }
 
 // validateOllamaHost parses the URL and validates its scheme.
-// It does NOT perform a DNS lookup here — IP validation happens at dial-time
-// via newSafeOllamaTransport to prevent DNS rebinding attacks.
 func validateOllamaHost(hostStr string) error {
 	u, err := url.Parse(hostStr)
 	if err != nil {
@@ -59,11 +51,6 @@ func validateOllamaHost(hostStr string) error {
 	return nil
 }
 
-// newSafeOllamaTransport returns an http.Transport whose dialer validates the
-// resolved IP at connection time (not before).  This closes the DNS-rebinding
-// window: even if the hostname initially resolves to a public IP, any
-// subsequent resolution to a private/loopback address is rejected at the
-// moment the TCP socket is opened.
 func newSafeOllamaTransport() *http.Transport {
 	dialer := &net.Dialer{
 		Timeout:   10 * time.Second,
@@ -91,8 +78,6 @@ func newSafeOllamaTransport() *http.Transport {
 	}
 }
 
-// newSafeOllamaClient returns an *http.Client that blocks connections to
-// private/loopback IPs at dial time, defeating DNS rebinding.
 func newSafeOllamaClient() *http.Client {
 	return &http.Client{
 		Transport: newSafeOllamaTransport(),
@@ -100,30 +85,20 @@ func newSafeOllamaClient() *http.Client {
 	}
 }
 
-
-
 // EmbedProvider is the single abstraction over any dense-embedding backend.
 type EmbedProvider interface {
-	// Embed returns a float32 vector for text.
 	Embed(text string) ([]float32, error)
-	// Name returns a human-readable identifier for logging/metrics.
 	Name() string
 }
 
-// ────────────────────────────────────────────────
 // GeminiProvider — Google Generative Language API
-// ────────────────────────────────────────────────
-
 const defaultGeminiModel = "models/gemini-embedding-exp-03-07"
 
-// GeminiProvider calls the Google embedding API.
-// It is the default provider when EMBED_PROVIDER is unset or "gemini".
 type GeminiProvider struct {
 	APIKey string
 	Model  string
 }
 
-// NewGeminiProvider constructs a GeminiProvider with the selected model.
 func NewGeminiProvider(apiKey, model string) *GeminiProvider {
 	if model == "" {
 		model = defaultGeminiModel
@@ -133,34 +108,35 @@ func NewGeminiProvider(apiKey, model string) *GeminiProvider {
 
 func (g *GeminiProvider) Name() string { return "gemini:" + g.Model }
 
+type embedRequest struct {
+	Model   string       `json:"model"`
+	Content embedContent `json:"content"`
+}
+type embedContent struct {
+	Parts []embedPart `json:"parts"`
+}
+type embedPart struct {
+	Text string `json:"text"`
+}
+type embedResponse struct {
+	Embedding struct {
+		Values []float32 `json:"values"`
+	} `json:"embedding"`
+}
+
 func (g *GeminiProvider) Embed(text string) ([]float32, error) {
-	geminiModel := os.Getenv("EMDEX_GEMINI_MODEL")
-	if geminiModel == "" {
-		geminiModel = defaultGeminiModel
+	geminiModel := g.Model
+	if envModel := os.Getenv("EMDEX_GEMINI_MODEL"); envModel != "" {
+		geminiModel = envModel
 	}
 	url := fmt.Sprintf(
 		"https://generativelanguage.googleapis.com/v1beta/%s:embedContent?key=%s",
 		geminiModel, g.APIKey,
 	)
-	type part struct {
-		Text string `json:"text"`
-	}
-	type content struct {
-		Parts []part `json:"parts"`
-	}
-	type req struct {
-		Model   string  `json:"model"`
-		Content content `json:"content"`
-	}
-	type embedResp struct {
-		Embedding struct {
-			Values []float32 `json:"values"`
-		} `json:"embedding"`
-	}
 
-	body, _ := json.Marshal(req{
-		Model:   g.Model,
-		Content: content{Parts: []part{{Text: text}}},
+	body, _ := json.Marshal(embedRequest{
+		Model:   geminiModel,
+		Content: embedContent{Parts: []embedPart{{Text: text}}},
 	})
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -175,21 +151,17 @@ func (g *GeminiProvider) Embed(text string) ([]float32, error) {
 		return nil, fmt.Errorf("gemini embed %d: %s", resp.StatusCode, string(b))
 	}
 
-	var er embedResp
+	var er embedResponse
 	if err := json.NewDecoder(resp.Body).Decode(&er); err != nil {
 		return nil, fmt.Errorf("gemini embed decode: %w", err)
 	}
 	return er.Embedding.Values, nil
 }
 
-// ────────────────────────────────────────────────
-// OllamaProvider — Phase 15.5 stub (air-gapped)
-// ────────────────────────────────────────────────
-
-// OllamaProvider will call the local Ollama /api/embed endpoint.
+// OllamaProvider
 type OllamaProvider struct {
-	Host  string // e.g. http://localhost:11434
-	Model string // e.g. nomic-embed-text
+	Host  string
+	Model string
 }
 
 func (o *OllamaProvider) Name() string { return "ollama:" + o.Model }
@@ -212,8 +184,6 @@ func (o *OllamaProvider) Embed(text string) ([]float32, error) {
 		return nil, fmt.Errorf("ollama marshal: %w", err)
 	}
 
-	// Use the SSRF-safe client: IP is validated at dial time on every request,
-	// preventing DNS rebinding attacks.
 	client := newSafeOllamaClient()
 	hresp, err := client.Post(endpoint, "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -238,12 +208,7 @@ func (o *OllamaProvider) Embed(text string) ([]float32, error) {
 	return or.Embeddings[0], nil
 }
 
-// ────────────────────────────────────────────────
-// Factory
-// ────────────────────────────────────────────────
-
-// New returns the EmbedProvider selected by the EMBED_PROVIDER environment
-// variable.  Accepted values: "gemini" (default), "ollama".
+// New returns the EmbedProvider selected by the EMBED_PROVIDER environment variable.
 func New(apiKey, providerEnv, ollamaHost, ollamaModel, geminiModel string) EmbedProvider {
 	switch strings.ToLower(providerEnv) {
 	case "ollama":

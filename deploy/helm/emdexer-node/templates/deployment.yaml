@@ -30,6 +30,10 @@ spec:
                 secretKeyRef:
                   name: {{ include "emdexer-node.fullname" . }}-secret
                   key: google-api-key
+            - name: EMDEX_DELTA_ENABLED
+              value: {{ .Values.config.deltaEnabled | default "1" | quote }}
+            - name: EMDEX_FULL_HASH
+              value: {{ .Values.config.fullHash | default "0" | quote }}
           volumeMounts:
             - name: data
               mountPath: /opt/emdexer/test_dir

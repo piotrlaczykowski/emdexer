@@ -126,3 +126,4 @@ if __name__ == "__main__":
         mcp.run(transport="sse", host="0.0.0.0", port=port)
     else:
         mcp.run(transport="stdio")
+# Trigger CI: Sun Mar 15 10:48:42 AM CET 2026

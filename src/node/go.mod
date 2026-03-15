@@ -43,3 +43,5 @@ require (
 )
 
 replace github.com/piotrlaczykowski/emdexer => ../pkg
+
+replace golang.org/x/net => golang.org/x/net v0.37.0

@@ -32,3 +32,5 @@ require (
 	google.golang.org/grpc v1.79.2 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace golang.org/x/net => golang.org/x/net v0.37.0

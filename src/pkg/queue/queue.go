@@ -42,8 +42,13 @@ func NewPersistentQueue(dbPath string) (*PersistentQueue, error) {
 	}
 
 	// Security: restrict database file permissions to 0600
-	if err := os.Chmod(dbPath, 0600); err != nil {
-		log.Printf("[queue] Warning: Failed to set 0600 permissions on %s: %v", dbPath, err)
+	for _, ext := range []string{"", "-wal", "-shm"} {
+		fPath := dbPath + ext
+		if _, err := os.Stat(fPath); err == nil {
+			if err := os.Chmod(fPath, 0600); err != nil {
+				log.Printf("[queue] Warning: Failed to set 0600 permissions on %s: %v", fPath, err)
+			}
+		}
 	}
 
 	return &PersistentQueue{db: db}, nil

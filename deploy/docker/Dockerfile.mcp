@@ -1,17 +1,8 @@
 FROM python:3.14-slim
-
 WORKDIR /app
-
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-
-# Install fastmcp with prefab-ui support before dropping privileges
 RUN pip install --no-cache-dir "fastmcp[apps]" requests
-
 RUN useradd -m emdexer && chown emdexer:emdexer /app
-
 COPY src/mcp/main.py .
-
 USER emdexer
-
-# Use SSE by default for interactive apps, or stdio for Claude Desktop
 CMD ["python", "main.py", "run", "--port", "8002", "--transport", "sse"]

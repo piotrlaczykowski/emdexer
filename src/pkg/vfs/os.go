@@ -23,7 +23,7 @@ func (o *OSFileSystem) resolve(name string) (string, error) {
 		return "", err
 	}
 	if !strings.HasPrefix(absPath, absRoot) {
-		return "", fmt.Errorf("vfs: path traversal detected: %s is outside of root", name))
+		return "", fmt.Errorf("vfs: path traversal detected: %s is outside of root", name)
 	}
 	return absPath, nil
 }

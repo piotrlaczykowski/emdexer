@@ -41,8 +41,8 @@ The goal is to move from a "trusted tool" to "critical infrastructure."
 
 | Sub-phase | Description | Status |
 |-----------|-------------|--------|
-| 15.1 | Distributed Qdrant Clustering | 🚧 In Progress |
-| 15.2 | Gateway High Availability (multi-replica + shared registry) | 🚧 In Progress |
+| 15.1 | Distributed Qdrant Clustering | ✅ Done | 3-node Qdrant cluster with Raft consensus; bootstrap via qdrant-1; isolated named volumes; healthchecks. Design doc at `docs/design/ha-infrastructure.md`. |
+| 15.2 | Gateway High Availability (multi-replica + shared registry) | ✅ Done | 2 gateway replicas behind Nginx round-robin LB; `NodeRegistry` interface with `FileNodeRegistry` (default) and `DBNodeRegistry` (PostgreSQL, HA mode); `newRegistry()` factory toggles on `POSTGRES_URL`. |
 | 15.3 | Global Namespace Aggregation | 📋 Planned |
 | 15.4 | OIDC/Active Directory Integration (per-file ACL) | 📋 Planned |
 | 15.5 | Air-Gapped Optimization — Ollama/vLLM local embeddings | ✅ Done | `EmbedProvider` interface implemented; `OllamaProvider` fully implemented. Refactored into `src/pkg/embed` (DRY). |

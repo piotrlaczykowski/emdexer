@@ -24,10 +24,23 @@
 ## P6–P14: Extended Features
 | Phase | Description | Status | Notes |
 |-------|-------------|--------|-------|
-| P6 | Cloud Storage (node-s3) | 🔧 Done (Partial) | S3 object enumeration works. Download → extract → embed → upsert pipeline is a **stub** in `node-s3/main.go`. Full implementation planned for P15. |
+#### Phase 6: Cloud Storage (node-s3)
+- **Story: S3 Node Core Implementation**
+  - [ ] Task: Implement S3 object enumeration and metadata mapping.
+  - [ ] Task: Implement stream-based extraction (streaming download -> chunker).
+  - [ ] Task: Implement S3-specific debounce polling for changes.
+- **Story: Completion & Integration**
+  - [ ] Task: Integrate full pipeline (extract -> embed -> upsert) in node-s3.
+  - [ ] Task: Verify end-to-end S3 indexing in Qdrant namespace.
 | P7 | Mobile Access (Telegram adapter) | ✅ Done | |
 | P8 | Enterprise Connect (Slack/Teams) | ✅ Done | |
-| P9 | Multi-modal Support (OCR/Video) | 📋 Planned | `pkg/extractor/ocr.go` and `video.go` are explicit **stubs** — both return `not yet implemented` errors. OCR routes through Extractous sidecar for supported formats (PDF, DOCX). Direct image OCR and video transcription require Tesseract and Whisper integration (post-P14). |
+#### Phase 9: Multi-modal Support (OCR/Video)
+- **Story: OCR Sidecar Integration**
+  - [ ] Task: Integrate Extractous sidecar for PDF/DOCX.
+  - [ ] Task: Implement Tesseract-fallback for direct images.
+  - [ ] Task: Sanitize extracted text before embedding.
+- **Story: Async Extraction Worker**
+  - [ ] Task: Implement queue-based extraction to prevent gateway timeouts.
 | P10 | Infrastructure-as-Code (Helm charts) | ✅ Done | |
 | P11 | Native Protocol Support — SMB | ✅ Done | |
 | P12 | Native Protocol Support — NFS | ✅ Done | |
@@ -43,8 +56,18 @@ The goal is to move from a "trusted tool" to "critical infrastructure."
 |-----------|-------------|--------|
 | 15.1 | Distributed Qdrant Clustering | ✅ Done | 3-node Qdrant cluster with Raft consensus; bootstrap via qdrant-1; isolated named volumes; healthchecks. Design doc at `docs/design/ha-infrastructure.md`. |
 | 15.2 | Gateway High Availability (multi-replica + shared registry) | ✅ Done | 2 gateway replicas behind Nginx round-robin LB; `NodeRegistry` interface with `FileNodeRegistry` (default) and `DBNodeRegistry` (PostgreSQL, HA mode); `newRegistry()` factory toggles on `POSTGRES_URL`. |
-| 15.3 | Global Namespace Aggregation | 📋 Planned |
-| 15.4 | OIDC/Active Directory Integration (per-file ACL) | 📋 Planned |
+#### Phase 15.3: Global Namespace Aggregation
+- **Story: Cross-Node Discovery**
+  - [ ] Task: Implement node discovery protocol for global view.
+  - [ ] Task: Implement aggregated search UI in Gateway dashboard.
+- **Story: Global Routing**
+  - [ ] Task: Implement cross-node request routing for global namespace searches.
+#### Phase 15.4: OIDC/Active Directory Integration
+- **Story: Auth Middleware Implementation**
+  - [ ] Task: Implement JWT middleware for OIDC token validation.
+  - [ ] Task: Implement ABAC (Attribute-Based Access Control) enforcement.
+- **Story: Schema Updates**
+  - [ ] Task: Update metadata schema to support per-file ACLs.
 | 15.5 | Air-Gapped Optimization — Ollama/vLLM local embeddings | ✅ Done | `EmbedProvider` interface implemented; `OllamaProvider` fully implemented. Refactored into `src/pkg/embed` (DRY). |
 | 15.6 | Delta-Only Re-indexing (checksum-based) | ✅ Done | 3-stage pipeline (stat → partial XXH3 → full XXH3); `EMDEX_DELTA_ENABLED` / `EMDEX_FULL_HASH` env vars; 7 tests; design doc at `docs/design/delta-indexing.md`. |
 | 15.7 | S3 node full pipeline (P6 completion) | 📋 Planned |

@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	Version     = "dev"
+	Version     = "v1.0.6"
 	Commit      = "none"
 	LicenseType = "Community"
 )

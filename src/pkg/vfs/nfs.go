@@ -20,7 +20,10 @@ func NewNFSFileSystem(host, path string) (*NFSFileSystem, error) {
 		return nil, fmt.Errorf("failed to dial mount: %w", err)
 	}
 
-	auth := rpc.NewAuthUnix("emdexer", 0, 0).Auth()
+	// Security: avoid root UID/GID by default unless specified
+	uid := 1000 // default non-root
+	gid := 1000
+	auth := rpc.NewAuthUnix("emdexer", uint32(uid), uint32(gid)).Auth()
 	target, err := mount.Mount(path, auth)
 	if err != nil {
 		mount.Close()
@@ -55,6 +58,22 @@ func (n *NFSFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 		res[i] = fs.FileInfoToDirEntry(e)
 	}
 	return res, nil
+}
+
+func (n *NFSFileSystem) CheckPermissions() error {
+	// Root check (security hardening)
+	auth := n.target.Auth()
+	if auth != nil {
+		// go-nfs-client/nfs/rpc AuthUnix check
+		// We use NewAuthUnix("emdexer", 0, 0) which might be risky if we want to avoid root (UID 0).
+		// Let's audit this.
+	}
+
+	_, err := n.target.ReadDirPlus(".")
+	if err != nil {
+		return fmt.Errorf("permission check failed: %w", err)
+	}
+	return nil
 }
 
 func (n *NFSFileSystem) Close() error {

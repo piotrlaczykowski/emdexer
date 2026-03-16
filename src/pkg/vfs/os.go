@@ -52,6 +52,14 @@ func (o *OSFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 	return os.ReadDir(path)
 }
 
+func (o *OSFileSystem) CheckPermissions() error {
+	_, err := o.ReadDir(".")
+	if err != nil {
+		return fmt.Errorf("permission check failed on local path: %w", err)
+	}
+	return nil
+}
+
 func (o *OSFileSystem) Close() error {
 	return nil
 }

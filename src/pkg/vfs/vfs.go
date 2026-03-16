@@ -11,6 +11,7 @@ type FileSystem interface {
 	Open(name string) (fs.File, error)
 	ReadDir(name string) ([]fs.DirEntry, error)
 	Stat(name string) (fs.FileInfo, error)
+	CheckPermissions() error
 	Close() error
 }
 

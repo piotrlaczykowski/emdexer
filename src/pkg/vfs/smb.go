@@ -63,6 +63,14 @@ func (s *SMBFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 	return entries, nil
 }
 
+func (s *SMBFileSystem) CheckPermissions() error {
+	_, err := s.share.ReadDir(".")
+	if err != nil {
+		return fmt.Errorf("permission check failed on SMB share: %w", err)
+	}
+	return nil
+}
+
 func (s *SMBFileSystem) Close() error {
 	s.share.Umount()
 	return s.session.Logoff()

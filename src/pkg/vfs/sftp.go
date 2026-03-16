@@ -86,6 +86,14 @@ func (s *SFTPFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 	return entries, nil
 }
 
+func (s *SFTPFileSystem) CheckPermissions() error {
+	_, err := s.sftpClient.ReadDir(".")
+	if err != nil {
+		return fmt.Errorf("permission check failed: %w (ensure user has access to path)", err)
+	}
+	return nil
+}
+
 func (s *SFTPFileSystem) Close() error {
 	s.sftpClient.Close()
 	return s.client.Close()

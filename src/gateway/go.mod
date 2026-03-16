@@ -3,7 +3,7 @@ module github.com/piotrlaczykowski/emdexer/gateway
 go 1.26.1
 
 require (
-	github.com/lib/pq v1.10.9
+	github.com/lib/pq v1.11.2
 	github.com/piotrlaczykowski/emdexer v1.0.6
 	github.com/prometheus/client_golang v1.23.2
 	github.com/qdrant/go-client v1.17.1

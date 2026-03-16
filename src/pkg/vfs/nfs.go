@@ -3,6 +3,7 @@ package vfs
 import (
 	"fmt"
 	"io/fs"
+	"os"
 	"time"
 
 	"github.com/willscott/go-nfs-client/nfs"
@@ -21,8 +22,8 @@ func NewNFSFileSystem(host, path string) (*NFSFileSystem, error) {
 	}
 
 	// Security: avoid root UID/GID by default unless specified
-	uid := 1000 // default non-root
-	gid := 1000
+	uid := os.Getuid()
+	gid := os.Getgid()
 	auth := rpc.NewAuthUnix("emdexer", uint32(uid), uint32(gid)).Auth()
 	target, err := mount.Mount(path, auth)
 	if err != nil {

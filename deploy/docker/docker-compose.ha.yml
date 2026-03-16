@@ -91,7 +91,7 @@ services:
     environment:
       POSTGRES_DB: emdexer
       POSTGRES_USER: emdexer
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-emdexer_secret}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
@@ -118,7 +118,7 @@ services:
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
       - EMDEX_PORT=8080
-      - POSTGRES_URL=postgres://emdexer:${POSTGRES_PASSWORD:-emdexer_secret}@postgres:5432/emdexer?sslmode=disable
+      - POSTGRES_URL=postgres://emdexer:${POSTGRES_PASSWORD}@postgres:5432/emdexer?sslmode=disable
     volumes:
       - ../../logs:/opt/emdexer/logs
     networks:
@@ -146,7 +146,7 @@ services:
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
       - EMDEX_PORT=8080
-      - POSTGRES_URL=postgres://emdexer:${POSTGRES_PASSWORD:-emdexer_secret}@postgres:5432/emdexer?sslmode=disable
+      - POSTGRES_URL=postgres://emdexer:${POSTGRES_PASSWORD}@postgres:5432/emdexer?sslmode=disable
     volumes:
       - ../../logs:/opt/emdexer/logs
     networks:

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/qdrant/go-client/qdrant"
+	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -108,7 +110,7 @@ func logAudit(entry AuditEntry) {
 }
 
 // ============================================================
-// Node Registry — persistent, deep-copy safe
+// Node Registry — interface + implementations
 // ============================================================
 
 type NodeInfo struct {
@@ -129,14 +131,28 @@ func deepCopyNodeInfo(n NodeInfo) NodeInfo {
 	}
 }
 
-type NodeRegistry struct {
+// NodeRegistry is the interface that all registry backends must implement.
+type NodeRegistry interface {
+	// Register adds or updates a node in the registry.
+	Register(n NodeInfo)
+	// Deregister removes a node from the registry by ID.
+	Deregister(id string)
+	// List returns all currently registered nodes.
+	List() []NodeInfo
+}
+
+// ------------------------------------------------------------
+// FileNodeRegistry — local nodes.json backend (default)
+// ------------------------------------------------------------
+
+type FileNodeRegistry struct {
 	mu       sync.RWMutex
 	nodes    map[string]NodeInfo
 	dataFile string
 }
 
-func NewNodeRegistry(dataFile string) *NodeRegistry {
-	r := &NodeRegistry{
+func NewFileNodeRegistry(dataFile string) *FileNodeRegistry {
+	r := &FileNodeRegistry{
 		nodes:    make(map[string]NodeInfo),
 		dataFile: dataFile,
 	}
@@ -144,7 +160,7 @@ func NewNodeRegistry(dataFile string) *NodeRegistry {
 	return r
 }
 
-func (r *NodeRegistry) load() {
+func (r *FileNodeRegistry) load() {
 	data, err := os.ReadFile(r.dataFile)
 	if err != nil {
 		return
@@ -159,7 +175,7 @@ func (r *NodeRegistry) load() {
 	}
 }
 
-func (r *NodeRegistry) persist() {
+func (r *FileNodeRegistry) persist() {
 	nodes := make([]NodeInfo, 0, len(r.nodes))
 	for _, n := range r.nodes {
 		nodes = append(nodes, deepCopyNodeInfo(n))
@@ -173,7 +189,7 @@ func (r *NodeRegistry) persist() {
 	os.Rename(tmp, r.dataFile)
 }
 
-func (r *NodeRegistry) Register(n NodeInfo) {
+func (r *FileNodeRegistry) Register(n NodeInfo) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	n.RegisteredAt = time.Now()
@@ -181,7 +197,14 @@ func (r *NodeRegistry) Register(n NodeInfo) {
 	r.persist()
 }
 
-func (r *NodeRegistry) List() []NodeInfo {
+func (r *FileNodeRegistry) Deregister(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.nodes, id)
+	r.persist()
+}
+
+func (r *FileNodeRegistry) List() []NodeInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]NodeInfo, 0, len(r.nodes))
@@ -189,6 +212,119 @@ func (r *NodeRegistry) List() []NodeInfo {
 		out = append(out, deepCopyNodeInfo(n))
 	}
 	return out
+}
+
+// ------------------------------------------------------------
+// DBNodeRegistry — PostgreSQL backend (HA mode)
+// ------------------------------------------------------------
+
+type DBNodeRegistry struct {
+	db *sql.DB
+}
+
+// NewDBNodeRegistry opens a PostgreSQL connection, runs auto-migration,
+// and returns a ready-to-use DBNodeRegistry.
+func NewDBNodeRegistry(dsn string) (*DBNodeRegistry, error) {
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("[registry] failed to open postgres: %w", err)
+	}
+
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("[registry] failed to ping postgres: %w", err)
+	}
+
+	r := &DBNodeRegistry{db: db}
+	if err := r.migrate(); err != nil {
+		return nil, fmt.Errorf("[registry] migration failed: %w", err)
+	}
+
+	log.Println("[registry] PostgreSQL backend ready")
+	return r, nil
+}
+
+// migrate creates the registered_nodes table if it does not already exist.
+func (r *DBNodeRegistry) migrate() error {
+	const ddl = `
+CREATE TABLE IF NOT EXISTS registered_nodes (
+    id           TEXT        PRIMARY KEY,
+    url          TEXT        NOT NULL,
+    collections  JSONB       NOT NULL DEFAULT '[]',
+    registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`
+	_, err := r.db.Exec(ddl)
+	return err
+}
+
+func (r *DBNodeRegistry) Register(n NodeInfo) {
+	n.RegisteredAt = time.Now()
+	colsJSON, _ := json.Marshal(n.Collections)
+	_, err := r.db.Exec(`
+		INSERT INTO registered_nodes (id, url, collections, registered_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (id) DO UPDATE
+		  SET url          = EXCLUDED.url,
+		      collections  = EXCLUDED.collections,
+		      registered_at = EXCLUDED.registered_at
+	`, n.ID, n.URL, string(colsJSON), n.RegisteredAt)
+	if err != nil {
+		log.Printf("[registry] Register error: %v", err)
+	}
+}
+
+func (r *DBNodeRegistry) Deregister(id string) {
+	if _, err := r.db.Exec(`DELETE FROM registered_nodes WHERE id = $1`, id); err != nil {
+		log.Printf("[registry] Deregister error: %v", err)
+	}
+}
+
+func (r *DBNodeRegistry) List() []NodeInfo {
+	rows, err := r.db.Query(`SELECT id, url, collections, registered_at FROM registered_nodes ORDER BY registered_at`)
+	if err != nil {
+		log.Printf("[registry] List error: %v", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []NodeInfo
+	for rows.Next() {
+		var n NodeInfo
+		var colsJSON string
+		if err := rows.Scan(&n.ID, &n.URL, &colsJSON, &n.RegisteredAt); err != nil {
+			log.Printf("[registry] scan error: %v", err)
+			continue
+		}
+		if err := json.Unmarshal([]byte(colsJSON), &n.Collections); err != nil {
+			n.Collections = []string{}
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// ------------------------------------------------------------
+// Registry factory — picks backend based on env vars
+// ------------------------------------------------------------
+
+// newRegistry returns a DBNodeRegistry if POSTGRES_URL is set,
+// otherwise falls back to FileNodeRegistry.
+func newRegistry(dataFile string) NodeRegistry {
+	if dsn := os.Getenv("POSTGRES_URL"); dsn != "" {
+		log.Printf("[registry] POSTGRES_URL detected — using PostgreSQL backend")
+		reg, err := NewDBNodeRegistry(dsn)
+		if err != nil {
+			log.Printf("[registry] WARNING: PostgreSQL init failed (%v) — falling back to FileNodeRegistry", err)
+		} else {
+			return reg
+		}
+	}
+	log.Printf("[registry] Using FileNodeRegistry at %s", dataFile)
+	return NewFileNodeRegistry(dataFile)
 }
 
 // ============================================================
@@ -377,7 +513,7 @@ type StreamChunk struct {
 // ============================================================
 
 type Server struct {
-	registry     *NodeRegistry
+	registry     NodeRegistry
 	qdrantConn   *grpc.ClientConn
 	pointsClient qdrant.PointsClient
 	healthClient grpc_health_v1.HealthClient
@@ -467,6 +603,21 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, s.registry.List())
+}
+
+func (s *Server) handleDeregisterNode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/nodes/")
+	id = strings.TrimSuffix(id, "/deregister")
+	if id == "" {
+		http.Error(w, "Bad request: missing node id", http.StatusBadRequest)
+		return
+	}
+	s.registry.Deregister(id)
+	s.writeJSON(w, http.StatusOK, map[string]interface{}{"status": "deregistered", "id": id})
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -726,6 +877,8 @@ func main() {
 		registryFile = filepath.Join(cwd, "nodes.json")
 	}
 
+	registry := newRegistry(registryFile)
+
 	embedder := embed.New(
 		apiKey,
 		os.Getenv("EMBED_PROVIDER"),
@@ -735,7 +888,7 @@ func main() {
 	)
 
 	srv := &Server{
-		registry:     NewNodeRegistry(registryFile),
+		registry:     registry,
 		qdrantConn:   conn,
 		pointsClient: qdrant.NewPointsClient(conn),
 		healthClient: grpc_health_v1.NewHealthClient(conn),
@@ -755,6 +908,7 @@ func main() {
 	mux.HandleFunc("/healthz/readiness", srv.handleReadiness)
 	mux.HandleFunc("/healthz/startup", srv.handleStartup)
 	mux.HandleFunc("/nodes/register", srv.instrument("/nodes/register", srv.authenticate(srv.handleRegisterNode)))
+	mux.HandleFunc("/nodes/deregister/", srv.instrument("/nodes/deregister", srv.authenticate(srv.handleDeregisterNode)))
 	mux.HandleFunc("/nodes", srv.instrument("/nodes", srv.authenticate(srv.handleListNodes)))
 	mux.HandleFunc("/v1/search", srv.instrument("/v1/search", srv.authenticate(srv.handleSearch)))
 	mux.HandleFunc("/v1/chat/completions", srv.instrument("/v1/chat/completions", srv.authenticate(srv.handleChatCompletions)))

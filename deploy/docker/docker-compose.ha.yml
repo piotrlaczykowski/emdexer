@@ -1,0 +1,207 @@
+# High-Availability Docker Compose for emdexer
+# Phase 15.1: Distributed Qdrant Clustering
+# Phase 15.2: Gateway High Availability (multi-replica + shared registry)
+#
+# Usage:
+#   docker compose -f docker-compose.ha.yml up -d
+#
+# Architecture:
+#   - 3 Qdrant nodes with peer discovery (raft consensus)
+#   - 2 Gateway replicas backed by a shared PostgreSQL registry
+#   - Nginx load balancer in front of both gateways
+#   - Shared emdexer-net bridge network
+
+services:
+
+  # ============================================================
+  # Qdrant Cluster (3 nodes)
+  # ============================================================
+
+  qdrant-1:
+    image: qdrant/qdrant:v1.13.0
+    environment:
+      - QDRANT__CLUSTER__ENABLED=true
+      - QDRANT__CLUSTER__P2P__PORT=6335
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    volumes:
+      - qdrant-storage-1:/qdrant/storage
+    networks:
+      - emdexer-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  qdrant-2:
+    image: qdrant/qdrant:v1.13.0
+    environment:
+      - QDRANT__CLUSTER__ENABLED=true
+      - QDRANT__CLUSTER__P2P__PORT=6335
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__CLUSTER__BOOTSTRAP=http://qdrant-1:6335
+    volumes:
+      - qdrant-storage-2:/qdrant/storage
+    networks:
+      - emdexer-net
+    restart: always
+    depends_on:
+      qdrant-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  qdrant-3:
+    image: qdrant/qdrant:v1.13.0
+    environment:
+      - QDRANT__CLUSTER__ENABLED=true
+      - QDRANT__CLUSTER__P2P__PORT=6335
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__CLUSTER__BOOTSTRAP=http://qdrant-1:6335
+    volumes:
+      - qdrant-storage-3:/qdrant/storage
+    networks:
+      - emdexer-net
+    restart: always
+    depends_on:
+      qdrant-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ============================================================
+  # PostgreSQL — shared node registry for HA gateways
+  # ============================================================
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: emdexer
+      POSTGRES_USER: emdexer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-emdexer_secret}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - emdexer-net
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U emdexer -d emdexer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================================
+  # Gateway replicas (2 instances, shared DB registry)
+  # ============================================================
+
+  gateway-1:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.gateway
+    environment:
+      - QDRANT_HOST=qdrant-1:6334
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
+      - EMDEX_PORT=8080
+      - POSTGRES_URL=postgres://emdexer:${POSTGRES_PASSWORD:-emdexer_secret}@postgres:5432/emdexer?sslmode=disable
+    volumes:
+      - ../../logs:/opt/emdexer/logs
+    networks:
+      - emdexer-net
+    restart: always
+    depends_on:
+      qdrant-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  gateway-2:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.gateway
+    environment:
+      - QDRANT_HOST=qdrant-1:6334
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
+      - EMDEX_PORT=8080
+      - POSTGRES_URL=postgres://emdexer:${POSTGRES_PASSWORD:-emdexer_secret}@postgres:5432/emdexer?sslmode=disable
+    volumes:
+      - ../../logs:/opt/emdexer/logs
+    networks:
+      - emdexer-net
+    restart: always
+    depends_on:
+      qdrant-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ============================================================
+  # Nginx Load Balancer
+  # ============================================================
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "7700:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - emdexer-net
+    restart: always
+    depends_on:
+      gateway-1:
+        condition: service_healthy
+      gateway-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# ============================================================
+# Volumes
+# ============================================================
+
+volumes:
+  qdrant-storage-1:
+  qdrant-storage-2:
+  qdrant-storage-3:
+  postgres-data:
+
+# ============================================================
+# Networks
+# ============================================================
+
+networks:
+  emdexer-net:
+    driver: bridge

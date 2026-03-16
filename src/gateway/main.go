@@ -134,11 +134,11 @@ func deepCopyNodeInfo(n NodeInfo) NodeInfo {
 // NodeRegistry is the interface that all registry backends must implement.
 type NodeRegistry interface {
 	// Register adds or updates a node in the registry.
-	Register(n NodeInfo)
+	Register(ctx context.Context, n NodeInfo) error
 	// Deregister removes a node from the registry by ID.
-	Deregister(id string)
+	Deregister(ctx context.Context, id string) error
 	// List returns all currently registered nodes.
-	List() []NodeInfo
+	List(ctx context.Context) ([]NodeInfo, error)
 }
 
 // ------------------------------------------------------------
@@ -163,6 +163,9 @@ func NewFileNodeRegistry(dataFile string) *FileNodeRegistry {
 func (r *FileNodeRegistry) load() {
 	data, err := os.ReadFile(r.dataFile)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("[registry] Failed to read %s: %v", r.dataFile, err)
+		}
 		return
 	}
 	var nodes []NodeInfo
@@ -175,43 +178,59 @@ func (r *FileNodeRegistry) load() {
 	}
 }
 
-func (r *FileNodeRegistry) persist() {
+func (r *FileNodeRegistry) persist() error {
 	nodes := make([]NodeInfo, 0, len(r.nodes))
 	for _, n := range r.nodes {
 		nodes = append(nodes, deepCopyNodeInfo(n))
 	}
 	data, err := json.MarshalIndent(nodes, "", "  ")
 	if err != nil {
-		return
+		return fmt.Errorf("marshal failed: %w", err)
 	}
 	tmp := r.dataFile + ".tmp"
-	os.WriteFile(tmp, data, 0600)
-	os.Rename(tmp, r.dataFile)
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return fmt.Errorf("write tmp failed: %w", err)
+	}
+	if err := os.Rename(tmp, r.dataFile); err != nil {
+		return fmt.Errorf("rename failed: %w", err)
+	}
+	return nil
 }
 
-func (r *FileNodeRegistry) Register(n NodeInfo) {
+func (r *FileNodeRegistry) Register(ctx context.Context, n NodeInfo) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	n.RegisteredAt = time.Now()
 	r.nodes[n.ID] = deepCopyNodeInfo(n)
-	r.persist()
+	if err := r.persist(); err != nil {
+		log.Printf("[registry] persist error: %v", err)
+		return err
+	}
+	return nil
 }
 
-func (r *FileNodeRegistry) Deregister(id string) {
+func (r *FileNodeRegistry) Deregister(ctx context.Context, id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if _, ok := r.nodes[id]; !ok {
+		return nil
+	}
 	delete(r.nodes, id)
-	r.persist()
+	if err := r.persist(); err != nil {
+		log.Printf("[registry] persist error: %v", err)
+		return err
+	}
+	return nil
 }
 
-func (r *FileNodeRegistry) List() []NodeInfo {
+func (r *FileNodeRegistry) List(ctx context.Context) ([]NodeInfo, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]NodeInfo, 0, len(r.nodes))
 	for _, n := range r.nodes {
 		out = append(out, deepCopyNodeInfo(n))
 	}
-	return out
+	return out, nil
 }
 
 // ------------------------------------------------------------
@@ -235,11 +254,13 @@ func NewDBNodeRegistry(dsn string) (*DBNodeRegistry, error) {
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := db.Ping(); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("[registry] failed to ping postgres: %w", err)
 	}
 
 	r := &DBNodeRegistry{db: db}
 	if err := r.migrate(); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("[registry] migration failed: %w", err)
 	}
 
@@ -261,10 +282,10 @@ CREATE TABLE IF NOT EXISTS registered_nodes (
 	return err
 }
 
-func (r *DBNodeRegistry) Register(n NodeInfo) {
+func (r *DBNodeRegistry) Register(ctx context.Context, n NodeInfo) error {
 	n.RegisteredAt = time.Now()
 	colsJSON, _ := json.Marshal(n.Collections)
-	_, err := r.db.Exec(`
+	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO registered_nodes (id, url, collections, registered_at)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (id) DO UPDATE
@@ -274,24 +295,28 @@ func (r *DBNodeRegistry) Register(n NodeInfo) {
 	`, n.ID, n.URL, string(colsJSON), n.RegisteredAt)
 	if err != nil {
 		log.Printf("[registry] Register error: %v", err)
+		return err
 	}
+	return nil
 }
 
-func (r *DBNodeRegistry) Deregister(id string) {
-	if _, err := r.db.Exec(`DELETE FROM registered_nodes WHERE id = $1`, id); err != nil {
+func (r *DBNodeRegistry) Deregister(ctx context.Context, id string) error {
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM registered_nodes WHERE id = $1`, id); err != nil {
 		log.Printf("[registry] Deregister error: %v", err)
+		return err
 	}
+	return nil
 }
 
-func (r *DBNodeRegistry) List() []NodeInfo {
-	rows, err := r.db.Query(`SELECT id, url, collections, registered_at FROM registered_nodes ORDER BY registered_at`)
+func (r *DBNodeRegistry) List(ctx context.Context) ([]NodeInfo, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, url, collections, registered_at FROM registered_nodes ORDER BY registered_at`)
 	if err != nil {
 		log.Printf("[registry] List error: %v", err)
-		return nil
+		return []NodeInfo{}, err
 	}
 	defer rows.Close()
 
-	var out []NodeInfo
+	out := []NodeInfo{}
 	for rows.Next() {
 		var n NodeInfo
 		var colsJSON string
@@ -304,7 +329,11 @@ func (r *DBNodeRegistry) List() []NodeInfo {
 		}
 		out = append(out, n)
 	}
-	return out
+	if err := rows.Err(); err != nil {
+		log.Printf("[registry] rows error: %v", err)
+		return out, err
+	}
+	return out, nil
 }
 
 // ------------------------------------------------------------
@@ -593,12 +622,20 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 	if node.ID == "" {
 		node.ID = fmt.Sprintf("node-%d", time.Now().UnixNano())
 	}
-	s.registry.Register(node)
+	if err := s.registry.Register(r.Context(), node); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 	s.writeJSON(w, http.StatusOK, map[string]interface{}{"status": "registered", "id": node.ID})
 }
 
 func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
-	s.writeJSON(w, http.StatusOK, s.registry.List())
+	nodes, err := s.registry.List(r.Context())
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, nodes)
 }
 
 func (s *Server) handleDeregisterNode(w http.ResponseWriter, r *http.Request) {
@@ -606,13 +643,18 @@ func (s *Server) handleDeregisterNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	id := strings.TrimPrefix(r.URL.Path, "/nodes/")
-	id = strings.TrimSuffix(id, "/deregister")
+
+	id := strings.TrimPrefix(r.URL.Path, "/nodes/deregister/")
+	id = strings.TrimSuffix(id, "/")
+
 	if id == "" {
 		http.Error(w, "Bad request: missing node id", http.StatusBadRequest)
 		return
 	}
-	s.registry.Deregister(id)
+	if err := s.registry.Deregister(r.Context(), id); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 	s.writeJSON(w, http.StatusOK, map[string]interface{}{"status": "deregistered", "id": id})
 }
 

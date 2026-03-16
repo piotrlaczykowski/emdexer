@@ -10,6 +10,11 @@ config:
   namespace: "default"
   mountPath: "/data"
   extractousHost: "http://extractous:8000"
+  # Delta-Only Re-indexing (Phase 15.6)
+  # Enables checksum-based change detection; set to "0" to use legacy stat-only mode.
+  deltaEnabled: "1"
+  # Set to "1" to enable Stage 3 full-file XXH3 hash (higher accuracy, higher I/O cost).
+  fullHash: "0"
 
 secret:
   googleApiKey: ""

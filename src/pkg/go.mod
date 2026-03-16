@@ -10,6 +10,7 @@ require (
 	github.com/pkg/sftp v1.13.10
 	github.com/qdrant/go-client v1.17.1
 	github.com/willscott/go-nfs-client v0.0.0-20251022144359-801f10d98886
+	github.com/zeebo/xxh3 v1.1.0
 	golang.org/x/crypto v0.49.0
 )
 
@@ -23,6 +24,7 @@ require (
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/jaytaylor/html2text v0.0.0-20260303211410-1a4bdc82ecec // indirect
+	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

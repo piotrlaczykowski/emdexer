@@ -79,6 +79,8 @@ The following environment variables are used to configure Emdexer:
 | `QDRANT_HOST` | Qdrant gRPC endpoint | `localhost:6334` |
 | `EMDEX_SEARCH_LIMIT` | Max results for `/v1/search` | `10` |
 | `EMDEX_CHAT_LIMIT` | Max results for RAG context | `5` |
+| `EMDEX_DELTA_ENABLED` | Enable checksum-based delta detection (Phase 15.6); set to `0` for legacy stat-only mode | `1` |
+| `EMDEX_FULL_HASH` | Enable Stage 3 full-file XXH3 hash for maximum accuracy (higher I/O cost) | `0` |
 
 For a complete list, see [ARCHITECTURE.md](docs/design/architecture.md#3-configuration-decoupling).
 

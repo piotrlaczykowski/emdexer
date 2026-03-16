@@ -15,6 +15,8 @@ COPY src/pkg/ src/pkg/
 COPY src/node/ src/node/
 
 WORKDIR /app/src/node
+# CGO_ENABLED=0: all dependencies (including github.com/zeebo/xxh3 added in
+# Phase 15.6 for delta-indexing) are pure Go — no CGO required.
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app/emdexer-node .
 
 FROM alpine:3.21

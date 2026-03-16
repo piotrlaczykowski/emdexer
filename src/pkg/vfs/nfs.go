@@ -62,14 +62,8 @@ func (n *NFSFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 }
 
 func (n *NFSFileSystem) CheckPermissions() error {
-	// Root check (security hardening)
-	auth := n.target.Auth()
-	if auth != nil {
-		// go-nfs-client/nfs/rpc AuthUnix check
-		// We use NewAuthUnix("emdexer", 0, 0) which might be risky if we want to avoid root (UID 0).
-		// Let's audit this.
-	}
-
+	// Root check (security hardening) - removed call to unexported field auth
+	
 	_, err := n.target.ReadDirPlus(".")
 	if err != nil {
 		return fmt.Errorf("permission check failed: %w", err)

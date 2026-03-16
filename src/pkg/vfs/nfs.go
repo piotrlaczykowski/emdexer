@@ -66,7 +66,7 @@ func (n *NFSFileSystem) CheckPermissions() error {
 	
 	_, err := n.target.ReadDirPlus(".")
 	if err != nil {
-		return fmt.Errorf("permission check failed: %w", err)
+		return fmt.Errorf("permission check failed")
 	}
 	return nil
 }

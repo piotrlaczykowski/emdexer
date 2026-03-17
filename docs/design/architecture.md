@@ -115,12 +115,22 @@ Each binary reads only its own environment variables. In a bare-metal deployment
 | `EMDEX_NAMESPACE`         | ✅       | `default`         | Namespace tag on all indexed vectors             |
 | `QDRANT_HOST`             | ✅       | `localhost:6334`  | Qdrant gRPC endpoint (direct write)              |
 | `EMDEX_QDRANT_COLLECTION` |          | `emdexer_v1`      | Qdrant collection name                           |
-| `NODE_TYPE`               |          | `local`           | `local` / `smb` / `sftp` / `nfs`                |
+| `NODE_TYPE`               |          | `local`           | `local` / `smb` / `sftp` / `nfs` / `s3`         |
 | `NODE_ROOT`               |          | `./test_dir`      | Root path to index                               |
 | `EMBED_PROVIDER`          |          | `gemini`          | `gemini` or `ollama`                             |
 | `GOOGLE_API_KEY`          | ✅*      | —                 | Gemini key (when `EMBED_PROVIDER=gemini`)         |
 | `EMDEX_GEMINI_MODEL`      |          | `gemini-1.5-flash`| Gemini model for embeddings                      |
+| `EMDEX_S3_BUCKET`         | ✅**     | —                 | S3 Bucket name                                   |
+| `EMDEX_S3_REGION`         | ✅**     | `us-east-1`       | S3 Region                                        |
+| `EMDEX_S3_ENDPOINT`       |          | —                 | Custom S3 endpoint (MinIO/LocalStack)           |
+| `EMDEX_S3_ACCESS_KEY`     | ✅**     | —                 | S3 Access Key                                    |
+| `EMDEX_S3_SECRET_KEY`     | ✅**     | —                 | S3 Secret Key                                    |
+| `EMDEX_S3_USE_PATH_STYLE` |          | `false`           | Use path-style addressing                        |
+| `EMDEX_S3_PREFIX`         |          | —                 | S3 Prefix (folder)                               |
 | `EMDEX_EXTRACTOUS_URL`    |          | `http://localhost:8000/extract` | Extractous sidecar URL             |
+
+*Required when `EMBED_PROVIDER=gemini` (default).
+**Required when `NODE_TYPE=s3`.
 | `EMDEX_POLL_INTERVAL`     |          | `60s`             | Remote VFS poll interval                         |
 | `EMDEX_CACHE_DIR`         |          | `./cache`         | SQLite metadata cache directory                  |
 | `EMDEX_QUEUE_DB`          |          | `queue.db`        | Indexing queue SQLite path                       |

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/piotrlaczykowski/emdexer/pkg/util"
+	"github.com/piotrlaczykowski/emdexer/util"
 )
 
 // validateOllamaHost parses the URL and validates its scheme.

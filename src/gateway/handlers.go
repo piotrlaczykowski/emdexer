@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/piotrlaczykowski/emdexer/pkg/util"
+	"github.com/piotrlaczykowski/emdexer/util"
 	"github.com/piotrlaczykowski/emdexer/version"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )

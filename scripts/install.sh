@@ -248,11 +248,13 @@ collect_node_config() {
     echo "    smb   — Samba / Windows Share"
     echo "    sftp  — SSH File Transfer Protocol"
     echo "    nfs   — Network File System"
-    prompt NODE_TYPE "VFS type [local|smb|sftp|nfs]" "local"
+    echo "    s3    — AWS S3 or compatible (MinIO, etc.)"
+    prompt NODE_TYPE "VFS type [local|smb|sftp|nfs|s3]" "local"
 
     SMB_HOST="" SMB_USER="" SMB_PASS="" SMB_SHARE=""
     SFTP_HOST="" SFTP_PORT="" SFTP_USER="" SFTP_PASS=""
     NFS_HOST="" NFS_PATH=""
+    S3_BUCKET="" S3_REGION="" S3_ENDPOINT="" S3_ACCESS_KEY="" S3_SECRET_KEY="" S3_USE_PATH_STYLE="" S3_PREFIX=""
 
     case "$NODE_TYPE" in
         local)
@@ -277,8 +279,18 @@ collect_node_config() {
             prompt NFS_HOST   "NFS host"
             prompt NFS_PATH   "NFS export path"
             ;;
+        s3)
+            prompt S3_BUCKET "S3 bucket name"
+            prompt S3_REGION "S3 region" "us-east-1"
+            prompt S3_ENDPOINT "S3 endpoint URL (optional, for MinIO/LocalStack)" ""
+            prompt S3_ACCESS_KEY "S3 access key"
+            prompt_secret S3_SECRET_KEY "S3 secret key"
+            prompt S3_USE_PATH_STYLE "Use path style [true/false]" "false"
+            prompt S3_PREFIX "S3 prefix (folder)" ""
+            NODE_ROOT="."
+            ;;
         *)
-            error "Unknown VFS type: $NODE_TYPE. Valid: local, smb, sftp, nfs"
+            error "Unknown VFS type: $NODE_TYPE. Valid: local, smb, sftp, nfs, s3"
             ;;
     esac
 
@@ -354,6 +366,13 @@ SFTP_USER=${SFTP_USER:-}
 SFTP_PASS=${SFTP_PASS:-}
 NFS_HOST=${NFS_HOST:-}
 NFS_PATH=${NFS_PATH:-}
+EMDEX_S3_BUCKET=${S3_BUCKET:-}
+EMDEX_S3_REGION=${S3_REGION:-}
+EMDEX_S3_ENDPOINT=${S3_ENDPOINT:-}
+EMDEX_S3_ACCESS_KEY=${S3_ACCESS_KEY:-}
+EMDEX_S3_SECRET_KEY=${S3_SECRET_KEY:-}
+EMDEX_S3_USE_PATH_STYLE=${S3_USE_PATH_STYLE:-}
+EMDEX_S3_PREFIX=${S3_PREFIX:-}
 EOF
     sudo chmod 640 "$ENV_FILE"
     [[ "$OS_TYPE" == "linux" ]] && sudo chown "root:$SERVICE_USER" "$ENV_FILE" 2>/dev/null || true

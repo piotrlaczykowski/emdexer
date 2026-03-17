@@ -28,7 +28,7 @@ Emdexer's core strength is its **Zero-Mount** architecture. Unlike traditional i
 
 - **Semantic Intelligence:** Multi-hop RAG architecture for deep context synthesis.
 - **Stable Identity:** Uses Content-addressable UUID v5 for consistent file tracking across re-indexes.
-- **Universal Ingestion:** Native support for Local FS, SMB, NFS, and SFTP.
+- **Universal Ingestion:** Native support for Local FS, SMB, NFS, SFTP, and S3.
 - **Plugin Architecture:** Extensible extraction API (Go/Python) for custom data formats.
 - **Enterprise Observability:** Prometheus/Grafana metrics and structured audit logging.
 - **Privacy-First:** Local-first processing with isolated namespaces.
@@ -60,6 +60,7 @@ graph TD
         SMB[/SMB Share/] --> NodeA
         NFS[/NFS Export/] --> NodeA
         SFTP[/SFTP Server/] --> NodeA
+        S3[/S3 Bucket/] --> NodeA
     end
     
     Gateway --- MCP[MCP Server]

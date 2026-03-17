@@ -43,7 +43,7 @@ func NewSafeTransport() *http.Transport {
 
 	return &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(addr)
+			host, _, err := net.SplitHostPort(addr)
 			if err != nil {
 				return nil, err
 			}

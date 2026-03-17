@@ -22,5 +22,5 @@ test_dir_beta/
 *.bin
 *.tar.gz
 
-# Local agent configuration
-.claude/
+# Local agent configuration (index is machine-specific, skills are project assets)
+.gitnexus

@@ -29,8 +29,15 @@ func startHealthServer(qdrantConn *grpc.ClientConn) {
 		resp, err := healthClient.Check(ctx, &grpc_health_v1.HealthCheckRequest{Service: ""})
 		if err != nil || resp.Status != grpc_health_v1.HealthCheckResponse_SERVING {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"status": "DOWN"})
+			json.NewEncoder(w).Encode(map[string]string{"status": "DOWN", "reason": "qdrant"})
 			return
+		}
+		if pinger, ok := globalFS.(interface{ Ping(context.Context) error }); ok {
+			if err := pinger.Ping(ctx); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				json.NewEncoder(w).Encode(map[string]string{"status": "DOWN", "reason": "vfs"})
+				return
+			}
 		}
 		json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
 	})

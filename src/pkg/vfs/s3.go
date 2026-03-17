@@ -62,6 +62,17 @@ func NewS3FileSystem(ctx context.Context, bucket string, opts S3Options) (*S3Fil
 	}, nil
 }
 
+// NewS3FileSystemFromClient creates an S3FileSystem using a pre-configured
+// client. Useful for testing with custom endpoints.
+func NewS3FileSystemFromClient(client *s3.Client, bucket, prefix string, ctx context.Context) *S3FileSystem {
+	return &S3FileSystem{
+		client: client,
+		bucket: bucket,
+		prefix: strings.Trim(prefix, "/"),
+		ctx:    ctx,
+	}
+}
+
 func (s *S3FileSystem) fullPath(name string) string {
 	name = strings.TrimLeft(name, "/")
 	if s.prefix == "" { return name }
@@ -236,6 +247,18 @@ func (s *S3FileSystem) ReadDirFlat(name string) ([]Entry, error) {
 		}
 	}
 	return entries, nil
+}
+
+// Ping verifies connectivity to the S3 bucket by listing a single object.
+func (s *S3FileSystem) Ping(ctx context.Context) error {
+	_, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket:  aws.String(s.bucket),
+		MaxKeys: aws.Int32(1),
+	})
+	if err != nil {
+		return fmt.Errorf("s3 ping %s: %w", s.bucket, err)
+	}
+	return nil
 }
 
 func (s *S3FileSystem) Close() error { return nil }

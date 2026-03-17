@@ -24,7 +24,7 @@
 ## P6–P14: Extended Features
 | Phase | Description | Status | Notes |
 |-------|-------------|--------|-------|
-| P6 | Cloud Storage (node-s3) | 🚧 In Progress | S3 object enumeration and metadata mapping. |
+| P6 | Cloud Storage (node-s3) | ✅ Done | S3 VFS via `NODE_TYPE=s3` in unified node; dead `src/cmd/node-s3/` stub removed. |
 | P7 | Mobile Access (Telegram adapter) | ✅ Done | |
 | P8 | Enterprise Connect (Slack/Teams) | ✅ Done | |
 | P9 | Multi-modal Support (OCR/Video) | 🚧 In Progress | OCR Sidecar Integration (Extractous) and Async Extraction Workers. |
@@ -36,12 +36,12 @@
 
 ### P6: Cloud Storage (node-s3) Details
 - **Story: S3 Node Core Implementation**
-  - [ ] Task: Implement S3 object enumeration and metadata mapping.
-  - [ ] Task: Implement stream-based extraction (streaming download -> chunker).
-  - [ ] Task: Implement S3-specific debounce polling for changes.
+  - [x] Task: Implement S3 object enumeration and metadata mapping.
+  - [x] Task: Implement stream-based extraction (streaming download -> chunker).
+  - [x] Task: Implement S3-specific debounce polling for changes.
 - **Story: Completion & Integration**
-  - [ ] Task: Integrate full pipeline (extract -> embed -> upsert) in node-s3.
-  - [ ] Task: Verify end-to-end S3 indexing in Qdrant namespace.
+  - [x] Task: Integrate full pipeline (extract -> embed -> upsert) via `NODE_TYPE=s3` in unified node.
+  - [x] Task: Verify end-to-end S3 indexing in Qdrant namespace (integration test with httptest mock).
 
 ### P9: Multi-modal Support (OCR/Video) Details
 - **Story: OCR Sidecar Integration**
@@ -60,22 +60,28 @@ The goal is to move from a "trusted tool" to "critical infrastructure."
 |-----------|-------------|--------|
 | 15.1 | Distributed Qdrant Clustering | ✅ Done |
 | 15.2 | Gateway High Availability (multi-replica + shared registry) | ✅ Done |
-| 15.3 | Global Namespace Aggregation | 🚧 In Progress |
+| 15.3 | Global Namespace Aggregation | ✅ Done | `handleSearch` rewritten to query Qdrant directly (was broken fan-out); node self-registration with heartbeat (`EMDEX_GATEWAY_URL`); `LastSeen` + 180s heartbeat expiry in registry; `/v1/namespaces` endpoint for global namespace discovery. |
 | 15.4 | OIDC/Active Directory Integration | 🚧 In Progress |
 | 15.5 | Air-Gapped Optimization — Ollama/vLLM local embeddings | ✅ Done | `EmbedProvider` interface implemented; `OllamaProvider` fully implemented. Refactored into `src/pkg/embed` (DRY). |
 | 15.6 | Delta-Only Re-indexing (checksum-based) | ✅ Done | 3-stage pipeline (stat → partial XXH3 → full XXH3); `EMDEX_DELTA_ENABLED` / `EMDEX_FULL_HASH` env vars; 7 tests; design doc at `docs/design/delta-indexing.md`. |
-| 15.7 | S3 node full pipeline (P6 completion) | 📋 Planned |
+| 15.7 | S3 node full pipeline (P6 completion) | ✅ Done | Merged into `src/node/` via `NODE_TYPE=s3`; dead `src/cmd/node-s3/` stub removed. Indexer uses `FlatListingFS` fast path; S3 health check in readiness probe. |
 
 ### Phase 15.1 & 15.2 Notes
 - **15.1**: 3-node Qdrant cluster with Raft consensus; bootstrap via qdrant-1; isolated named volumes; healthchecks. Design doc at `docs/design/ha-infrastructure.md`.
 - **15.2**: 2 gateway replicas behind Nginx round-robin LB; `NodeRegistry` interface with `FileNodeRegistry` (default) and `DBNodeRegistry` (PostgreSQL, HA mode); `newRegistry()` factory toggles on `POSTGRES_URL`.
 
 ### Phase 15.3: Global Namespace Aggregation Details
-- **Story: Cross-Node Discovery**
-  - [ ] Task: Implement node discovery protocol for global view.
-  - [ ] Task: Implement aggregated search UI in Gateway dashboard.
-- **Story: Global Routing**
-  - [ ] Task: Implement cross-node request routing for global namespace searches.
+- **Story: Fix Search (Qdrant Direct)**
+  - [x] Task: Rewrite `handleSearch` to embed query + call `searchQdrant()` directly (removed broken fan-out to nodes).
+  - [x] Task: Add `?limit=N` query parameter (default 10, max 100).
+- **Story: Node Self-Registration**
+  - [x] Task: Node POSTs to `EMDEX_GATEWAY_URL/nodes/register` on startup + 60s heartbeat.
+  - [x] Task: `NodeInfo.Collections` populated with `EMDEX_NAMESPACE`.
+  - [x] Task: `LastSeen` field + 180s heartbeat expiry in `FileNodeRegistry` and `DBNodeRegistry`.
+- **Story: Global Namespace Discovery**
+  - [x] Task: `/v1/namespaces` endpoint aggregates namespaces from all live registered nodes.
+- **Story: Tests**
+  - [x] Task: Search auth/validation tests, namespace aggregation test, registry heartbeat expiry test.
 
 ### Phase 15.4: OIDC/Active Directory Integration Details
 - **Story: Auth Middleware Implementation**
@@ -98,6 +104,17 @@ The goal is to move from a "trusted tool" to "critical infrastructure."
 | Branch-based Tagging Suffixes | Automatic image tag suffixes: `-beta`, `-rc`, `-hotfix`, `-alpha`, `-PR` driven by branch name | ✅ Done |
 | Expert Copilot Instructions | `.github/copilot-instructions.md` with architecture, conventions, and security policies for AI-assisted development | ✅ Done |
 | Final Hardening Sprint | SSRF protection, archive size limits, HTTP timeouts, and Docker resource limits | ✅ Done |
+
+## Phase 20: Gateway Dashboard UI
+| Sub-phase | Description | Status |
+|-----------|-------------|--------|
+| 20.1 | Aggregated search UI | 📋 Planned |
+| 20.2 | Node & namespace status display | 📋 Planned |
+
+### Phase 20 Details
+- **Story: Gateway Dashboard UI**
+  - [ ] Task: Implement aggregated search UI in Gateway dashboard.
+  - [ ] Task: Display registered nodes, namespaces, and indexing status.
 
 ---
 

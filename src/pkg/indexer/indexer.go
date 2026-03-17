@@ -3,8 +3,9 @@ package indexer
 import (
 	"fmt"
 	"io"
-	"github.com/piotrlaczykowski/emdexer/vfs"
 	"path/filepath"
+
+	"github.com/piotrlaczykowski/emdexer/vfs"
 )
 
 type Indexer struct {
@@ -16,9 +17,59 @@ func NewIndexer(fs vfs.FileSystem) *Indexer {
 }
 
 func (i *Indexer) Walk(root string, callback func(path string, isDir bool, content []byte) error) error {
-	// Note: fs.WalkDir doesn't work directly with our interface because of the way fs.FS is structured.
-	// We'll implement a simple recursive walker.
+	if flatFS, ok := i.fs.(vfs.FlatListingFS); ok {
+		return i.flatWalk(flatFS, root, callback)
+	}
 	return i.recursiveWalk(root, callback)
+}
+
+// flatWalk uses ReadDirFlat for backends like S3 that can list all objects in
+// a single paginated API call, avoiding recursive ReadDir round-trips.
+func (i *Indexer) flatWalk(flatFS vfs.FlatListingFS, root string, callback func(path string, isDir bool, content []byte) error) error {
+	entries, err := flatFS.ReadDirFlat(root)
+	if err != nil {
+		return fmt.Errorf("flat walk %s: %w", root, err)
+	}
+
+	archiveWalker := vfs.NewArchiveFileSystem(i.fs)
+
+	for _, entry := range entries {
+		if entry.IsDir {
+			continue
+		}
+
+		ext := filepath.Ext(entry.Path)
+		if ext == ".zip" || ext == ".tar" || ext == ".gz" || ext == ".7z" || ext == ".iso" {
+			archEntries, archErr := archiveWalker.IndexArchive(entry.Path)
+			if archErr == nil {
+				for _, ae := range archEntries {
+					if ae.IsDir {
+						continue
+					}
+					vfsPath := fmt.Sprintf("%s/%s", entry.Path, ae.Name)
+					if err := callback(vfsPath, false, ae.Content); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+		}
+
+		f, err := i.fs.Open(entry.Path)
+		if err != nil {
+			continue
+		}
+		content, err := io.ReadAll(io.LimitReader(f, 50*1024*1024))
+		f.Close()
+		if err != nil {
+			continue
+		}
+
+		if err := callback(entry.Path, false, content); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (i *Indexer) recursiveWalk(path string, callback func(path string, isDir bool, content []byte) error) error {
@@ -61,7 +112,7 @@ func (i *Indexer) recursiveWalk(path string, callback func(path string, isDir bo
 			if err != nil {
 				continue
 			}
-			
+
 			// Limit file size to 50MB to prevent OOM
 			content, err := io.ReadAll(io.LimitReader(f, 50*1024*1024))
 			f.Close()

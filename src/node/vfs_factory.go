@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+
 	"github.com/piotrlaczykowski/emdexer/vfs"
 )
 
@@ -16,6 +18,12 @@ func initVFS(cfg Config) {
 	case "nfs":
 		globalFS, err = vfs.NewNFSFileSystem(cfg.NFSHost, cfg.NFSPath)
 	case "s3":
+		if cfg.S3Bucket == "" {
+			log.Fatal("NODE_TYPE=s3 requires EMDEX_S3_BUCKET")
+		}
+		if cfg.S3Region == "" {
+			log.Fatal("NODE_TYPE=s3 requires EMDEX_S3_REGION")
+		}
 		globalFS, err = vfs.NewS3FileSystem(globalCtx, cfg.S3Bucket, vfs.S3Options{
 			Endpoint:     cfg.S3Endpoint,
 			AccessKey:    cfg.S3AccessKey,

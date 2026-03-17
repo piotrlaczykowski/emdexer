@@ -92,6 +92,7 @@ func startServer(s *Server) error {
 	mux.HandleFunc("/nodes/register", s.instrument("/nodes/register", s.authenticate(s.handleRegisterNode)))
 	mux.HandleFunc("/nodes/deregister/", s.instrument("/nodes/deregister", s.authenticate(s.handleDeregisterNode)))
 	mux.HandleFunc("/nodes", s.instrument("/nodes", s.authenticate(s.handleListNodes)))
+	mux.HandleFunc("/v1/namespaces", s.instrument("/v1/namespaces", s.authenticate(s.handleListNamespaces)))
 	mux.HandleFunc("/v1/search", s.instrument("/v1/search", s.authenticate(s.handleSearch)))
 	mux.HandleFunc("/v1/chat/completions", s.instrument("/v1/chat/completions", s.authenticate(s.handleChatCompletions)))
 

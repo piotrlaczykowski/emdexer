@@ -6,38 +6,14 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/piotrlaczykowski/emdexer/pkg/util"
 )
-
-// isPrivateIP checks if an IP belongs to private or reserved ranges.
-func isPrivateIP(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-
-	// RFC 1918 & RFC 4193 (IPv6 Unique Local)
-	privateIPBlocks := []*net.IPNet{
-		{IP: net.ParseIP("10.0.0.0"), Mask: net.CIDRMask(8, 32)},
-		{IP: net.ParseIP("172.16.0.0"), Mask: net.CIDRMask(12, 32)},
-		{IP: net.ParseIP("192.168.0.0"), Mask: net.CIDRMask(16, 32)},
-		{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)}, // Carrier-grade NAT
-		{IP: net.ParseIP("fc00::"), Mask: net.CIDRMask(7, 128)},     // IPv6 ULA
-	}
-
-	for _, block := range privateIPBlocks {
-		if block.Contains(ip) {
-			return true
-		}
-	}
-
-	return false
-}
 
 // validateOllamaHost parses the URL and validates its scheme.
 func validateOllamaHost(hostStr string) error {
@@ -53,38 +29,8 @@ func validateOllamaHost(hostStr string) error {
 	return nil
 }
 
-func newSafeOllamaTransport() *http.Transport {
-	dialer := &net.Dialer{
-		Timeout:   10 * time.Second,
-		KeepAlive: 30 * time.Second,
-		Control: func(network, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return fmt.Errorf("ssrf-guard: could not parse dial address %q: %w", address, err)
-			}
-			ip := net.ParseIP(host)
-			if ip == nil {
-				return fmt.Errorf("ssrf-guard: non-IP address at dial time: %q", host)
-			}
-			if isPrivateIP(ip) {
-				return fmt.Errorf("ssrf-guard: dial to restricted IP %s blocked (DNS rebinding?)", ip)
-			}
-			return nil
-		},
-	}
-	return &http.Transport{
-		DialContext:           dialer.DialContext,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
-		ForceAttemptHTTP2:     true,
-	}
-}
-
 func newSafeOllamaClient() *http.Client {
-	return &http.Client{
-		Transport: newSafeOllamaTransport(),
-		Timeout:   60 * time.Second,
-	}
+	return util.NewSafeHTTPClient(60 * time.Second)
 }
 
 // EmbedProvider is the single abstraction over any dense-embedding backend.
@@ -141,10 +87,7 @@ func (g *GeminiProvider) Embed(text string) ([]float32, error) {
 		Content: embedContent{Parts: []embedPart{{Text: text}}},
 	})
 
-	client := &http.Client{
-		Transport: newSafeOllamaTransport(),
-		Timeout:   30 * time.Second,
-	}
+	client := util.NewSafeHTTPClient(30 * time.Second)
 	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("gemini embed HTTP: %w", err)

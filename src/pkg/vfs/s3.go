@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/piotrlaczykowski/emdexer/pkg/util"
 )
 
 type S3FileSystem struct {
@@ -40,7 +41,7 @@ func NewS3FileSystem(ctx context.Context, bucket string, opts S3Options) (*S3Fil
 		))
 	}
 
-	cfg, err := config.LoadDefaultConfig(ctx, cfgOpts...)
+	cfg, err := config.LoadDefaultConfig(ctx, append(cfgOpts, config.WithHTTPClient(util.NewSafeHTTPClient(0)))...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load S3 config: %w", err)
 	}
@@ -165,6 +166,42 @@ func (s *S3FileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 			mtime: *o.LastModified,
 			isDir: false,
 		}))
+	}
+
+	return entries, nil
+}
+
+func (s *S3FileSystem) ReadDirFlat(name string) ([]fs.DirEntry, error) {
+	key := s.fullPath(name)
+	if key != "" && !strings.HasSuffix(key, "/") {
+		key += "/"
+	}
+
+	var entries []fs.DirEntry
+	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(key),
+	})
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.Background())
+		if err != nil {
+			return nil, err
+		}
+
+		for _, o := range page.Contents {
+			if *o.Key == key || strings.HasSuffix(*o.Key, "/") {
+				continue
+			}
+			// For flat listing, we provide the relative path from the 'name' directory
+			relPath := strings.TrimPrefix(*o.Key, key)
+			entries = append(entries, fs.FileInfoToDirEntry(&S3FileInfo{
+				name:  relPath,
+				size:  *o.Size,
+				mtime: *o.LastModified,
+				isDir: false,
+			}))
+		}
 	}
 
 	return entries, nil

@@ -7,38 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-	"sync"
-
-	"github.com/qdrant/go-client/qdrant"
-	"google.golang.org/grpc"
 )
-
-// MockPointsClient implements a subset of qdrant.PointsClient for testing
-type MockPointsClient struct {
-	qdrant.PointsClient
-	Delay time.Duration
-}
-
-func (m *MockPointsClient) Search(ctx context.Context, in *qdrant.SearchPoints, opts ...grpc.CallOption) (*qdrant.SearchResponse, error) {
-	select {
-	case <-time.After(m.Delay):
-		return &qdrant.SearchResponse{
-			Result: []*qdrant.ScoredPoint{
-				{Id: &qdrant.PointId{PointIdOptions: &qdrant.PointId_Num{Num: 1}}, Score: 0.9},
-			},
-		}, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
-// MockEmbedder implements embed.EmbedProvider
-type MockEmbedder struct{}
-
-func (m *MockEmbedder) Embed(text string) ([]float32, error) {
-	return []float32{0.1, 0.2, 0.3}, nil
-}
-func (m *MockEmbedder) Name() string { return "mock" }
 
 type MockRegistry struct {
 	Nodes []NodeInfo
@@ -49,25 +18,37 @@ func (m *MockRegistry) Deregister(id string) {}
 func (m *MockRegistry) List() []NodeInfo     { return m.Nodes }
 
 func TestSearchTimeoutAndAggregation(t *testing.T) {
+	// Start mock nodes
+	node1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(4 * time.Second) // Longer than 3s timeout
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []SearchResult{{Path: "file1", Score: 0.9}},
+		})
+	}))
+	defer node1.Close()
+
+	node2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(4 * time.Second)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []SearchResult{{Path: "file2", Score: 0.8}},
+		})
+	}))
+	defer node2.Close()
+
 	registry := &MockRegistry{
 		Nodes: []NodeInfo{
-			{ID: "node-1", URL: "localhost:1"},
-			{ID: "node-2", URL: "localhost:2"},
+			{ID: "node-1", URL: node1.URL},
+			{ID: "node-2", URL: node2.URL},
 		},
 	}
 
-	// This is a bit tricky because searchQdrant is a global function in main.go
-	// and it's not a method of Server. However, Server.pointsClient is used.
-	
 	srv := &Server{
-		registry:     registry,
-		pointsClient: &MockPointsClient{Delay: 4 * time.Second}, // Longer than 3s timeout
-		embedder:     &MockEmbedder{},
-		collection:   "test",
+		registry: registry,
 	}
 
 	req := httptest.NewRequest("GET", "/v1/search?q=test&namespace=default", nil)
-	// Add allowed namespaces to context
 	ctx := context.WithValue(req.Context(), "AllowedNamespaces", []string{"*"})
 	req = req.WithContext(ctx)
 	
@@ -93,28 +74,38 @@ func TestSearchTimeoutAndAggregation(t *testing.T) {
 		t.Errorf("expected 0 results due to timeouts, got %d", len(resp.Results))
 	}
 
-	// The total time should be around 3s (parallel timeouts), not 6s (serial) or 4s (mock delay)
 	if duration > 3500*time.Millisecond {
 		t.Errorf("search took too long: %v (should be ~3s)", duration)
 	}
 }
 
 func TestSearchPartialAggregation(t *testing.T) {
+	nodeFast := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []SearchResult{{Path: "fast", Score: 1.0}},
+		})
+	}))
+	defer nodeFast.Close()
+
+	nodeSlow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(4 * time.Second)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []SearchResult{{Path: "slow", Score: 0.5}},
+		})
+	}))
+	defer nodeSlow.Close()
+
 	registry := &MockRegistry{
 		Nodes: []NodeInfo{
-			{ID: "fast-node", URL: "localhost:1"},
-			{ID: "slow-node", URL: "localhost:2"},
+			{ID: "fast-node", URL: nodeFast.URL},
+			{ID: "slow-node", URL: nodeSlow.URL},
 		},
 	}
 
-	// We need a conditional delay. Let's wrap the mock client.
 	srv := &Server{
 		registry: registry,
-		pointsClient: &ConditionalMockPointsClient{
-			Delay: 4 * time.Second,
-		},
-		embedder:   &MockEmbedder{},
-		collection: "test",
 	}
 
 	req := httptest.NewRequest("GET", "/v1/search?q=test&namespace=default", nil)
@@ -130,41 +121,11 @@ func TestSearchPartialAggregation(t *testing.T) {
 	}
 	json.Unmarshal(rr.Body.Bytes(), &resp)
 
-	// Should have exactly 1 result (from the fast node)
 	if len(resp.Results) != 1 {
 		t.Errorf("expected 1 result from aggregation, got %d", len(resp.Results))
 	}
-}
-
-type ConditionalMockPointsClient struct {
-	qdrant.PointsClient
-	Delay     time.Duration
-	mu        sync.Mutex
-	callCount int
-}
-
-func (m *ConditionalMockPointsClient) Search(ctx context.Context, in *qdrant.SearchPoints, opts ...grpc.CallOption) (*qdrant.SearchResponse, error) {
-	m.mu.Lock()
-	m.callCount++
-	count := m.callCount
-	m.mu.Unlock()
-
-	if count%2 == 0 { // Simulate slow node for even calls
-		select {
-		case <-time.After(m.Delay):
-			return &qdrant.SearchResponse{
-				Result: []*qdrant.ScoredPoint{
-					{Id: &qdrant.PointId{PointIdOptions: &qdrant.PointId_Num{Num: 1}}, Score: 0.9},
-				},
-			}, nil
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+	if resp.Results[0].Path != "fast" {
+		t.Errorf("expected result from fast node, got %s", resp.Results[0].Path)
 	}
-
-	return &qdrant.SearchResponse{
-		Result: []*qdrant.ScoredPoint{
-			{Id: &qdrant.PointId{PointIdOptions: &qdrant.PointId_Num{Num: 1}}, Score: 0.9},
-		},
-	}, nil
 }
+

@@ -122,9 +122,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			if authHeader != "" {
-				req.Header.Set("Authorization", authHeader)
-			}
+			req.Header.Set("Authorization", r.Header.Get("Authorization"))
 
 			client := &http.Client{}
 			resp, err := client.Do(req)

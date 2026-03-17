@@ -271,7 +271,7 @@ type DeltaContent struct {
 }
 
 type StreamChoice struct {
-	Index        int          `delta"`
+	Index        int          `json:"index"`
 	Delta        DeltaContent `json:"delta"`
 	FinishReason *string      `json:"finish_reason"`
 }

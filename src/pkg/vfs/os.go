@@ -13,19 +13,49 @@ type OSFileSystem struct {
 }
 
 func (o *OSFileSystem) resolve(name string) (string, error) {
-	absRoot, err := filepath.Abs(o.Root)
+	// 1. Evaluate symlinks on root to get the real canonical path
+	realRoot, err := filepath.EvalSymlinks(o.Root)
+	if err != nil {
+		return "", fmt.Errorf("vfs: failed to resolve root: %w", err)
+	}
+	realRoot, err = filepath.Abs(realRoot)
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(absRoot, name)
-	absPath, err := filepath.Abs(path)
+
+	// 2. Join root and target name
+	path := filepath.Join(realRoot, name)
+
+	// 3. Evaluate symlinks on the target path to check for escapes via symlinks
+	// Note: EvalSymlinks requires the path to exist if we want to resolve it fully.
+	// If it doesn't exist, we still want to prevent traversal in the path string.
+	realPath, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		return "", err
+		// If path doesn't exist, we still need to validate the joined path string
+		realPath, err = filepath.Abs(path)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		realPath, err = filepath.Abs(realPath)
+		if err != nil {
+			return "", err
+		}
 	}
-	if !strings.HasPrefix(absPath, absRoot) {
-		return "", fmt.Errorf("vfs: path traversal detected: %s is outside of %s", name, o.Root)
+
+	// 4. Use filepath.Rel to check if the path is truly relative to the root.
+	// Rel returns a path relative to basepath such that join(basepath, rel) == targetpath.
+	rel, err := filepath.Rel(realRoot, realPath)
+	if err != nil {
+		return "", fmt.Errorf("vfs: path traversal detected: %w", err)
 	}
-	return absPath, nil
+
+	// 5. Reject if it starts with ".." (outside root) or is an absolute path (on some OSs)
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("vfs: path traversal detected: %s is outside of root", name)
+	}
+
+	return realPath, nil
 }
 
 func (o *OSFileSystem) Open(name string) (fs.File, error) {

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"os"
-
 	"github.com/piotrlaczykowski/emdexer/vfs"
 )
 
@@ -24,7 +22,7 @@ func initVFS(cfg Config) {
 			SecretKey:    cfg.S3SecretKey,
 			Region:       cfg.S3Region,
 			UsePathStyle: cfg.S3UsePathStyle,
-			Prefix:       os.Getenv("NODE_ROOT"),
+			Prefix:       cfg.S3Prefix,
 		})
 	default:
 		globalFS = &vfs.OSFileSystem{}

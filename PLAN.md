@@ -62,8 +62,8 @@ The goal is to move from a "trusted tool" to "critical infrastructure."
 | 15.2 | Gateway High Availability (multi-replica + shared registry) | ✅ Done |
 | 15.3 | Global Namespace Aggregation | 🚧 In Progress |
 | 15.4 | OIDC/Active Directory Integration | 🚧 In Progress |
-| 15.5 | Air-Gapped Optimization — Ollama/vLLM local embeddings | ✅ Done |
-| 15.6 | Delta-Only Re-indexing (checksum-based) | ✅ Done |
+| 15.5 | Air-Gapped Optimization — Ollama/vLLM local embeddings | ✅ Done | `EmbedProvider` interface implemented; `OllamaProvider` fully implemented. Refactored into `src/pkg/embed` (DRY). |
+| 15.6 | Delta-Only Re-indexing (checksum-based) | ✅ Done | 3-stage pipeline (stat → partial XXH3 → full XXH3); `EMDEX_DELTA_ENABLED` / `EMDEX_FULL_HASH` env vars; 7 tests; design doc at `docs/design/delta-indexing.md`. |
 | 15.7 | S3 node full pipeline (P6 completion) | 📋 Planned |
 
 ### Phase 15.1 & 15.2 Notes

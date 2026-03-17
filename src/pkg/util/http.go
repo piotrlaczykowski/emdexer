@@ -1,10 +1,10 @@
 package util
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
-	"syscall"
 	"time"
 )
 
@@ -32,28 +32,38 @@ func IsPrivateIP(ip net.IP) bool {
 	return false
 }
 
-// NewSafeTransport returns an http.Transport with an SSRF guard.
+// NewSafeTransport returns an http.Transport with an SSRF guard that supports hostnames.
 func NewSafeTransport() *http.Transport {
 	dialer := &net.Dialer{
 		Timeout:   10 * time.Second,
 		KeepAlive: 30 * time.Second,
-		Control: func(network, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return fmt.Errorf("ssrf-guard: could not parse dial address %q: %w", address, err)
-			}
-			ip := net.ParseIP(host)
-			if ip == nil {
-				return fmt.Errorf("ssrf-guard: non-IP address at dial time: %q", host)
-			}
-			if IsPrivateIP(ip) {
-				return fmt.Errorf("ssrf-guard: dial to restricted IP %s blocked (DNS rebinding?)", ip)
-			}
-			return nil
-		},
+		// We use a custom resolver logic inside DialContext rather than the Control hook
+		// because the hook doesn't easily allow for multi-IP validation before connection.
 	}
+
 	return &http.Transport{
-		DialContext:           dialer.DialContext,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+
+			// Resolve hostnames to all IPs
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("ssrf-guard: resolution failed for %s: %w", host, err)
+			}
+
+			// Validate EVERY resolved IP
+			for _, ip := range ips {
+				if IsPrivateIP(ip.IP) {
+					return nil, fmt.Errorf("ssrf-guard: dial to restricted IP %s blocked for host %s", ip.IP, host)
+				}
+			}
+
+			// If all IPs are safe, use the standard dialer
+			return dialer.DialContext(ctx, network, addr)
+		},
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 		ForceAttemptHTTP2:     true,
@@ -63,7 +73,7 @@ func NewSafeTransport() *http.Transport {
 // NewSafeHTTPClient returns an http.Client using the SafeTransport.
 func NewSafeHTTPClient(timeout time.Duration) *http.Client {
 	if timeout == 0 {
-		timeout = 30 * time.Second
+		timeout = 60 * time.Second
 	}
 	return &http.Client{
 		Transport: NewSafeTransport(),

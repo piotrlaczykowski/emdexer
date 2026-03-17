@@ -63,7 +63,6 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authHeader := r.Header.Get("Authorization")
 
 	allowedNamespaces, ok := r.Context().Value("AllowedNamespaces").([]string)
 	if !ok {

@@ -250,11 +250,16 @@ func (s *S3FileSystem) ReadDirFlat(name string) ([]Entry, error) {
 }
 
 // Ping verifies connectivity to the S3 bucket by listing a single object.
+// The prefix is applied so the check matches the actual IAM access pattern.
 func (s *S3FileSystem) Ping(ctx context.Context) error {
-	_, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+	input := &s3.ListObjectsV2Input{
 		Bucket:  aws.String(s.bucket),
 		MaxKeys: aws.Int32(1),
-	})
+	}
+	if s.prefix != "" {
+		input.Prefix = aws.String(s.prefix + "/")
+	}
+	_, err := s.client.ListObjectsV2(ctx, input)
 	if err != nil {
 		return fmt.Errorf("s3 ping %s: %w", s.bucket, err)
 	}

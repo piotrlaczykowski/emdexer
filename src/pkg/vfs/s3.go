@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/piotrlaczykowski/emdexer/pkg/util"
+	"github.com/piotrlaczykowski/emdexer/util"
 )
 
 type S3FileSystem struct {
@@ -80,7 +80,10 @@ func (s *S3FileSystem) Open(name string) (fs.File, error) {
 	}
 
 	// Try to get the object to see if it exists and if it's a file
-	output, err := s.client.GetObject(context.Background(), &s3.GetObjectInput{
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	output, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
@@ -105,7 +108,10 @@ func (s *S3FileSystem) Stat(name string) (fs.FileInfo, error) {
 		return &S3FileInfo{name: ".", isDir: true}, nil
 	}
 
-	head, err := s.client.HeadObject(context.Background(), &s3.HeadObjectInput{
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	head, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
@@ -119,7 +125,7 @@ func (s *S3FileSystem) Stat(name string) (fs.FileInfo, error) {
 	}
 
 	// Check if it's a directory by listing with prefix
-	list, err := s.client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
+	list, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket:  aws.String(s.bucket),
 		Prefix:  aws.String(key + "/"),
 		MaxKeys: aws.Int32(1),
@@ -140,7 +146,10 @@ func (s *S3FileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 		key += "/"
 	}
 
-	output, err := s.client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	output, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket:    aws.String(s.bucket),
 		Prefix:    aws.String(key),
 		Delimiter: aws.String("/"),
@@ -183,8 +192,11 @@ func (s *S3FileSystem) ReadDirFlat(name string) ([]fs.DirEntry, error) {
 		Prefix: aws.String(key),
 	})
 
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.Background())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, err
 		}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -168,7 +169,8 @@ func (p *Poller) pollPath(path string) {
 	now := time.Now().Unix()
 	log.Printf("[poller] Polling %s...", path)
 
-	walkErr := p.recursiveWalk(path, func(filePath string, size int64, mtime int64) {
+	var walkErr error
+	callback := func(filePath string, size int64, mtime int64) {
 		log.Printf("[poller] Walking file: %s", filePath)
 
 		var cachedSize int64
@@ -281,7 +283,23 @@ func (p *Poller) pollPath(path string) {
 			}
 		}
 		p.indexFileWithHashes(filePath, size, mtime, now, partialHash, fullHash)
-	})
+	}
+
+	if flatFS, ok := p.fs.(vfs.FlatListingFS); ok {
+		log.Printf("[poller] Using flat listing for %s", path)
+		var entries []fs.DirEntry
+		entries, walkErr = flatFS.ReadDirFlat(path)
+		if walkErr == nil {
+			for _, entry := range entries {
+				info, err := entry.Info()
+				if err == nil {
+					callback(entry.Name(), info.Size(), info.ModTime().Unix())
+				}
+			}
+		}
+	} else {
+		walkErr = p.recursiveWalk(path, callback)
+	}
 
 	if walkErr != nil {
 		log.Printf("[poller] Walk error: %v - ABORTING deletion detection to avoid transient removals", walkErr)

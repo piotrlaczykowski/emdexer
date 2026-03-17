@@ -22,15 +22,16 @@ func (s *Server) authenticate(next http.HandlerFunc) http.HandlerFunc {
 
 		key := parts[1]
 		if s.apiKeys != nil {
-			allowedNamespaces, ok := s.apiKeys[key]
-			if ok {
-				ctx := context.WithValue(r.Context(), "AllowedNamespaces", allowedNamespaces)
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
+			for k, allowedNamespaces := range s.apiKeys {
+				if subtle.ConstantTimeCompare([]byte(key), []byte(k)) == 1 {
+					ctx := context.WithValue(r.Context(), "AllowedNamespaces", allowedNamespaces)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
 			}
 		}
 
-		if s.authKey != "" && key == s.authKey {
+		if s.authKey != "" && subtle.ConstantTimeCompare([]byte(key), []byte(s.authKey)) == 1 {
 			ctx := context.WithValue(r.Context(), "AllowedNamespaces", []string{"*"})
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return

@@ -1,13 +1,14 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
-	"database/sql"
 )
 
 type NodeInfo struct {
@@ -49,6 +50,11 @@ type FileNodeRegistry struct {
 }
 
 func NewFileNodeRegistry(dataFile string) *FileNodeRegistry {
+	if dir := filepath.Dir(dataFile); dir != "." {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			log.Printf("[registry] Failed to create directory %s: %v", dir, err)
+		}
+	}
 	r := &FileNodeRegistry{
 		nodes:    make(map[string]NodeInfo),
 		dataFile: dataFile,
@@ -79,11 +85,17 @@ func (r *FileNodeRegistry) persist() {
 	}
 	data, err := json.MarshalIndent(nodes, "", "  ")
 	if err != nil {
+		log.Printf("[registry] Failed to marshal nodes: %v", err)
 		return
 	}
 	tmp := r.dataFile + ".tmp"
-	os.WriteFile(tmp, data, 0600)
-	os.Rename(tmp, r.dataFile)
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		log.Printf("[registry] Failed to write %s: %v", tmp, err)
+		return
+	}
+	if err := os.Rename(tmp, r.dataFile); err != nil {
+		log.Printf("[registry] Failed to rename %s to %s: %v", tmp, r.dataFile, err)
+	}
 }
 
 func (r *FileNodeRegistry) Register(n NodeInfo) {
@@ -132,11 +144,13 @@ func NewDBNodeRegistry(dsn string) (*DBNodeRegistry, error) {
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := db.Ping(); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("[registry] failed to ping postgres: %w", err)
 	}
 
 	r := &DBNodeRegistry{db: db}
 	if err := r.migrate(); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("[registry] migration failed: %w", err)
 	}
 
@@ -170,7 +184,7 @@ func (r *DBNodeRegistry) Register(n NodeInfo) {
 		      registered_at = EXCLUDED.registered_at
 	`, n.ID, n.URL, string(colsJSON), n.RegisteredAt)
 	if err != nil {
-		log.Printf("[registry) Register error: %v", err)
+		log.Printf("[registry] Register error: %v", err)
 	}
 }
 

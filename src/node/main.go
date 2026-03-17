@@ -134,14 +134,30 @@ func extractFromBytes(path string, data []byte, extractousHost string) (string, 
 		return string(data), nil
 	}
 
-	if !globalCB.Allow() { return "", fmt.Errorf("cb open") }
+	if !globalCB.Allow() {
+		return "", fmt.Errorf("cb open")
+	}
 
 	bodyBuf := &bytes.Buffer{}
 	writer := multipart.NewWriter(bodyBuf)
-	part, _ := writer.CreateFormFile("file", filepath.Base(path))
-	part.Write(data)
+	part, err := writer.CreateFormFile("file", filepath.Base(path))
+	if err != nil {
+		return "", fmt.Errorf("failed to create multipart form: %w", err)
+	}
+	if _, err := part.Write(data); err != nil {
+		return "", fmt.Errorf("failed to write to multipart form: %w", err)
+	}
 	writer.Close()
-	req, _ := http.NewRequest("POST", extractousHost+"/extract", bodyBuf)
+
+	endpoint := strings.TrimSuffix(extractousHost, "/")
+	if !strings.HasSuffix(endpoint, "/extract") {
+		endpoint += "/extract"
+	}
+
+	req, err := http.NewRequest("POST", endpoint, bodyBuf)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	client := &http.Client{Timeout: 60 * time.Second}
 	res, err := client.Do(req)
@@ -156,9 +172,13 @@ func extractFromBytes(path string, data []byte, extractousHost string) (string, 
 		return "", fmt.Errorf("extraction API %d", res.StatusCode)
 	}
 
-	globalCB.RecordSuccess()
 	var result ExtractedResult
-	json.NewDecoder(res.Body).Decode(&result)
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		globalCB.RecordFailure()
+		return "", fmt.Errorf("failed to decode extraction response: %w", err)
+	}
+
+	globalCB.RecordSuccess()
 	return result.Text, nil
 }
 

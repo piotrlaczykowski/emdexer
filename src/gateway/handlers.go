@@ -41,8 +41,11 @@ func (s *Server) handleDeregisterNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	id := strings.TrimPrefix(r.URL.Path, "/nodes/")
-	id = strings.TrimSuffix(id, "/deregister")
+	id := strings.TrimPrefix(r.URL.Path, "/nodes/deregister/")
+	if id == "" {
+		id = strings.TrimPrefix(r.URL.Path, "/nodes/")
+		id = strings.TrimSuffix(id, "/deregister")
+	}
 	if id == "" {
 		http.Error(w, "Bad request: missing node id", http.StatusBadRequest)
 		return
@@ -88,12 +91,6 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vector, err := s.embedder.Embed(query)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("embedding error: %v", err), http.StatusInternalServerError)
-		return
-	}
-
 	nodes := s.registry.List()
 
 	var allResults []SearchResult
@@ -110,14 +107,36 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			nodeCtx, nodeCancel := context.WithTimeout(ctx, 3*time.Second)
 			defer nodeCancel()
 
-			nodeResults, err := searchQdrant(nodeCtx, s.pointsClient, s.collection, vector, 10, requestedNamespace)
+			searchURL := fmt.Sprintf("%s/v1/search?q=%s&namespace=%s", strings.TrimSuffix(n.URL, "/"), query, requestedNamespace)
+			req, err := http.NewRequestWithContext(nodeCtx, "GET", searchURL, nil)
+			if err != nil {
+				log.Printf("Node %s request creation error: %v", n.ID, err)
+				return
+			}
+
+			client := &http.Client{}
+			resp, err := client.Do(req)
 			if err != nil {
 				log.Printf("Node %s search error: %v", n.ID, err)
 				return
 			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				log.Printf("Node %s returned status %d", n.ID, resp.StatusCode)
+				return
+			}
+
+			var nodeResponse struct {
+				Results []SearchResult `json:"results"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&nodeResponse); err != nil {
+				log.Printf("Node %s decoding error: %v", n.ID, err)
+				return
+			}
 
 			resultsMu.Lock()
-			allResults = append(allResults, nodeResults...)
+			allResults = append(allResults, nodeResponse.Results...)
 			resultsMu.Unlock()
 		}(node)
 	}

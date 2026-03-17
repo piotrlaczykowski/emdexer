@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -122,6 +123,10 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wg.Wait()
+
+	sort.Slice(allResults, func(i, j int) bool {
+		return allResults[i].Score > allResults[j].Score
+	})
 
 	s.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"query":   query,

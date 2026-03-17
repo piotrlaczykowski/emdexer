@@ -328,7 +328,7 @@ func main() {
 
 	registryFile := os.Getenv("EMDEX_REGISTRY_FILE")
 	if registryFile == "" {
-		registryFile = filepath.Join(cwd, "nodes.json")
+		registryFile = "/var/lib/emdexer/nodes/nodes.json"
 	}
 
 	registry := newRegistry(registryFile)

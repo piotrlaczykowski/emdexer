@@ -133,7 +133,8 @@ func initVFS() {
 			AccessKey:    globalCfg.S3AccessKey,
 			SecretKey:    globalCfg.S3SecretKey,
 			Region:       globalCfg.S3Region,
-			UsePathStyle: globalCfg.S3UseSSL != "true", // Using UseSSL to toggle PathStyle for now, or we can add a specific toggle
+			UsePathStyle: globalCfg.S3UseSSL != "true",
+			Prefix:       os.Getenv("NODE_ROOT"),
 		})
 	default:
 		globalFS = &vfs.OSFileSystem{}
@@ -345,19 +346,31 @@ func main() {
 		if w != nil {
 			go w.Start()
 		}
-	} else {
+	} else if globalCfg.NodeType == "smb" || globalCfg.NodeType == "sftp" || globalCfg.NodeType == "nfs" || globalCfg.NodeType == "s3" {
 		cacheDir := os.Getenv("EMDEX_CACHE_DIR")
 		if cacheDir == "" {
 			cacheDir = filepath.Join(cwd, "cache")
 		}
 		os.MkdirAll(cacheDir, 0700)
 		cache, _ := watcher.NewMetadataCache(filepath.Join(cacheDir, "emdex_cache.db"))
+
+		pollInterval := 60 * time.Second
+		if globalCfg.NodeType == "s3" {
+			if intervalStr := os.Getenv("EMDEX_S3_POLL_INTERVAL"); intervalStr != "" {
+				if d, err := time.ParseDuration(intervalStr); err == nil {
+					pollInterval = d
+				}
+			} else {
+				pollInterval = 5 * time.Minute
+			}
+		}
+
 		if cache != nil {
 			p := watcher.NewPoller(
 				globalFS,
 				root,
 				cache,
-				60*time.Second,
+				pollInterval,
 				func(path string, content []byte) error {
 					points := indexDataToPoints(path, content)
 					if len(points) > 0 {

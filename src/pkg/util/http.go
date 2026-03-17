@@ -51,7 +51,19 @@ func NewSafeTransport() *http.Transport {
 			// Resolve hostnames to all IPs
 			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 			if err != nil {
+				// If resolution fails, it might be a literal IP address.
+				// Try parsing it directly.
+				if ip := net.ParseIP(host); ip != nil {
+					if IsPrivateIP(ip) {
+						return nil, fmt.Errorf("ssrf-guard: dial to restricted IP %s blocked", ip)
+					}
+					return dialer.DialContext(ctx, network, addr)
+				}
 				return nil, fmt.Errorf("ssrf-guard: resolution failed for %s: %w", host, err)
+			}
+
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("ssrf-guard: no IP addresses found for %s", host)
 			}
 
 			// Validate EVERY resolved IP
@@ -61,8 +73,10 @@ func NewSafeTransport() *http.Transport {
 				}
 			}
 
-			// If all IPs are safe, use the standard dialer
-			return dialer.DialContext(ctx, network, addr)
+			// If all IPs are safe, use the standard dialer but with the FIRST resolved IP
+			// to prevent DNS rebinding attacks.
+			_, port, _ := net.SplitHostPort(addr)
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
 		},
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,

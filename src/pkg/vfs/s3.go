@@ -2,6 +2,7 @@ package vfs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -13,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/piotrlaczykowski/emdexer/util"
 )
 
@@ -76,8 +78,10 @@ func (s *S3FileSystem) OpenContext(ctx context.Context, name string) (fs.File, e
 	})
 	if err != nil {
 		cancel()
-		if strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "404") {
-			return &S3Directory{fs: s, name: name, key: key + "/"}, nil
+		var nsk *types.NoSuchKey
+		var nf *types.NotFound
+		if errors.As(err, &nsk) || errors.As(err, &nf) {
+			return nil, fs.ErrNotExist
 		}
 		return nil, fmt.Errorf("s3 get object %s: %w", key, err)
 	}
@@ -94,7 +98,9 @@ func (s *S3FileSystem) OpenContext(ctx context.Context, name string) (fs.File, e
 
 func (s *S3FileSystem) Stat(name string) (fs.FileInfo, error) {
 	key := s.fullPath(name)
-	if name == "." || name == "" { return &S3FileInfo{name: ".", isDir: true}, nil }
+	if name == "." || name == "" {
+		return &S3FileInfo{name: ".", isDir: true}, nil
+	}
 	head, err := s.client.HeadObject(s.ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
@@ -107,15 +113,22 @@ func (s *S3FileSystem) Stat(name string) (fs.FileInfo, error) {
 			isDir: false,
 		}, nil
 	}
-	list, err := s.client.ListObjectsV2(s.ctx, &s3.ListObjectsV2Input{
-		Bucket:  aws.String(s.bucket),
-		Prefix:  aws.String(key + "/"),
-		MaxKeys: aws.Int32(1),
-	})
-	if err == nil && (*list.KeyCount > 0) {
-		return &S3FileInfo{name: path.Base(name), isDir: true}, nil
+
+	var nsk *types.NoSuchKey
+	var nf *types.NotFound
+	if errors.As(err, &nsk) || errors.As(err, &nf) {
+		list, err := s.client.ListObjectsV2(s.ctx, &s3.ListObjectsV2Input{
+			Bucket:  aws.String(s.bucket),
+			Prefix:  aws.String(key + "/"),
+			MaxKeys: aws.Int32(1),
+		})
+		if err == nil && (*list.KeyCount > 0) {
+			return &S3FileInfo{name: path.Base(name), isDir: true}, nil
+		}
+		return nil, fs.ErrNotExist
 	}
-	return nil, fs.ErrNotExist
+
+	return nil, fmt.Errorf("s3 head object %s: %w", key, err)
 }
 
 func (s *S3FileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
@@ -217,7 +230,7 @@ type S3FileInfo struct {
 	isDir bool
 }
 
-func (fi *S3FileInfo) Name() string { return fi.name }
+func (fi *S3FileInfo) Name() string { return path.Base(fi.name) }
 func (fi *S3FileInfo) Size() int64 { return fi.size }
 func (fi *S3FileInfo) Mode() fs.FileMode { if fi.isDir { return fs.ModeDir }; return 0444 }
 func (fi *S3FileInfo) ModTime() time.Time { return fi.mtime }

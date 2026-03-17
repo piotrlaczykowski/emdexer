@@ -102,13 +102,14 @@ func main() {
 		SFTPPass:       os.Getenv("SFTP_PASS"),
 		NFSHost:        os.Getenv("NFS_HOST"),
 		NFSPath:        os.Getenv("NFS_PATH"),
-		S3Endpoint:     os.Getenv("S3_ENDPOINT"),
-		S3Bucket:       os.Getenv("S3_BUCKET"),
-		S3AccessKey:    os.Getenv("S3_ACCESS_KEY"),
-		S3SecretKey:    os.Getenv("S3_SECRET_KEY"),
-		S3Region:       os.Getenv("S3_REGION"),
-		S3UseSSL:       os.Getenv("S3_USE_SSL"),
-		S3UsePathStyle: os.Getenv("S3_USE_PATH_STYLE") == "true",
+		S3Endpoint:     os.Getenv("EMDEX_S3_ENDPOINT"),
+		S3Bucket:       os.Getenv("EMDEX_S3_BUCKET"),
+		S3AccessKey:    os.Getenv("EMDEX_S3_ACCESS_KEY"),
+		S3SecretKey:    os.Getenv("EMDEX_S3_SECRET_KEY"),
+		S3Region:       os.Getenv("EMDEX_S3_REGION"),
+		S3UseSSL:       os.Getenv("EMDEX_S3_USE_SSL"),
+		S3UsePathStyle: os.Getenv("EMDEX_S3_USE_PATH_STYLE") == "true",
+		S3PollInterval: os.Getenv("EMDEX_S3_POLL_INTERVAL"),
 	}
 
 	if globalCfg.ExtractousHost == "" {
@@ -207,8 +208,8 @@ func main() {
 
 		pollInterval := 60 * time.Second
 		if globalCfg.NodeType == "s3" {
-			if intervalStr := os.Getenv("EMDEX_S3_POLL_INTERVAL"); intervalStr != "" {
-				if d, err := time.ParseDuration(intervalStr); err == nil {
+			if globalCfg.S3PollInterval != "" {
+				if d, err := time.ParseDuration(globalCfg.S3PollInterval); err == nil {
 					pollInterval = d
 				}
 			} else {

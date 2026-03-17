@@ -82,8 +82,10 @@ services:
       - EMDEX_S3_ENDPOINT=${EMDEX_S3_ENDPOINT}
       - EMDEX_S3_ACCESS_KEY=${EMDEX_S3_ACCESS_KEY}
       - EMDEX_S3_SECRET_KEY=${EMDEX_S3_SECRET_KEY}
+      - EMDEX_S3_USE_SSL=${EMDEX_S3_USE_SSL:-true}
       - EMDEX_S3_USE_PATH_STYLE=${EMDEX_S3_USE_PATH_STYLE:-false}
       - EMDEX_S3_PREFIX=${EMDEX_S3_PREFIX}
+      - EMDEX_S3_POLL_INTERVAL=${EMDEX_S3_POLL_INTERVAL:-5m}
     networks:
       - emdexer-net
     restart: always

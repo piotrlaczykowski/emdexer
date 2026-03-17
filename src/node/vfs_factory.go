@@ -8,22 +8,22 @@ import (
 
 var globalFS vfs.FileSystem
 
-func initVFS() {
+func initVFS(cfg Config) {
 	var err error
-	switch globalCfg.NodeType {
+	switch cfg.NodeType {
 	case "smb":
-		globalFS, err = vfs.NewSMBFileSystem(globalCfg.SMBHost, globalCfg.SMBUser, globalCfg.SMBPass, globalCfg.SMBShare)
+		globalFS, err = vfs.NewSMBFileSystem(cfg.SMBHost, cfg.SMBUser, cfg.SMBPass, cfg.SMBShare)
 	case "sftp":
-		globalFS, err = vfs.NewSFTPFileSystem(globalCfg.SFTPHost, globalCfg.SFTPPort, globalCfg.SFTPUser, globalCfg.SFTPPass)
+		globalFS, err = vfs.NewSFTPFileSystem(cfg.SFTPHost, cfg.SFTPPort, cfg.SFTPUser, cfg.SFTPPass)
 	case "nfs":
-		globalFS, err = vfs.NewNFSFileSystem(globalCfg.NFSHost, globalCfg.NFSPath)
+		globalFS, err = vfs.NewNFSFileSystem(cfg.NFSHost, cfg.NFSPath)
 	case "s3":
-		globalFS, err = vfs.NewS3FileSystem(globalCtx, globalCfg.S3Bucket, vfs.S3Options{
-			Endpoint:     globalCfg.S3Endpoint,
-			AccessKey:    globalCfg.S3AccessKey,
-			SecretKey:    globalCfg.S3SecretKey,
-			Region:       globalCfg.S3Region,
-			UsePathStyle: globalCfg.S3UseSSL != "true",
+		globalFS, err = vfs.NewS3FileSystem(globalCtx, cfg.S3Bucket, vfs.S3Options{
+			Endpoint:     cfg.S3Endpoint,
+			AccessKey:    cfg.S3AccessKey,
+			SecretKey:    cfg.S3SecretKey,
+			Region:       cfg.S3Region,
+			UsePathStyle: cfg.S3UsePathStyle,
 			Prefix:       os.Getenv("NODE_ROOT"),
 		})
 	default:

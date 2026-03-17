@@ -168,7 +168,7 @@ func (p *Poller) pollPath(path string) {
 	now := time.Now().Unix()
 	log.Printf("[poller] Polling %s...", path)
 
-	err := p.recursiveWalk(path, func(filePath string, size int64, mtime int64) {
+	walkErr := p.recursiveWalk(path, func(filePath string, size int64, mtime int64) {
 		log.Printf("[poller] Walking file: %s", filePath)
 
 		var cachedSize int64
@@ -283,8 +283,9 @@ func (p *Poller) pollPath(path string) {
 		p.indexFileWithHashes(filePath, size, mtime, now, partialHash, fullHash)
 	})
 
-	if err != nil {
-		log.Printf("[poller] Walk error: %v", err)
+	if walkErr != nil {
+		log.Printf("[poller] Walk error: %v - ABORTING deletion detection to avoid transient removals", walkErr)
+		return
 	}
 
 	// Detect deleted files

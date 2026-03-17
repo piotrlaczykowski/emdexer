@@ -14,6 +14,11 @@ type FileSystem interface {
 	Close() error
 }
 
+type FlatListingFS interface {
+	FileSystem
+	ReadDirFlat(name string) ([]fs.DirEntry, error)
+}
+
 type File interface {
 	fs.File
 	io.Seeker

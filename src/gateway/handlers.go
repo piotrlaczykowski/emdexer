@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/piotrlaczykowski/emdexer/pkg/util"
 	"github.com/piotrlaczykowski/emdexer/version"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -123,7 +124,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 			req.Header.Set("Authorization", r.Header.Get("Authorization"))
 
-			client := &http.Client{}
+			client := util.NewSafeHTTPClient(3 * time.Second)
 			resp, err := client.Do(req)
 			if err != nil {
 				log.Printf("Node %s search error: %v", n.ID, err)

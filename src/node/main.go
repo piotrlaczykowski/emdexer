@@ -74,6 +74,12 @@ type Config struct {
 	SFTPPass       string
 	NFSHost        string
 	NFSPath        string
+	S3Endpoint     string
+	S3Bucket       string
+	S3AccessKey    string
+	S3SecretKey    string
+	S3Region       string
+	S3UseSSL       string
 }
 
 type ExtractedResult struct {
@@ -121,6 +127,14 @@ func initVFS() {
 		globalFS, err = vfs.NewSFTPFileSystem(globalCfg.SFTPHost, globalCfg.SFTPPort, globalCfg.SFTPUser, globalCfg.SFTPPass)
 	case "nfs":
 		globalFS, err = vfs.NewNFSFileSystem(globalCfg.NFSHost, globalCfg.NFSPath)
+	case "s3":
+		globalFS, err = vfs.NewS3FileSystem(globalCtx, globalCfg.S3Bucket, vfs.S3Options{
+			Endpoint:     globalCfg.S3Endpoint,
+			AccessKey:    globalCfg.S3AccessKey,
+			SecretKey:    globalCfg.S3SecretKey,
+			Region:       globalCfg.S3Region,
+			UsePathStyle: globalCfg.S3UseSSL != "true", // Using UseSSL to toggle PathStyle for now, or we can add a specific toggle
+		})
 	default:
 		globalFS = &vfs.OSFileSystem{}
 	}
@@ -242,6 +256,12 @@ func main() {
 		SFTPPass:       os.Getenv("SFTP_PASS"),
 		NFSHost:        os.Getenv("NFS_HOST"),
 		NFSPath:        os.Getenv("NFS_PATH"),
+		S3Endpoint:     os.Getenv("S3_ENDPOINT"),
+		S3Bucket:       os.Getenv("S3_BUCKET"),
+		S3AccessKey:    os.Getenv("S3_ACCESS_KEY"),
+		S3SecretKey:    os.Getenv("S3_SECRET_KEY"),
+		S3Region:       os.Getenv("S3_REGION"),
+		S3UseSSL:       os.Getenv("S3_USE_SSL"),
 	}
 
 	if globalCfg.ExtractousHost == "" {

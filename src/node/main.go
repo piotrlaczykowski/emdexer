@@ -108,6 +108,7 @@ func main() {
 		S3SecretKey:    os.Getenv("S3_SECRET_KEY"),
 		S3Region:       os.Getenv("S3_REGION"),
 		S3UseSSL:       os.Getenv("S3_USE_SSL"),
+		S3UsePathStyle: os.Getenv("S3_USE_PATH_STYLE") == "true",
 	}
 
 	if globalCfg.ExtractousHost == "" {
@@ -146,7 +147,7 @@ func main() {
 		go startQueueWorker()
 	}
 
-	initVFS()
+	initVFS(globalCfg)
 	defer globalFS.Close()
 
 	_, err = collectionsClient.Get(globalCtx, &qdrant.GetCollectionInfoRequest{
@@ -170,6 +171,11 @@ func main() {
 	root := os.Getenv("NODE_ROOT")
 	if root == "" {
 		root = filepath.Join(cwd, "test_dir")
+	}
+
+	traversalRoot := root
+	if globalCfg.NodeType == "s3" {
+		traversalRoot = "."
 	}
 
 	if globalCfg.NodeType == "local" {
@@ -213,7 +219,7 @@ func main() {
 		if cache != nil {
 			p := watcher.NewPoller(
 				globalFS,
-				root,
+				traversalRoot,
 				cache,
 				pollInterval,
 				func(path string, content []byte) error {
@@ -276,7 +282,7 @@ func main() {
 			batch = nil
 		}
 
-		idx.Walk(root, func(path string, isDir bool, content []byte) error {
+		idx.Walk(traversalRoot, func(path string, isDir bool, content []byte) error {
 			points := indexDataToPoints(path, content)
 			for _, p := range points {
 				batch = append(batch, p)

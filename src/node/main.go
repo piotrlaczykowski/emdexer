@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"bufio"
 	"bytes"
 	"context"
@@ -15,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/piotrlaczykowski/emdexer/embed"
 	"github.com/piotrlaczykowski/emdexer/extractor"
 	"github.com/piotrlaczykowski/emdexer/indexer"
@@ -26,11 +24,9 @@ import (
 	"github.com/piotrlaczykowski/emdexer/version"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 const (
@@ -114,6 +110,79 @@ func loadEnv(path string) {
 			}
 		}
 	}
+}
+
+func initVFS() {
+	var err error
+	switch globalCfg.NodeType {
+	case "smb":
+		globalFS, err = vfs.NewSMBFileSystem(globalCfg.SMBHost, globalCfg.SMBUser, globalCfg.SMBPass, globalCfg.SMBShare)
+	case "sftp":
+		globalFS, err = vfs.NewSFTPFileSystem(globalCfg.SFTPHost, globalCfg.SFTPPort, globalCfg.SFTPUser, globalCfg.SFTPPass)
+	case "nfs":
+		globalFS, err = vfs.NewNFSFileSystem(globalCfg.NFSHost, globalCfg.NFSPath)
+	default:
+		globalFS = &vfs.OSFileSystem{}
+	}
+	if err != nil { panic(err) }
+}
+
+func extractFromBytes(path string, data []byte, extractousHost string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	internalExts := map[string]bool{".txt": true, ".md": true, ".go": true, ".py": true, ".json": true}
+	if internalExts[ext] {
+		return string(data), nil
+	}
+
+	if !globalCB.Allow() { return "", fmt.Errorf("cb open") }
+
+	bodyBuf := &bytes.Buffer{}
+	writer := multipart.NewWriter(bodyBuf)
+	part, _ := writer.CreateFormFile("file", filepath.Base(path))
+	part.Write(data)
+	writer.Close()
+	req, _ := http.NewRequest("POST", extractousHost+"/extract", bodyBuf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	client := &http.Client{Timeout: 60 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		globalCB.RecordFailure()
+		return "", err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		globalCB.RecordFailure()
+		return "", fmt.Errorf("extraction API %d", res.StatusCode)
+	}
+
+	globalCB.RecordSuccess()
+	var result ExtractedResult
+	json.NewDecoder(res.Body).Decode(&result)
+	return result.Text, nil
+}
+
+func extractContent(path, extractousHost string) (string, error) {
+	f, err := globalFS.Open(path)
+	if err != nil { return "", err }
+	defer f.Close()
+	data, _ := io.ReadAll(f)
+	return extractFromBytes(path, data, extractousHost)
+}
+
+func smartChunk(text string, size, overlap int) []string {
+	words := strings.Fields(text)
+	if len(words) == 0 { return nil }
+	var chunks []string
+	step := size - overlap
+	if step <= 0 { step = 1 }
+	for i := 0; i < len(words); i += step {
+		end := i + size
+		if end > len(words) { end = len(words) }
+		chunks = append(chunks, strings.Join(words[i:end], " "))
+		if end == len(words) { break }
+	}
+	return chunks
 }
 
 func main() {
@@ -313,200 +382,4 @@ func main() {
 	}()
 
 	startHealthServer(conn)
-}
-
-func initVFS() {
-	var err error
-	switch globalCfg.NodeType {
-	case "smb":
-		globalFS, err = vfs.NewSMBFileSystem(globalCfg.SMBHost, globalCfg.SMBUser, globalCfg.SMBPass, globalCfg.SMBShare)
-	case "sftp":
-		globalFS, err = vfs.NewSFTPFileSystem(globalCfg.SFTPHost, globalCfg.SFTPPort, globalCfg.SFTPUser, globalCfg.SFTPPass)
-	case "nfs":
-		globalFS, err = vfs.NewNFSFileSystem(globalCfg.NFSHost, globalCfg.NFSPath)
-	default:
-		globalFS = &vfs.OSFileSystem{}
-	}
-	if err != nil { panic(err) }
-}
-
-func indexDataToPoints(path string, content []byte) []*qdrant.PointStruct {
-	var text string
-	var err error
-	startExt := time.Now()
-	if len(content) > 0 {
-		text, err = extractFromBytes(path, content, globalCfg.ExtractousHost)
-	} else {
-		text, err = extractContent(path, globalCfg.ExtractousHost)
-	}
-	extractionLatency.Observe(float64(time.Since(startExt).Milliseconds()))
-
-	if err != nil {
-		errorCount.WithLabelValues("extraction", globalCfg.NodeType).Inc()
-		text = ""
-	}
-
-	var points []*qdrant.PointStruct
-	chunks := []string{""}
-	if text != "" {
-		chunks = smartChunk(text, 512, 50)
-	}
-
-	for i, chunk := range chunks {
-		var vector []float32
-		if chunk != "" {
-			startEmb := time.Now()
-			vector, err = globalEmbedder.Embed(chunk)
-			if err != nil {
-				errorCount.WithLabelValues("embedding", globalCfg.NodeType).Inc()
-				continue
-			}
-			embeddingLatency.Observe(float64(time.Since(startEmb).Milliseconds()))
-		} else {
-			vector = make([]float32, EmbeddingDims)
-		}
-
-		ns := uuid.MustParse(ProjectNamespace)
-		idInput := fmt.Sprintf("%s:%d", path, i)
-		u := uuid.NewSHA1(ns, []byte(idInput))
-
-		payload := map[string]*qdrant.Value{
-			"path":       {Kind: &qdrant.Value_StringValue{StringValue: path}},
-			"chunk":      {Kind: &qdrant.Value_IntegerValue{IntegerValue: int64(i)}},
-			"text":       {Kind: &qdrant.Value_StringValue{StringValue: chunk}},
-			"indexed_at": {Kind: &qdrant.Value_IntegerValue{IntegerValue: time.Now().UnixNano()}},
-		}
-		if globalCfg.Namespace != "" {
-			payload["namespace"] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: globalCfg.Namespace}}
-		}
-
-		points = append(points, &qdrant.PointStruct{
-			Id: &qdrant.PointId{PointIdOptions: &qdrant.PointId_Uuid{Uuid: u.String()}},
-			Vectors: &qdrant.Vectors{VectorsOptions: &qdrant.Vectors_Vector{Vector: &qdrant.Vector{Data: vector}}},
-			Payload: payload,
-		})
-	}
-	indexingThroughput.Inc()
-	return points
-}
-
-func extractFromBytes(path string, data []byte, extractousHost string) (string, error) {
-	ext := strings.ToLower(filepath.Ext(path))
-	internalExts := map[string]bool{".txt": true, ".md": true, ".go": true, ".py": true, ".json": true}
-	if internalExts[ext] {
-		return string(data), nil
-	}
-
-	if !globalCB.Allow() { return "", fmt.Errorf("cb open") }
-
-	bodyBuf := &bytes.Buffer{}
-	writer := multipart.NewWriter(bodyBuf)
-	part, _ := writer.CreateFormFile("file", filepath.Base(path))
-	part.Write(data)
-	writer.Close()
-	req, _ := http.NewRequest("POST", extractousHost+"/extract", bodyBuf)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	client := &http.Client{Timeout: 60 * time.Second}
-	res, err := client.Do(req)
-	if err != nil {
-		globalCB.RecordFailure()
-		return "", err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		globalCB.RecordFailure()
-		return "", fmt.Errorf("extraction API %d", res.StatusCode)
-	}
-
-	globalCB.RecordSuccess()
-	var result ExtractedResult
-	json.NewDecoder(res.Body).Decode(&result)
-	return result.Text, nil
-}
-
-func extractContent(path, extractousHost string) (string, error) {
-	f, err := globalFS.Open(path)
-	if err != nil { return "", err }
-	defer f.Close()
-	data, _ := io.ReadAll(f)
-	return extractFromBytes(path, data, extractousHost)
-}
-
-func startHealthServer(qdrantConn *grpc.ClientConn) {
-	healthClient := grpc_health_v1.NewHealthClient(qdrantConn)
-	startTime := time.Now()
-
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/healthz/liveness", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
-	})
-
-	mux.HandleFunc("/healthz/readiness", func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		resp, err := healthClient.Check(ctx, &grpc_health_v1.HealthCheckRequest{Service: ""})
-		if err != nil || resp.Status != grpc_health_v1.HealthCheckResponse_SERVING {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"status": "DOWN"})
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
-	})
-
-	mux.HandleFunc("/healthz/startup", func(w http.ResponseWriter, r *http.Request) {
-		if time.Since(startTime) < 5*time.Second {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"status": "STARTING"})
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]string{"status": "STARTED"})
-	})
-
-	port := os.Getenv("NODE_HEALTH_PORT")
-	if port == "" {
-		port = "8081"
-	}
-	addr := ":" + port
-	server := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  30 * time.Second,
-	}
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Printf("health server error: %v", err)
-	}
-}
-
-func smartChunk(text string, size, overlap int) []string {
-	words := strings.Fields(text)
-	if len(words) == 0 { return nil }
-	var chunks []string
-	step := size - overlap
-	if step <= 0 { step = 1 }
-	for i := 0; i < len(words); i += step {
-		end := i + size
-		if end > len(words) { end = len(words) }
-		chunks = append(chunks, strings.Join(words[i:end], " "))
-		if end == len(words) { break }
-	}
-	return chunks
-}
-
-func startQueueWorker() {
-	ticker := time.NewTicker(30 * time.Second)
-	for range ticker.C {
-		for {
-			item, _ := globalQueue.Dequeue()
-			if item == nil { break }
-			_, err := globalPointsClient.Upsert(globalCtx, &qdrant.UpsertPoints{
-				CollectionName: globalCfg.CollectionName,
-				Points:         item.Points,
-			})
-			if err == nil { globalQueue.Delete(item.ID) } else { break }
-		}
-	}
 }

@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -8,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/piotrlaczykowski/emdexer/vfs"
 )
 
 type MockFS struct {
@@ -67,6 +70,17 @@ func (fs *MockFS) Stat(name string) (fs.FileInfo, error) {
 
 func (fs *MockFS) Close() error { return nil }
 
+// MockFlatFS is a MockFS that also implements FlatListingFS using vfs.Entry.
+type MockFlatFS struct {
+	MockFS
+	FlatEntries []vfs.Entry
+	FlatErr     error
+}
+
+func (m *MockFlatFS) ReadDirFlat(_ string) ([]vfs.Entry, error) {
+	return m.FlatEntries, m.FlatErr
+}
+
 func TestPoller(t *testing.T) {
 	tmpDir, _ := os.MkdirTemp("", "poller_test")
 	defer os.RemoveAll(tmpDir)
@@ -123,5 +137,101 @@ func TestPoller(t *testing.T) {
 	p.poll()
 	if !deleted["file1.txt"] {
 		t.Error("Expected file1.txt to be detected as deleted")
+	}
+}
+
+// TestPollerFlatListing verifies that the FlatListingFS fast path uses
+// Entry.Path directly (VFS-root-relative), matching recursiveWalk semantics.
+func TestPollerFlatListing(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "poller_flat_test")
+	defer os.RemoveAll(tmpDir)
+
+	cache, err := NewMetadataCache(filepath.Join(tmpDir, "flat.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	now := time.Now()
+	flatFS := &MockFlatFS{
+		MockFS: MockFS{
+			Files: map[string]*MockFile{
+				".":                  {FileName: ".", FileIsDir: true},
+				"dir/file.txt":       {FileName: "file.txt", FileContent: []byte("hello"), FileMTime: now},
+				"dir/sub/nested.txt": {FileName: "nested.txt", FileContent: []byte("world"), FileMTime: now},
+			},
+		},
+		FlatEntries: []vfs.Entry{
+			{Name: "file.txt", Path: "dir/file.txt", Size: 5, MTime: now},
+			{Name: "nested.txt", Path: "dir/sub/nested.txt", Size: 5, MTime: now},
+		},
+	}
+
+	indexed := make(map[string]bool)
+
+	p := NewPoller(flatFS, ".", cache, 100*time.Millisecond, func(path string, content []byte) error {
+		indexed[path] = true
+		return nil
+	}, func(path string) error {
+		return nil
+	})
+
+	p.poll()
+
+	if !indexed["dir/file.txt"] {
+		t.Error("Expected dir/file.txt to be indexed via flat listing")
+	}
+	if !indexed["dir/sub/nested.txt"] {
+		t.Error("Expected dir/sub/nested.txt to be indexed via flat listing")
+	}
+}
+
+// TestPollerFlatListingWalkErrorPreventsDeletes verifies that a walk error in
+// the flat-listing path aborts deletion detection to avoid false tombstones.
+func TestPollerFlatListingWalkErrorPreventsDeletes(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "poller_flat_err_test")
+	defer os.RemoveAll(tmpDir)
+
+	cache, err := NewMetadataCache(filepath.Join(tmpDir, "flat_err.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	now := time.Now()
+
+	// Phase 1: seed the cache with one file
+	flatFS := &MockFlatFS{
+		MockFS: MockFS{
+			Files: map[string]*MockFile{
+				".":       {FileName: ".", FileIsDir: true},
+				"a.txt":   {FileName: "a.txt", FileContent: []byte("v1"), FileMTime: now},
+			},
+		},
+		FlatEntries: []vfs.Entry{
+			{Name: "a.txt", Path: "a.txt", Size: 2, MTime: now},
+		},
+	}
+
+	deleted := make(map[string]bool)
+
+	p := NewPoller(flatFS, ".", cache, 100*time.Millisecond, func(path string, content []byte) error {
+		return nil
+	}, func(path string) error {
+		deleted[path] = true
+		return nil
+	})
+
+	p.poll()
+
+	// Phase 2: simulate a listing error — deletion detection must be skipped.
+	time.Sleep(2 * time.Second)
+	flatFS.FlatEntries = nil
+	flatFS.FlatErr = errors.New("network error")
+
+	p.poll()
+
+	if deleted["a.txt"] {
+		t.Error("a.txt should NOT be deleted when walk returns an error")
 	}
 }

@@ -2,10 +2,10 @@ package vfs
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"path"
 	"strings"
 	"time"
 
@@ -21,21 +21,23 @@ type S3FileSystem struct {
 	client *s3.Client
 	bucket string
 	prefix string
-	ctx    context.Context
+	ctx    context.Context // Base context for all operations
 }
 
 type S3Options struct {
-	Region           string
-	Endpoint         string
-	AccessKey        string
-	SecretKey        string
-	UsePathStyle     bool
-	Prefix           string
+	Region       string
+	Endpoint     string
+	AccessKey    string
+	SecretKey    string
+	UsePathStyle bool
+	Prefix       string
 }
 
 func NewS3FileSystem(ctx context.Context, bucket string, opts S3Options) (*S3FileSystem, error) {
 	cfgOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(opts.Region),
+		// Inject the shared SSRF-guarded HTTP client
+		config.WithHTTPClient(util.NewSafeHTTPClient(0)),
 	}
 
 	if opts.AccessKey != "" && opts.SecretKey != "" {
@@ -44,7 +46,7 @@ func NewS3FileSystem(ctx context.Context, bucket string, opts S3Options) (*S3Fil
 		))
 	}
 
-	cfg, err := config.LoadDefaultConfig(ctx, append(cfgOpts, config.WithHTTPClient(util.NewSafeHTTPClient(0)))...)
+	cfg, err := config.LoadDefaultConfig(ctx, cfgOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load S3 config: %w", err)
 	}
@@ -76,40 +78,34 @@ func (s *S3FileSystem) fullPath(name string) string {
 }
 
 func (s *S3FileSystem) Open(name string) (fs.File, error) {
+	return s.OpenContext(s.ctx, name)
+}
+
+func (s *S3FileSystem) OpenContext(ctx context.Context, name string) (fs.File, error) {
 	key := s.fullPath(name)
 	
-	// Check if it's a "directory" (prefix)
-	if name == "." || name == "" || strings.HasSuffix(name, "/") {
-		return &S3Directory{fs: s, name: name, key: key}, nil
-	}
+	// Create a cancelable context for the stream
+	streamCtx, cancel := context.WithCancel(ctx)
 
-	// Try to get the object to see if it exists and if it's a file
-	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
-	defer cancel()
-
-	output, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+	// Try to get the object
+	output, err := s.client.GetObject(streamCtx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
+	
 	if err != nil {
+		cancel()
 		var nsk *types.NoSuchKey
-		if errors.As(err, &nsk) {
-			// If object not found, check if it's a directory prefix
-			list, listErr := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-				Bucket:  aws.String(s.bucket),
-				Prefix:  aws.String(key + "/"),
-				MaxKeys: aws.Int32(1),
-			})
-			if listErr == nil && (*list.KeyCount > 0) {
-				return &S3Directory{fs: s, name: name, key: key + "/"}, nil
-			}
-			return nil, fs.ErrNotExist
+		if strings.Contains(err.Error(), "NoSuchKey") || (fmt.Errorf("%w", err) != nil && strings.Contains(err.Error(), "404")) {
+			// Check if it's a directory prefix
+			return &S3Directory{fs: s, name: name, key: key + "/"}, nil
 		}
 		return nil, fmt.Errorf("s3 get object %s: %w", key, err)
 	}
 
 	return &S3File{
 		ReadCloser: output.Body,
+		cancel:     cancel,
 		fs:         s,
 		name:       name,
 		key:        key,
@@ -124,41 +120,37 @@ func (s *S3FileSystem) Stat(name string) (fs.FileInfo, error) {
 		return &S3FileInfo{name: ".", isDir: true}, nil
 	}
 
-	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
-	defer cancel()
-
-	head, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+	head, err := s.client.HeadObject(s.ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
 	if err == nil {
 		return &S3FileInfo{
-			name:  fsName(name),
+			name:  path.Base(name),
 			size:  *head.ContentLength,
 			mtime: *head.LastModified,
 			isDir: false,
 		}, nil
 	}
 
-	var nsk *types.NoSuchKey
-	var nf *types.NotFound
-	if errors.As(err, &nsk) || errors.As(err, &nf) {
-		// Check if it's a directory by listing with prefix
-		list, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-			Bucket:  aws.String(s.bucket),
-			Prefix:  aws.String(key + "/"),
-			MaxKeys: aws.Int32(1),
-		})
-		if err == nil && (*list.KeyCount > 0) {
-			return &S3FileInfo{
-				name:  fsName(name),
-				isDir: true,
-			}, nil
-		}
-		return nil, fs.ErrNotExist
+	// Check if it's a directory
+	list, err := s.client.ListObjectsV2(s.ctx, &s3.ListObjectsV2Input{
+		Bucket:  aws.String(s.bucket),
+		Prefix:  aws.String(key + "/"),
+		MaxKeys: aws.Int32(1),
+	})
+	if err == nil && (*list.KeyCount > 0) {
+		return &S3FileInfo{
+			name:  path.Base(name),
+			isDir: true,
+		}, nil
 	}
 
-	return nil, fmt.Errorf("s3 head object %s: %w", key, err)
+	if err != nil && !strings.Contains(err.Error(), "NotFound") && !strings.Contains(err.Error(), "NoSuchKey") {
+		return nil, fmt.Errorf("s3 stat %s: %w", key, err)
+	}
+
+	return nil, fs.ErrNotExist
 }
 
 func (s *S3FileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
@@ -166,9 +158,6 @@ func (s *S3FileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 	if key != "" && !strings.HasSuffix(key, "/") {
 		key += "/"
 	}
-
-	ctx, cancel := context.WithTimeout(s.ctx, 1*time.Minute)
-	defer cancel()
 
 	var entries []fs.DirEntry
 	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
@@ -178,23 +167,21 @@ func (s *S3FileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 	})
 
 	for paginator.HasMorePages() {
-		output, err := paginator.NextPage(ctx)
+		page, err := paginator.NextPage(s.ctx)
 		if err != nil {
-			return nil, fmt.Errorf("s3 list objects %s: %w", key, err)
+			return nil, fmt.Errorf("s3 readdir %s: %w", key, err)
 		}
 
-		for _, p := range output.CommonPrefixes {
+		for _, p := range page.CommonPrefixes {
 			entries = append(entries, fs.FileInfoToDirEntry(&S3FileInfo{
-				name:  fsName(*p.Prefix),
+				name:  strings.TrimSuffix(path.Base(*p.Prefix), "/"),
 				isDir: true,
 			}))
 		}
-		for _, o := range output.Contents {
-			if *o.Key == key {
-				continue // Skip the directory itself if it exists as an object
-			}
+		for _, o := range page.Contents {
+			if *o.Key == key { continue }
 			entries = append(entries, fs.FileInfoToDirEntry(&S3FileInfo{
-				name:  fsName(*o.Key),
+				name:  path.Base(*o.Key),
 				size:  *o.Size,
 				mtime: *o.LastModified,
 				isDir: false,
@@ -217,23 +204,16 @@ func (s *S3FileSystem) ReadDirFlat(name string) ([]fs.DirEntry, error) {
 		Prefix: aws.String(key),
 	})
 
-	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Minute)
-	defer cancel()
-
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
+		page, err := paginator.NextPage(s.ctx)
 		if err != nil {
-			return nil, fmt.Errorf("s3 list objects flat %s: %w", key, err)
+			return nil, fmt.Errorf("s3 readdirflat %s: %w", key, err)
 		}
 
 		for _, o := range page.Contents {
-			if *o.Key == key || strings.HasSuffix(*o.Key, "/") {
-				continue
-			}
-			// For flat listing, we provide the relative path from the 'name' directory
-			relPath := strings.TrimPrefix(*o.Key, key)
+			if *o.Key == key { continue }
 			entries = append(entries, fs.FileInfoToDirEntry(&S3FileInfo{
-				name:  relPath,
+				name:  *o.Key, // Flat listing returns relative path from root
 				size:  *o.Size,
 				mtime: *o.LastModified,
 				isDir: false,
@@ -250,20 +230,28 @@ func (s *S3FileSystem) Close() error {
 
 type S3File struct {
 	io.ReadCloser
-	fs    *S3FileSystem
-	name  string
-	key   string
-	size  int64
-	mtime time.Time
+	cancel context.CancelFunc
+	fs     *S3FileSystem
+	name   string
+	key    string
+	size   int64
+	mtime  time.Time
 }
 
 func (f *S3File) Stat() (fs.FileInfo, error) {
 	return &S3FileInfo{
-		name:  fsName(f.name),
+		name:  path.Base(f.name),
 		size:  f.size,
 		mtime: f.mtime,
 		isDir: false,
 	}, nil
+}
+
+func (f *S3File) Close() error {
+	if f.cancel != nil {
+		f.cancel()
+	}
+	return f.ReadCloser.Close()
 }
 
 type S3Directory struct {
@@ -273,12 +261,12 @@ type S3Directory struct {
 }
 
 func (d *S3Directory) Read(p []byte) (int, error) {
-	return 0, &fs.PathError{Op: "read", Path: d.name, Err: errors.New("is a directory")}
+	return 0, &fs.PathError{Op: "read", Path: d.name, Err: fs.ErrInvalid}
 }
 
 func (d *S3Directory) Stat() (fs.FileInfo, error) {
 	return &S3FileInfo{
-		name:  fsName(d.name),
+		name:  path.Base(d.name),
 		isDir: true,
 	}, nil
 }
@@ -300,9 +288,3 @@ func (fi *S3FileInfo) Mode() fs.FileMode  { if fi.isDir { return fs.ModeDir }; r
 func (fi *S3FileInfo) ModTime() time.Time { return fi.mtime }
 func (fi *S3FileInfo) IsDir() bool        { return fi.isDir }
 func (fi *S3FileInfo) Sys() interface{}   { return nil }
-
-func fsName(path string) string {
-	path = strings.TrimSuffix(path, "/")
-	parts := strings.Split(path, "/")
-	return parts[len(parts)-1]
-}

@@ -142,9 +142,11 @@ func extractFromBytes(path string, data []byte, extractousHost string) (string, 
 	writer := multipart.NewWriter(bodyBuf)
 	part, err := writer.CreateFormFile("file", filepath.Base(path))
 	if err != nil {
+		globalCB.RecordFailure()
 		return "", fmt.Errorf("failed to create multipart form: %w", err)
 	}
 	if _, err := part.Write(data); err != nil {
+		globalCB.RecordFailure()
 		return "", fmt.Errorf("failed to write to multipart form: %w", err)
 	}
 	writer.Close()
@@ -156,6 +158,7 @@ func extractFromBytes(path string, data []byte, extractousHost string) (string, 
 
 	req, err := http.NewRequest("POST", endpoint, bodyBuf)
 	if err != nil {
+		globalCB.RecordFailure()
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -186,7 +189,10 @@ func extractContent(path, extractousHost string) (string, error) {
 	f, err := globalFS.Open(path)
 	if err != nil { return "", err }
 	defer f.Close()
-	data, _ := io.ReadAll(f)
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return "", fmt.Errorf("read error: %w", err)
+	}
 	return extractFromBytes(path, data, extractousHost)
 }
 

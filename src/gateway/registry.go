@@ -66,6 +66,9 @@ func NewFileNodeRegistry(dataFile string) *FileNodeRegistry {
 func (r *FileNodeRegistry) load() {
 	data, err := os.ReadFile(r.dataFile)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("[registry] Failed to read %s: %v", r.dataFile, err)
+		}
 		return
 	}
 	var nodes []NodeInfo
@@ -214,6 +217,9 @@ func (r *DBNodeRegistry) List() []NodeInfo {
 			n.Collections = []string{}
 		}
 		out = append(out, n)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[registry] rows error: %v", err)
 	}
 	return out
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -46,6 +47,7 @@ func (s *Server) handleDeregisterNode(w http.ResponseWriter, r *http.Request) {
 		id = strings.TrimPrefix(r.URL.Path, "/nodes/")
 		id = strings.TrimSuffix(id, "/deregister")
 	}
+	id = strings.TrimSuffix(id, "/")
 	if id == "" {
 		http.Error(w, "Bad request: missing node id", http.StatusBadRequest)
 		return
@@ -60,6 +62,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	authHeader := r.Header.Get("Authorization")
 
 	allowedNamespaces, ok := r.Context().Value("AllowedNamespaces").([]string)
 	if !ok {
@@ -107,11 +111,19 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			nodeCtx, nodeCancel := context.WithTimeout(ctx, 3*time.Second)
 			defer nodeCancel()
 
-			searchURL := fmt.Sprintf("%s/v1/search?q=%s&namespace=%s", strings.TrimSuffix(n.URL, "/"), query, requestedNamespace)
+			params := url.Values{}
+			params.Add("q", query)
+			params.Add("namespace", requestedNamespace)
+
+			searchURL := fmt.Sprintf("%s/v1/search?%s", strings.TrimSuffix(n.URL, "/"), params.Encode())
 			req, err := http.NewRequestWithContext(nodeCtx, "GET", searchURL, nil)
 			if err != nil {
 				log.Printf("Node %s request creation error: %v", n.ID, err)
 				return
+			}
+
+			if authHeader != "" {
+				req.Header.Set("Authorization", authHeader)
 			}
 
 			client := &http.Client{}

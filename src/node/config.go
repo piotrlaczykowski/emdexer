@@ -37,6 +37,7 @@ type Config struct {
 	S3Region       string
 	S3UseSSL       string
 	S3UsePathStyle bool
+	S3PollInterval string
 }
 
 func loadEnv(path string) {

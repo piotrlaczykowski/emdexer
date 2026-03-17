@@ -133,7 +133,8 @@ func (r *FileNodeRegistry) List() []NodeInfo {
 	now := time.Now()
 	out := make([]NodeInfo, 0, len(r.nodes))
 	for _, n := range r.nodes {
-		if !n.LastSeen.IsZero() && now.Sub(n.LastSeen) > HeartbeatExpiry {
+		// Treat zero LastSeen (nodes loaded from pre-heartbeat nodes.json) as stale.
+		if n.LastSeen.IsZero() || now.Sub(n.LastSeen) > HeartbeatExpiry {
 			continue
 		}
 		out = append(out, deepCopyNodeInfo(n))

@@ -81,7 +81,11 @@ func smartChunk(text string, size, overlap int) []string {
 // re-registers every 60s as a heartbeat. Non-blocking: logs errors
 // but never terminates the node.
 func registerWithGateway(gatewayURL string, cfg Config) {
-	hostname, _ := os.Hostname()
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Printf("[registration] failed to get hostname: %v", err)
+		return
+	}
 	nodeURL := os.Getenv("EMDEX_NODE_URL")
 	if nodeURL == "" {
 		nodeURL = fmt.Sprintf("http://%s:8080", hostname)
@@ -103,7 +107,11 @@ func registerWithGateway(gatewayURL string, cfg Config) {
 		Collections: []string{ns},
 	}
 
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[registration] failed to marshal payload: %v", err)
+		return
+	}
 	endpoint := strings.TrimSuffix(gatewayURL, "/") + "/nodes/register"
 	client := util.NewSafeHTTPClient(5 * time.Second)
 

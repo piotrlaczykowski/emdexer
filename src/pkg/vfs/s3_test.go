@@ -22,7 +22,7 @@ func newTestS3FS(t *testing.T, srv *httptest.Server, bucket, prefix string) *S3F
 	ctx := context.Background()
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("AKID", "SECRET", "")),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("AKID", "SECRET", "")), // #nosec G101 -- static test-only placeholders for httptest mock, not real credentials
 		config.WithHTTPClient(srv.Client()),
 	)
 	if err != nil {

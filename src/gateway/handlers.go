@@ -4,15 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
-	"net/url"
 	"sort"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/piotrlaczykowski/emdexer/util"
 	"github.com/piotrlaczykowski/emdexer/version"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -57,13 +54,47 @@ func (s *Server) handleDeregisterNode(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]interface{}{"status": "deregistered", "id": id})
 }
 
+func (s *Server) handleListNamespaces(w http.ResponseWriter, r *http.Request) {
+	nodes := s.registry.List()
+
+	nsSet := make(map[string]struct{})
+	type nodeEntry struct {
+		ID         string   `json:"id"`
+		URL        string   `json:"url"`
+		Namespaces []string `json:"namespaces"`
+		LastSeen   string   `json:"last_seen"`
+	}
+	var nodeEntries []nodeEntry
+	for _, n := range nodes {
+		for _, c := range n.Collections {
+			nsSet[c] = struct{}{}
+		}
+		nodeEntries = append(nodeEntries, nodeEntry{
+			ID:         n.ID,
+			URL:        n.URL,
+			Namespaces: n.Collections,
+			LastSeen:   n.LastSeen.Format(time.RFC3339),
+		})
+	}
+
+	namespaces := make([]string, 0, len(nsSet))
+	for ns := range nsSet {
+		namespaces = append(namespaces, ns)
+	}
+	sort.Strings(namespaces)
+
+	s.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"namespaces": namespaces,
+		"nodes":      nodeEntries,
+	})
+}
+
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
 
 	allowedNamespaces, ok := r.Context().Value("AllowedNamespaces").([]string)
 	if !ok {
@@ -83,7 +114,6 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-
 	if !isAllowed {
 		http.Error(w, "Forbidden: Namespace not authorized", http.StatusForbidden)
 		return
@@ -95,78 +125,35 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nodes := s.registry.List()
-
-	var allResults []SearchResult
-	var resultsMu sync.Mutex
-	var wg sync.WaitGroup
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	for _, node := range nodes {
-		wg.Add(1)
-		go func(n NodeInfo) {
-			defer wg.Done()
-			nodeCtx, nodeCancel := context.WithTimeout(ctx, 3*time.Second)
-			defer nodeCancel()
-
-			params := url.Values{}
-			params.Add("q", query)
-			params.Add("namespace", requestedNamespace)
-
-			searchURL := fmt.Sprintf("%s/v1/search?%s", strings.TrimSuffix(n.URL, "/"), params.Encode())
-			req, err := http.NewRequestWithContext(nodeCtx, "GET", searchURL, nil)
-			if err != nil {
-				log.Printf("Node %s request creation error: %v", n.ID, err)
-				return
-			}
-
-			req.Header.Set("Authorization", r.Header.Get("Authorization"))
-
-			client := util.NewSafeHTTPClient(3 * time.Second)
-			resp, err := client.Do(req)
-			if err != nil {
-				log.Printf("Node %s search error: %v", n.ID, err)
-				return
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				log.Printf("Node %s returned status %d", n.ID, resp.StatusCode)
-				return
-			}
-
-			var nodeResponse struct {
-				Results []SearchResult `json:"results"`
-			}
-			if err := json.NewDecoder(resp.Body).Decode(&nodeResponse); err != nil {
-				log.Printf("Node %s decoding error: %v", n.ID, err)
-				return
-			}
-
-			resultsMu.Lock()
-			allResults = append(allResults, nodeResponse.Results...)
-			resultsMu.Unlock()
-		}(node)
+	limit := uint64(10)
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.ParseUint(v, 10, 64); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
 	}
 
-	wg.Wait()
+	vector, err := s.embedder.Embed(query)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("embedding error: %v", err), http.StatusBadGateway)
+		return
+	}
 
-	sort.Slice(allResults, func(i, j int) bool {
-		return allResults[i].Score > allResults[j].Score
-	})
+	results, err := searchQdrant(r.Context(), s.pointsClient, s.collection, vector, limit, requestedNamespace)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
+		return
+	}
 
 	s.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"query":   query,
-		"results": allResults,
+		"results": results,
 	})
 
 	logAudit(AuditEntry{
 		Action:    "search",
 		Query:     query,
 		Namespace: requestedNamespace,
-		Results:   len(allResults),
+		Results:   len(results),
 		LatencyMS: time.Since(start).Milliseconds(),
 		Status:    http.StatusOK,
 	})

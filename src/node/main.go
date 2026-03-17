@@ -1,7 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +16,7 @@ import (
 	"github.com/piotrlaczykowski/emdexer/extractor"
 	"github.com/piotrlaczykowski/emdexer/indexer"
 	"github.com/piotrlaczykowski/emdexer/queue"
+	"github.com/piotrlaczykowski/emdexer/util"
 	"github.com/piotrlaczykowski/emdexer/watcher"
 
 	"github.com/piotrlaczykowski/emdexer/version"
@@ -69,6 +75,66 @@ func smartChunk(text string, size, overlap int) []string {
 		}
 	}
 	return chunks
+}
+
+// registerWithGateway sends a registration POST to the gateway and
+// re-registers every 60s as a heartbeat. Non-blocking: logs errors
+// but never terminates the node.
+func registerWithGateway(gatewayURL string, cfg Config) {
+	hostname, _ := os.Hostname()
+	nodeURL := os.Getenv("EMDEX_NODE_URL")
+	if nodeURL == "" {
+		nodeURL = fmt.Sprintf("http://%s:8080", hostname)
+	}
+	authKey := os.Getenv("EMDEX_GATEWAY_AUTH_KEY")
+
+	ns := cfg.Namespace
+	if ns == "" {
+		ns = "default"
+	}
+
+	payload := struct {
+		ID          string   `json:"id"`
+		URL         string   `json:"url"`
+		Collections []string `json:"collections"`
+	}{
+		ID:          hostname,
+		URL:         nodeURL,
+		Collections: []string{ns},
+	}
+
+	body, _ := json.Marshal(payload)
+	endpoint := strings.TrimSuffix(gatewayURL, "/") + "/nodes/register"
+	client := util.NewSafeHTTPClient(5 * time.Second)
+
+	doRegister := func() {
+		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+		if err != nil {
+			log.Printf("[registration] failed to create request: %v", err)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if authKey != "" {
+			req.Header.Set("Authorization", "Bearer "+authKey)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("[registration] gateway unreachable: %v", err)
+			return
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			log.Printf("[registration] registered with gateway as %s (namespace=%s)", hostname, ns)
+		} else {
+			log.Printf("[registration] gateway returned %d", resp.StatusCode)
+		}
+	}
+
+	doRegister()
+	ticker := time.NewTicker(60 * time.Second)
+	for range ticker.C {
+		doRegister()
+	}
 }
 
 func main() {
@@ -296,6 +362,11 @@ func main() {
 		})
 		flush()
 	}()
+
+	// Self-register with gateway if configured.
+	if gwURL := os.Getenv("EMDEX_GATEWAY_URL"); gwURL != "" {
+		go registerWithGateway(gwURL, globalCfg)
+	}
 
 	startHealthServer(conn)
 }

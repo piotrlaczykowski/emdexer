@@ -16,6 +16,7 @@ type NodeInfo struct {
 	URL          string    `json:"url"`
 	Collections  []string  `json:"collections"`
 	RegisteredAt time.Time `json:"registered_at"`
+	LastSeen     time.Time `json:"last_seen"`
 }
 
 func deepCopyNodeInfo(n NodeInfo) NodeInfo {
@@ -26,6 +27,7 @@ func deepCopyNodeInfo(n NodeInfo) NodeInfo {
 		URL:          n.URL,
 		Collections:  cols,
 		RegisteredAt: n.RegisteredAt,
+		LastSeen:     n.LastSeen,
 	}
 }
 
@@ -104,7 +106,13 @@ func (r *FileNodeRegistry) persist() {
 func (r *FileNodeRegistry) Register(n NodeInfo) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	n.RegisteredAt = time.Now()
+	now := time.Now()
+	if existing, ok := r.nodes[n.ID]; ok {
+		n.RegisteredAt = existing.RegisteredAt
+	} else {
+		n.RegisteredAt = now
+	}
+	n.LastSeen = now
 	r.nodes[n.ID] = deepCopyNodeInfo(n)
 	r.persist()
 }
@@ -116,11 +124,18 @@ func (r *FileNodeRegistry) Deregister(id string) {
 	r.persist()
 }
 
+// HeartbeatExpiry is how long after the last heartbeat a node is considered stale.
+const HeartbeatExpiry = 180 * time.Second
+
 func (r *FileNodeRegistry) List() []NodeInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	now := time.Now()
 	out := make([]NodeInfo, 0, len(r.nodes))
 	for _, n := range r.nodes {
+		if !n.LastSeen.IsZero() && now.Sub(n.LastSeen) > HeartbeatExpiry {
+			continue
+		}
 		out = append(out, deepCopyNodeInfo(n))
 	}
 	return out
@@ -168,24 +183,34 @@ CREATE TABLE IF NOT EXISTS registered_nodes (
     id           TEXT        PRIMARY KEY,
     url          TEXT        NOT NULL,
     collections  JSONB       NOT NULL DEFAULT '[]',
-    registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 `
-	_, err := r.db.Exec(ddl)
+	if _, err := r.db.Exec(ddl); err != nil {
+		return err
+	}
+	// Idempotent migration: add last_seen if missing (upgrades from older schema).
+	const alter = `ALTER TABLE registered_nodes ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW();`
+	_, err := r.db.Exec(alter)
 	return err
 }
 
 func (r *DBNodeRegistry) Register(n NodeInfo) {
-	n.RegisteredAt = time.Now()
+	now := time.Now()
+	n.LastSeen = now
+	if n.RegisteredAt.IsZero() {
+		n.RegisteredAt = now
+	}
 	colsJSON, _ := json.Marshal(n.Collections)
 	_, err := r.db.Exec(`
-		INSERT INTO registered_nodes (id, url, collections, registered_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO registered_nodes (id, url, collections, registered_at, last_seen)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (id) DO UPDATE
 		  SET url          = EXCLUDED.url,
 		      collections  = EXCLUDED.collections,
-		      registered_at = EXCLUDED.registered_at
-	`, n.ID, n.URL, string(colsJSON), n.RegisteredAt)
+		      last_seen    = EXCLUDED.last_seen
+	`, n.ID, n.URL, string(colsJSON), n.RegisteredAt, n.LastSeen)
 	if err != nil {
 		log.Printf("[registry] Register error: %v", err)
 	}
@@ -198,7 +223,7 @@ func (r *DBNodeRegistry) Deregister(id string) {
 }
 
 func (r *DBNodeRegistry) List() []NodeInfo {
-	rows, err := r.db.Query(`SELECT id, url, collections, registered_at FROM registered_nodes ORDER BY registered_at`)
+	rows, err := r.db.Query(`SELECT id, url, collections, registered_at, last_seen FROM registered_nodes WHERE last_seen > NOW() - INTERVAL '180 seconds' ORDER BY registered_at`)
 	if err != nil {
 		log.Printf("[registry] List error: %v", err)
 		return nil
@@ -209,7 +234,7 @@ func (r *DBNodeRegistry) List() []NodeInfo {
 	for rows.Next() {
 		var n NodeInfo
 		var colsJSON string
-		if err := rows.Scan(&n.ID, &n.URL, &colsJSON, &n.RegisteredAt); err != nil {
+		if err := rows.Scan(&n.ID, &n.URL, &colsJSON, &n.RegisteredAt, &n.LastSeen); err != nil {
 			log.Printf("[registry] scan error: %v", err)
 			continue
 		}

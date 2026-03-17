@@ -1,14 +1,7 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"mime/multipart"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +11,6 @@ import (
 	"github.com/piotrlaczykowski/emdexer/extractor"
 	"github.com/piotrlaczykowski/emdexer/indexer"
 	"github.com/piotrlaczykowski/emdexer/queue"
-	"github.com/piotrlaczykowski/emdexer/vfs"
 	"github.com/piotrlaczykowski/emdexer/watcher"
 
 	"github.com/piotrlaczykowski/emdexer/version"
@@ -27,13 +19,6 @@ import (
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-)
-
-const (
-	Version        = "v1.0.5"
-	EmbeddingDims  = 3072
-	CollectionName = "emdexer_v1"
-	ProjectNamespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 )
 
 var (
@@ -57,171 +42,31 @@ var (
 	}, []string{"type", "ext"})
 )
 
-type Config struct {
-	QdrantHost     string
-	ExtractousHost string
-	CollectionName string
-	GoogleAPIKey   string
-	Namespace      string
-	NodeType       string
-	SMBHost        string
-	SMBUser        string
-	SMBPass        string
-	SMBShare       string
-	SFTPHost       string
-	SFTPPort       string
-	SFTPUser       string
-	SFTPPass       string
-	NFSHost        string
-	NFSPath        string
-	S3Endpoint     string
-	S3Bucket       string
-	S3AccessKey    string
-	S3SecretKey    string
-	S3Region       string
-	S3UseSSL       string
-}
-
-type ExtractedResult struct {
-	Text     string                 `json:"text"`
-	Metadata map[string]interface{} `json:"metadata"`
-}
-
 var globalPointsClient qdrant.PointsClient
 var globalQueue *queue.PersistentQueue
-var globalCB *extractor.CircuitBreaker
 var globalCfg Config
 var globalCtx context.Context
-var globalFS vfs.FileSystem
 var globalEmbedder embed.EmbedProvider
-
-func loadEnv(path string) {
-	f, err := os.Open(path)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			val := strings.TrimSpace(parts[1])
-			if os.Getenv(key) == "" {
-				os.Setenv(key, val)
-			}
-		}
-	}
-}
-
-func initVFS() {
-	var err error
-	switch globalCfg.NodeType {
-	case "smb":
-		globalFS, err = vfs.NewSMBFileSystem(globalCfg.SMBHost, globalCfg.SMBUser, globalCfg.SMBPass, globalCfg.SMBShare)
-	case "sftp":
-		globalFS, err = vfs.NewSFTPFileSystem(globalCfg.SFTPHost, globalCfg.SFTPPort, globalCfg.SFTPUser, globalCfg.SFTPPass)
-	case "nfs":
-		globalFS, err = vfs.NewNFSFileSystem(globalCfg.NFSHost, globalCfg.NFSPath)
-	case "s3":
-		globalFS, err = vfs.NewS3FileSystem(globalCtx, globalCfg.S3Bucket, vfs.S3Options{
-			Endpoint:     globalCfg.S3Endpoint,
-			AccessKey:    globalCfg.S3AccessKey,
-			SecretKey:    globalCfg.S3SecretKey,
-			Region:       globalCfg.S3Region,
-			UsePathStyle: globalCfg.S3UseSSL != "true",
-			Prefix:       os.Getenv("NODE_ROOT"),
-		})
-	default:
-		globalFS = &vfs.OSFileSystem{}
-	}
-	if err != nil { panic(err) }
-}
-
-func extractFromBytes(path string, data []byte, extractousHost string) (string, error) {
-	ext := strings.ToLower(filepath.Ext(path))
-	internalExts := map[string]bool{".txt": true, ".md": true, ".go": true, ".py": true, ".json": true}
-	if internalExts[ext] {
-		return string(data), nil
-	}
-
-	if !globalCB.Allow() {
-		return "", fmt.Errorf("cb open")
-	}
-
-	bodyBuf := &bytes.Buffer{}
-	writer := multipart.NewWriter(bodyBuf)
-	part, err := writer.CreateFormFile("file", filepath.Base(path))
-	if err != nil {
-		globalCB.RecordFailure()
-		return "", fmt.Errorf("failed to create multipart form: %w", err)
-	}
-	if _, err := part.Write(data); err != nil {
-		globalCB.RecordFailure()
-		return "", fmt.Errorf("failed to write to multipart form: %w", err)
-	}
-	writer.Close()
-
-	endpoint := strings.TrimSuffix(extractousHost, "/")
-	if !strings.HasSuffix(endpoint, "/extract") {
-		endpoint += "/extract"
-	}
-
-	req, err := http.NewRequest("POST", endpoint, bodyBuf)
-	if err != nil {
-		globalCB.RecordFailure()
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	client := &http.Client{Timeout: 60 * time.Second}
-	res, err := client.Do(req)
-	if err != nil {
-		globalCB.RecordFailure()
-		return "", err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		globalCB.RecordFailure()
-		return "", fmt.Errorf("extraction API %d", res.StatusCode)
-	}
-
-	var result ExtractedResult
-	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
-		globalCB.RecordFailure()
-		return "", fmt.Errorf("failed to decode extraction response: %w", err)
-	}
-
-	globalCB.RecordSuccess()
-	return result.Text, nil
-}
-
-func extractContent(path, extractousHost string) (string, error) {
-	f, err := globalFS.Open(path)
-	if err != nil { return "", err }
-	defer f.Close()
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return "", fmt.Errorf("read error: %w", err)
-	}
-	return extractFromBytes(path, data, extractousHost)
-}
 
 func smartChunk(text string, size, overlap int) []string {
 	words := strings.Fields(text)
-	if len(words) == 0 { return nil }
+	if len(words) == 0 {
+		return nil
+	}
 	var chunks []string
 	step := size - overlap
-	if step <= 0 { step = 1 }
+	if step <= 0 {
+		step = 1
+	}
 	for i := 0; i < len(words); i += step {
 		end := i + size
-		if end > len(words) { end = len(words) }
+		if end > len(words) {
+			end = len(words)
+		}
 		chunks = append(chunks, strings.Join(words[i:end], " "))
-		if end == len(words) { break }
+		if end == len(words) {
+			break
+		}
 	}
 	return chunks
 }
@@ -418,7 +263,9 @@ func main() {
 		idx := indexer.NewIndexer(globalFS)
 		var batch []*qdrant.PointStruct
 		flush := func() {
-			if len(batch) == 0 { return }
+			if len(batch) == 0 {
+				return
+			}
 			_, err := globalPointsClient.Upsert(globalCtx, &qdrant.UpsertPoints{
 				CollectionName: globalCfg.CollectionName,
 				Points:         batch,
@@ -433,7 +280,9 @@ func main() {
 			points := indexDataToPoints(path, content)
 			for _, p := range points {
 				batch = append(batch, p)
-				if len(batch) >= 100 { flush() }
+				if len(batch) >= 100 {
+					flush()
+				}
 			}
 			return nil
 		})

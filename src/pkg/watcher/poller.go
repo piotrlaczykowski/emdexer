@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -287,14 +286,13 @@ func (p *Poller) pollPath(path string) {
 
 	if flatFS, ok := p.fs.(vfs.FlatListingFS); ok {
 		log.Printf("[poller] Using flat listing for %s", path)
-		var entries []fs.DirEntry
-		entries, walkErr = flatFS.ReadDirFlat(path)
+		var flatEntries []vfs.Entry
+		flatEntries, walkErr = flatFS.ReadDirFlat(path)
 		if walkErr == nil {
-			for _, entry := range entries {
-				info, err := entry.Info()
-				if err == nil {
-					callback(entry.Name(), info.Size(), info.ModTime().Unix())
-				}
+			for _, entry := range flatEntries {
+				// Entry.Path is already relative to the VFS root, matching
+				// the semantics of recursiveWalk, so no further join is needed.
+				callback(entry.Path, entry.Size, entry.MTime.Unix())
 			}
 		}
 	} else {

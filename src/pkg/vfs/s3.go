@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"path"
 	"strings"
 	"time"
@@ -37,7 +38,10 @@ type S3Options struct {
 func NewS3FileSystem(ctx context.Context, bucket string, opts S3Options) (*S3FileSystem, error) {
 	cfgOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(opts.Region),
-		config.WithHTTPClient(util.NewSafeHTTPClient(0)),
+		// Use only the transport (no client-level Timeout) so that large object
+		// streams are not aborted mid-read.  Per-request timeouts are controlled
+		// via the context passed to OpenContext / pollPath.
+		config.WithHTTPClient(&http.Client{Transport: util.NewSafeTransport()}),
 	}
 	if opts.AccessKey != "" && opts.SecretKey != "" {
 		cfgOpts = append(cfgOpts, config.WithCredentialsProvider(
@@ -65,6 +69,16 @@ func (s *S3FileSystem) fullPath(name string) string {
 	return s.prefix + "/" + name
 }
 
+// fsName returns the base file/directory name for a given path, stripping any
+// trailing slash.  Returns "" for an empty input (unlike path.Base which
+// returns ".").
+func fsName(p string) string {
+	if p == "" {
+		return ""
+	}
+	return path.Base(strings.TrimSuffix(p, "/"))
+}
+
 func (s *S3FileSystem) Open(name string) (fs.File, error) {
 	return s.OpenContext(s.ctx, name)
 }
@@ -81,6 +95,22 @@ func (s *S3FileSystem) OpenContext(ctx context.Context, name string) (fs.File, e
 		var nsk *types.NoSuchKey
 		var nf *types.NotFound
 		if errors.As(err, &nsk) || errors.As(err, &nf) {
+			// Not a file — check whether it is a directory prefix.
+			prefix := key
+			if !strings.HasSuffix(prefix, "/") {
+				prefix += "/"
+			}
+			list, listErr := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+				Bucket:  aws.String(s.bucket),
+				Prefix:  aws.String(prefix),
+				MaxKeys: aws.Int32(1),
+			})
+			if listErr != nil {
+				return nil, fmt.Errorf("s3 open directory check %s: %w", key, listErr)
+			}
+			if *list.KeyCount > 0 {
+				return &S3Directory{fs: s, name: name, key: key}, nil
+			}
 			return nil, fs.ErrNotExist
 		}
 		return nil, fmt.Errorf("s3 get object %s: %w", key, err)
@@ -117,12 +147,15 @@ func (s *S3FileSystem) Stat(name string) (fs.FileInfo, error) {
 	var nsk *types.NoSuchKey
 	var nf *types.NotFound
 	if errors.As(err, &nsk) || errors.As(err, &nf) {
-		list, err := s.client.ListObjectsV2(s.ctx, &s3.ListObjectsV2Input{
+		list, listErr := s.client.ListObjectsV2(s.ctx, &s3.ListObjectsV2Input{
 			Bucket:  aws.String(s.bucket),
 			Prefix:  aws.String(key + "/"),
 			MaxKeys: aws.Int32(1),
 		})
-		if err == nil && (*list.KeyCount > 0) {
+		if listErr != nil {
+			return nil, fmt.Errorf("s3 stat directory check %s: %w", key, listErr)
+		}
+		if *list.KeyCount > 0 {
 			return &S3FileInfo{name: path.Base(name), isDir: true}, nil
 		}
 		return nil, fs.ErrNotExist
@@ -162,25 +195,44 @@ func (s *S3FileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 	return entries, nil
 }
 
-func (s *S3FileSystem) ReadDirFlat(name string) ([]fs.DirEntry, error) {
-	key := s.fullPath(name)
-	if key != "" && !strings.HasSuffix(key, "/") { key += "/" }
-	var entries []fs.DirEntry
+// ReadDirFlat lists all objects under name without a delimiter (no simulated
+// subdirectory boundary).  Each Entry.Path is relative to the VFS root so it
+// can be used directly as an Open argument — matching the semantics of
+// recursiveWalk.
+func (s *S3FileSystem) ReadDirFlat(name string) ([]Entry, error) {
+	listingKey := s.fullPath(name)
+	if listingKey != "" && !strings.HasSuffix(listingKey, "/") {
+		listingKey += "/"
+	}
+	// rootPrefix is the VFS prefix (with trailing slash) that we strip from
+	// each S3 key to obtain a path relative to the VFS root.
+	rootPrefix := ""
+	if s.prefix != "" {
+		rootPrefix = s.prefix + "/"
+	}
+	var entries []Entry
 	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(s.bucket),
-		Prefix: aws.String(key),
+		Prefix: aws.String(listingKey),
 	})
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(s.ctx)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, fmt.Errorf("s3 read dir flat %s: %w", listingKey, err)
+		}
 		for _, o := range page.Contents {
-			if *o.Key == key { continue }
-			entries = append(entries, fs.FileInfoToDirEntry(&S3FileInfo{
-				name:  *o.Key,
-				size:  *o.Size,
-				mtime: *o.LastModified,
-				isDir: false,
-			}))
+			if *o.Key == listingKey {
+				continue
+			}
+			// Strip the bucket prefix to get a path relative to the VFS root.
+			rel := strings.TrimPrefix(*o.Key, rootPrefix)
+			entries = append(entries, Entry{
+				Name:  fsName(rel),
+				Path:  rel,
+				IsDir: false,
+				Size:  *o.Size,
+				MTime: *o.LastModified,
+			})
 		}
 	}
 	return entries, nil

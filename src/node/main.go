@@ -109,6 +109,7 @@ func main() {
 		S3Region:       os.Getenv("EMDEX_S3_REGION"),
 		S3UseSSL:       os.Getenv("EMDEX_S3_USE_SSL"),
 		S3UsePathStyle: os.Getenv("EMDEX_S3_USE_PATH_STYLE") == "true",
+		S3Prefix:       os.Getenv("EMDEX_S3_PREFIX"),
 		S3PollInterval: os.Getenv("EMDEX_S3_POLL_INTERVAL"),
 	}
 

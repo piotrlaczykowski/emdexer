@@ -16,7 +16,11 @@ type FileSystem interface {
 
 type FlatListingFS interface {
 	FileSystem
-	ReadDirFlat(name string) ([]fs.DirEntry, error)
+	// ReadDirFlat returns all files under name recursively as a flat list.
+	// Each Entry.Path is relative to the VFS root (not to name), matching
+	// the semantics of recursiveWalk so that the same cache keys and Open
+	// paths are produced regardless of which backend is used.
+	ReadDirFlat(name string) ([]Entry, error)
 }
 
 type File interface {

@@ -3,6 +3,8 @@ bin/
 emdex
 emdex-gateway
 emdex-node
+src/node/node
+src/gateway/gateway
 
 # Environment
 .env

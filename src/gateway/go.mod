@@ -7,7 +7,7 @@ require (
 	github.com/piotrlaczykowski/emdexer v1.0.6
 	github.com/prometheus/client_golang v1.23.2
 	github.com/qdrant/go-client v1.17.1
-	google.golang.org/grpc v1.79.2
+	google.golang.org/grpc v1.79.3
 )
 
 require (

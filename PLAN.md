@@ -24,7 +24,7 @@
 ## P6–P14: Extended Features
 | Phase | Description | Status | Notes |
 |-------|-------------|--------|-------|
-| P6 | Cloud Storage (node-s3) | 🔧 Done (Partial) | S3 object enumeration works. Download → extract → embed → upsert pipeline is a **stub** in `node-s3/main.go`. Full implementation planned for P15. |
+| P6 | Cloud Storage (node-s3) | 📋 Planned (Stub) | S3 object enumeration works. Download → extract → embed → upsert pipeline is a **stub** in `node-s3/main.go`. Not functional end-to-end. Full implementation planned for P15.7. |
 | P7 | Mobile Access (Telegram adapter) | ✅ Done | |
 | P8 | Enterprise Connect (Slack/Teams) | ✅ Done | |
 | P9 | Multi-modal Support (OCR/Video) | 📋 Planned | `pkg/extractor/ocr.go` and `video.go` are explicit **stubs** — both return `not yet implemented` errors. OCR routes through Extractous sidecar for supported formats (PDF, DOCX). Direct image OCR and video transcription require Tesseract and Whisper integration (post-P14). |
@@ -47,7 +47,7 @@ The goal is to move from a "trusted tool" to "critical infrastructure."
 | 15.4 | OIDC/Active Directory Integration (per-file ACL) | 📋 Planned |
 | 15.5 | Air-Gapped Optimization — Ollama/vLLM local embeddings | ✅ Done | `EmbedProvider` interface implemented; `OllamaProvider` fully implemented. Refactored into `src/pkg/embed` (DRY). |
 | 15.6 | Delta-Only Re-indexing (checksum-based) | ✅ Done | 3-stage pipeline (stat → partial XXH3 → full XXH3); `EMDEX_DELTA_ENABLED` / `EMDEX_FULL_HASH` env vars; 7 tests; design doc at `docs/design/delta-indexing.md`. |
-| 15.7 | S3 node full pipeline (P6 completion) | 📋 Planned |
+| 15.7 | S3 node full pipeline (P6 completion) | 📋 Planned | Depends on completing download → extract → embed → upsert in `node-s3/main.go`. Currently a stub. |
 
 ## Phase 18: Parameterization
 | Sub-phase | Description | Status |

@@ -14,6 +14,24 @@ import (
 	"github.com/piotrlaczykowski/emdexer/version"
 )
 
+// ANSI color helpers
+const (
+	colorReset  = "\033[0m"
+	colorBold   = "\033[1m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorCyan   = "\033[36m"
+	colorDim    = "\033[2m"
+)
+
+func bold(s string) string   { return colorBold + s + colorReset }
+func green(s string) string  { return colorGreen + s + colorReset }
+func red(s string) string    { return colorRed + s + colorReset }
+func yellow(s string) string { return colorYellow + s + colorReset }
+func cyan(s string) string   { return colorCyan + s + colorReset }
+func dim(s string) string    { return colorDim + s + colorReset }
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1][0] != '-' {
 		switch os.Args[1] {
@@ -24,7 +42,7 @@ func main() {
 		case "status":
 			cmdStatus()
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "\n  %s %s: %s\n", "❌", red("Unknown command"), os.Args[1])
 			printUsage()
 			os.Exit(1)
 		}
@@ -43,21 +61,25 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("Emdexer CLI")
 	fmt.Println()
-	fmt.Println("Usage: emdex <command>")
+	fmt.Printf("  %s  %s\n", bold("📦 Emdexer CLI"), dim("v"+version.Version))
 	fmt.Println()
-	fmt.Println("Commands:")
-	fmt.Println("  init      Initialize a new emdexer project (.env)")
-	fmt.Println("  start     Start emdexer services via Docker Compose")
-	fmt.Println("  status    Show status of emdexer services")
+	fmt.Printf("  %s emdex <command>\n", dim("Usage:"))
 	fmt.Println()
-	fmt.Println("Flags:")
-	fmt.Println("  --version  Show version information")
+	fmt.Printf("  %s\n", bold("Commands:"))
+	fmt.Printf("    %s      Initialize a new emdexer project (.env)\n", cyan("init"))
+	fmt.Printf("    %s     Start emdexer services via Docker Compose\n", cyan("start"))
+	fmt.Printf("    %s    Show status of emdexer services\n", cyan("status"))
+	fmt.Println()
+	fmt.Printf("  %s\n", bold("Flags:"))
+	fmt.Printf("    %s  Show version information\n", cyan("--version"))
+	fmt.Println()
 }
 
 // cmdInit prompts for configuration values and writes a .env file.
 func cmdInit() {
+	fmt.Printf("\n  %s  %s\n\n", "🚀", bold("Emdexer Project Init"))
+
 	scanner := bufio.NewScanner(os.Stdin)
 
 	defaults := map[string]string{
@@ -81,15 +103,15 @@ func cmdInit() {
 	}
 
 	if _, err := os.Stat(".env"); err == nil {
-		fmt.Println("Warning: .env already exists and will be overwritten.")
+		fmt.Printf("  %s %s\n\n", "⚠️", yellow(".env already exists and will be overwritten."))
 	}
 
 	values := make(map[string]string)
 	for _, p := range prompts {
 		if p.defaultValue != "" {
-			fmt.Printf("%s [%s]: ", p.label, p.defaultValue)
+			fmt.Printf("  %s %s: ", cyan(p.label), dim("["+p.defaultValue+"]"))
 		} else {
-			fmt.Printf("%s: ", p.label)
+			fmt.Printf("  %s: ", cyan(p.label))
 		}
 
 		var input string
@@ -109,10 +131,11 @@ func cmdInit() {
 	}
 
 	if err := os.WriteFile(".env", []byte(sb.String()), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing .env: %v\n", err)
+		fmt.Fprintf(os.Stderr, "  %s %s: %v\n", "❌", red("Error writing .env"), err)
 		os.Exit(1)
 	}
-	fmt.Println("Wrote .env — run 'emdex start' to launch services.")
+	fmt.Printf("\n  %s %s\n", "✅", green("Wrote .env — run 'emdex start' to launch services."))
+	fmt.Println()
 }
 
 // cmdStart runs docker compose up -d.
@@ -127,14 +150,15 @@ func cmdStart() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	fmt.Printf("Starting emdexer services (%s)...\n", composeFile)
+	fmt.Printf("\n  %s %s %s\n\n", "🚀", bold("Starting emdexer services"), dim("("+composeFile+")"))
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\n  %s %s: %v\n", "❌", red("Failed to start services"), err)
 		os.Exit(1)
 	}
+	fmt.Printf("\n  %s %s\n\n", "✅", green("All services started. Run 'emdex status' to verify."))
 }
 
-// cmdStatus checks health endpoints of gateway and node.
+// cmdStatus checks health endpoints of gateway and node, including worker heartbeat.
 func cmdStatus() {
 	gatewayURL := os.Getenv("EMDEX_GATEWAY_URL")
 	if gatewayURL == "" {
@@ -145,47 +169,92 @@ func cmdStatus() {
 		nodeURL = "http://localhost:8081"
 	}
 
-	fmt.Println("Emdexer Service Status")
-	fmt.Println("======================")
-	fmt.Printf("  Gateway  (%s):  %s\n", gatewayURL, checkHealth(gatewayURL+"/healthz/readiness"))
-	fmt.Printf("  Node     (%s):  %s\n", nodeURL, checkHealth(nodeURL+"/healthz/readiness"))
-	fmt.Printf("  Worker   (%s):  %s\n", nodeURL, checkWorker(nodeURL+"/healthz/worker"))
+	fmt.Printf("\n  %s  %s\n", "📦", bold("Emdexer Service Status"))
+	fmt.Printf("  %s\n\n", dim("────────────────────────────────────"))
+
+	gwStatus, gwOK := checkHealth(gatewayURL + "/healthz/readiness")
+	nodeStatus, nodeOK := checkHealth(nodeURL + "/healthz/readiness")
+	workerStatus := checkWorker(nodeURL + "/healthz/worker")
+
+	printStatusLine("Gateway", gatewayURL, gwStatus, gwOK)
+	printStatusLine("Node", nodeURL, nodeStatus, nodeOK)
+	fmt.Printf("  %s  %-10s %s\n", workerStatus.emoji, bold("Worker"), workerStatus.detail)
+
+	fmt.Printf("\n  %s\n\n", dim("────────────────────────────────────"))
 }
 
-func checkHealth(url string) string {
+func printStatusLine(name, url, status string, ok bool) {
+	emoji := "✅"
+	coloredStatus := green(status)
+	if !ok {
+		emoji = "❌"
+		coloredStatus = red(status)
+	}
+	fmt.Printf("  %s  %-10s %s  %s\n", emoji, bold(name), coloredStatus, dim(url))
+}
+
+type workerResult struct {
+	emoji  string
+	detail string
+}
+
+func checkHealth(url string) (string, bool) {
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
-		return "DOWN"
+		return "DOWN (unreachable)", false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {
-		return "UP"
+		return "UP", true
 	}
-	return fmt.Sprintf("UNHEALTHY (%d)", resp.StatusCode)
+	return fmt.Sprintf("UNHEALTHY (%d)", resp.StatusCode), false
 }
 
-func checkWorker(url string) string {
+func checkWorker(url string) workerResult {
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
-		return "DOWN"
+		return workerResult{"❌", red("DOWN") + "  " + dim("(unreachable)")}
 	}
 	defer resp.Body.Close()
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "UNKNOWN"
+		return workerResult{"❓", yellow("UNKNOWN") + "  " + dim("(bad response)")}
 	}
 
 	status, _ := result["status"].(string)
 	lastActive, _ := result["last_active"].(string)
 
-	if resp.StatusCode == http.StatusOK {
-		return fmt.Sprintf("ALIVE (last: %s)", lastActive)
+	switch {
+	case resp.StatusCode == http.StatusOK && status == "ALIVE":
+		ago := formatTimeAgo(lastActive)
+		return workerResult{"✅", green("ALIVE") + "  " + dim("last heartbeat "+ago)}
+	case status == "STALE":
+		ago := formatTimeAgo(lastActive)
+		return workerResult{"⚠️", yellow("STALLED") + "  " + dim("no heartbeat for "+ago) + "\n" +
+			"        " + dim("→ Worker may be stuck. Check node logs: journalctl -u emdex-node -f")}
+	case status == "NO_WORKER":
+		return workerResult{"⚠️", yellow("NO_WORKER") + "  " + dim("no background indexing worker registered")}
+	default:
+		return workerResult{"❓", yellow(status)}
 	}
-	if status == "STALE" {
-		return fmt.Sprintf("STALE (last: %s)", lastActive)
+}
+
+// formatTimeAgo parses an RFC3339 timestamp and returns a human-readable duration.
+func formatTimeAgo(ts string) string {
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ts
 	}
-	return status
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%dh%dm ago", int(d.Hours()), int(d.Minutes())%60)
+	}
 }

@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -96,6 +98,13 @@ var globalCtx context.Context
 var globalFS vfs.FileSystem
 var globalEmbedder embed.EmbedProvider
 var globalWorkerHeartbeat *watcher.Heartbeat
+
+// walkSeen prevents duplicate indexing when the initial Walk and the real-time
+// watcher overlap during startup. The Walk goroutine records every path it
+// processes; the watcher callback skips paths already seen until walkComplete
+// is set to 1 (meaning the startup walk finished).
+var walkSeen sync.Map   // map[string]struct{}
+var walkComplete atomic.Int32 // 0 = walk in progress, 1 = walk done
 
 func loadEnv(path string) {
 	f, err := os.Open(path)
@@ -225,6 +234,14 @@ func main() {
 
 	if globalCfg.NodeType == "local" {
 		w, _ := watcher.New(root, func(ev watcher.FileEvent) error {
+			// During the startup walk, skip files the walker already indexed
+			// to prevent duplicate work from the watcher firing on the same paths.
+			if walkComplete.Load() == 0 {
+				if _, alreadySeen := walkSeen.Load(ev.Path); alreadySeen {
+					log.Printf("[node] Watcher skipping %s (already indexed by startup walk)", ev.Path)
+					return nil
+				}
+			}
 			content, _ := os.ReadFile(ev.Path)
 			points := indexDataToPoints(ev.Path, content)
 			if len(points) > 0 {
@@ -293,6 +310,9 @@ func main() {
 		}
 
 		_ = idx.Walk(root, func(path string, isDir bool, content []byte) error {
+			// Record the path so the watcher won't re-index it during startup.
+			walkSeen.Store(path, struct{}{})
+
 			points := indexDataToPoints(path, content)
 			for _, p := range points {
 				batch = append(batch, p)
@@ -301,6 +321,15 @@ func main() {
 			return nil
 		})
 		flush()
+
+		// Signal that the startup walk is complete. The watcher will now
+		// process all events normally. Clear the seen cache to free memory.
+		walkComplete.Store(1)
+		walkSeen.Range(func(key, _ any) bool {
+			walkSeen.Delete(key)
+			return true
+		})
+		log.Println("[node] Startup walk complete — watcher now processing all events")
 	}()
 
 	startHealthServer(conn)
@@ -338,25 +367,41 @@ func indexDataToPoints(path string, content []byte) []*qdrant.PointStruct {
 		text = ""
 	}
 
-	var points []*qdrant.PointStruct
-	chunks := []string{""}
-	if text != "" {
-		chunks = smartChunk(text, 512, 50)
+	// Zero-vector guard: if extraction produced no usable text, skip indexing
+	// entirely. This prevents polluting Qdrant with zero-vectors from empty
+	// files, stubbed formats (7z, ISO), or failed extractions.
+	text = strings.TrimSpace(text)
+	if text == "" {
+		log.Printf("[node] WARN: Skipping %s — empty extraction (no text content to index)", path)
+		return nil
 	}
 
+	chunks := smartChunk(text, 512, 50)
+	if len(chunks) == 0 {
+		log.Printf("[node] WARN: Skipping %s — chunking produced no segments", path)
+		return nil
+	}
+
+	var points []*qdrant.PointStruct
 	for i, chunk := range chunks {
-		var vector []float32
-		if chunk != "" {
-			startEmb := time.Now()
-			vector, err = globalEmbedder.Embed(chunk)
-			if err != nil {
-				log.Printf("[node] Embedding failed for %s (chunk %d): %v", path, i, err)
-				errorCount.WithLabelValues("embedding", globalCfg.NodeType).Inc()
-				continue
-			}
-			embeddingLatency.Observe(float64(time.Since(startEmb).Milliseconds()))
-		} else {
-			vector = make([]float32, EmbeddingDims)
+		if strings.TrimSpace(chunk) == "" {
+			continue
+		}
+
+		startEmb := time.Now()
+		vector, embErr := globalEmbedder.Embed(chunk)
+		if embErr != nil {
+			logEmbeddingError(path, i, embErr)
+			errorCount.WithLabelValues("embedding", globalCfg.NodeType).Inc()
+			continue
+		}
+		embeddingLatency.Observe(float64(time.Since(startEmb).Milliseconds()))
+
+		// Reject zero-vectors: if the provider returned an all-zero vector
+		// (e.g., due to an empty response or API issue), do not index it.
+		if isZeroVector(vector) {
+			log.Printf("[node] WARN: Skipping %s (chunk %d) — embedding returned zero-vector", path, i)
+			continue
 		}
 
 		ns := uuid.MustParse(ProjectNamespace)
@@ -379,8 +424,40 @@ func indexDataToPoints(path string, content []byte) []*qdrant.PointStruct {
 			Payload: payload,
 		})
 	}
-	indexingThroughput.Inc()
+	if len(points) > 0 {
+		indexingThroughput.Inc()
+	}
 	return points
+}
+
+// isZeroVector returns true if all elements in the vector are zero.
+func isZeroVector(v []float32) bool {
+	for _, f := range v {
+		if f != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// logEmbeddingError logs embedding failures with actionable instructions to stderr.
+func logEmbeddingError(path string, chunk int, err error) {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "401") || strings.Contains(msg, "Unauthorized"):
+		fmt.Fprintf(os.Stderr, "[node] ERROR: Embedding auth failed for %s (chunk %d): %v\n"+
+			"  → Check your GOOGLE_API_KEY in .env — it may be invalid or expired.\n"+
+			"  → Generate a new key at https://aistudio.google.com/app/apikey\n", path, chunk, err)
+	case strings.Contains(msg, "429") || strings.Contains(msg, "Rate Limit") || strings.Contains(msg, "RESOURCE_EXHAUSTED"):
+		fmt.Fprintf(os.Stderr, "[node] ERROR: Embedding rate-limited for %s (chunk %d): %v\n"+
+			"  → You've hit the API rate limit. Reduce EMDEX_BATCH_SIZE or add a delay.\n"+
+			"  → Consider switching to EMBED_PROVIDER=ollama for unlimited local embeddings.\n", path, chunk, err)
+	case strings.Contains(msg, "403") || strings.Contains(msg, "Forbidden"):
+		fmt.Fprintf(os.Stderr, "[node] ERROR: Embedding forbidden for %s (chunk %d): %v\n"+
+			"  → Your API key may lack the required permissions. Check the Gemini API console.\n", path, chunk, err)
+	default:
+		log.Printf("[node] Embedding failed for %s (chunk %d): %v", path, chunk, err)
+	}
 }
 
 // deletePointsByPath removes all Qdrant points matching the given file path.

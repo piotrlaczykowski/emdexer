@@ -2,7 +2,32 @@
 
 **Version:** v1
 **Base URL:** `http://<gateway-host>:7700`
-**Authentication:** Header `Authorization: Bearer <Emdexer_AUTH_KEY>`
+
+## Authentication
+
+All endpoints (except `/health*` and `/metrics`) require an `Authorization: Bearer <token>` header.
+
+The gateway supports two authentication methods in priority order:
+
+### 1. OIDC/JWT (when `OIDC_ISSUER` is configured)
+
+Pass a JWT obtained from your OIDC provider (Keycloak, Auth0, Okta, Google, etc.):
+```
+Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+The gateway validates the JWT signature via JWKS, extracts the user's groups from the `OIDC_GROUPS_CLAIM` (default: `groups`), and maps them to authorized namespaces via `EMDEX_GROUP_ACL`.
+
+### 2. Static API Keys (fallback)
+
+If the token is not a valid JWT, the gateway tries static key matching:
+- **Simple mode:** `EMDEX_AUTH_KEY` — single token, wildcard namespace access.
+- **Multi-key mode:** `EMDEX_API_KEYS` JSON map — per-key namespace ACL (e.g., `{"sk-hr": ["hr", "legal"]}`).
+
+### Namespace Authorization
+
+Search and chat requests specify a namespace via `?namespace=` or `X-Emdex-Namespace` header. The gateway enforces that the requested namespace is in the caller's authorized list. Use `namespace=*` for global search across all authorized namespaces.
+
+---
 
 ## Endpoints
 
@@ -91,7 +116,44 @@ Retrieve and summarize files indexed in the last 24 hours.
 }
 ```
 
-### 4. Observability & Health
+### 4. Identity (`/v1/whoami`)
+
+Returns the current caller's identity, auth method, and authorized namespaces.
+
+- **Method:** `GET`
+- **Path:** `/v1/whoami`
+- **Headers:**
+  - `Authorization: Bearer <token>` (OIDC JWT or static key)
+- **Response:**
+```json
+{
+  "auth_type": "oidc",
+  "subject": "user@example.com",
+  "email": "user@example.com",
+  "groups": ["hr-admins", "finance"],
+  "namespaces": ["hr", "hiring", "finance"]
+}
+```
+
+For static API key auth, `auth_type` is `"api-key"` and `subject`/`email`/`groups` are empty.
+
+### 5. Node Management
+
+#### List Nodes
+- **Method:** `GET`
+- **Path:** `/nodes`
+- **Response:** Array of registered nodes with namespaces, protocol, health status, and last heartbeat.
+
+#### Register Node
+- **Method:** `POST`
+- **Path:** `/nodes/register`
+- **Body:** `{"id": "node-1", "url": "http://...", "namespaces": ["hr"], "protocol": "s3", "health_status": "healthy"}`
+
+#### Deregister Node
+- **Method:** `DELETE`
+- **Path:** `/nodes/deregister/<id>`
+
+### 6. Observability & Health
 
 #### Metrics (Prometheus)
 - **Method:** `GET`

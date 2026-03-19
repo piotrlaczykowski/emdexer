@@ -11,7 +11,7 @@
 │                   Consumers                         │
 │  (OpenClaw MCP  |  Telegram Bot  |  OpenAI client)  │
 └────────────────────┬────────────────────────────────┘
-                     │  Bearer Token (EMDEX_AUTH_KEY)
+                     │  OIDC JWT or Bearer Token
                      ▼
           ┌──────────────────────┐
           │   emdex-gateway      │   :7700
@@ -31,10 +31,10 @@
                      ▲
         ┌────────────┼──────────────────┐
         │            │                  │
-   ┌────┴───┐  ┌─────┴────┐  ┌─────────┴──┐
-   │ Local  │  │ SMB/NFS  │  │    SFTP    │
-   │  Node  │  │   Node   │  │    Node    │
-   └────────┘  └──────────┘  └────────────┘
+   ┌────┴───┐  ┌─────┴────┐  ┌─────────┴──┐  ┌────────┐
+   │ Local  │  │ SMB/NFS  │  │    SFTP    │  │   S3   │
+   │  Node  │  │   Node   │  │    Node    │  │  Node  │
+   └────────┘  └──────────┘  └────────────┘  └────────┘
  emdex-node
  :8081 health
 ```
@@ -104,7 +104,13 @@ Each binary reads only its own environment variables. In a bare-metal deployment
 | `EMDEX_GEMINI_MODEL`      |          | `gemini-embedding-2-preview`| Gemini model for RAG/Chat                        |
 | `EMDEX_STRICT_NAMESPACE`  |          | `false`           | Require namespace header for all requests        |
 
+| `OIDC_ISSUER`             |          | —                 | OIDC provider URL. Enables JWT auth when set.    |
+| `OIDC_CLIENT_ID`          | ✅**     | —                 | Client ID for JWT audience validation            |
+| `OIDC_GROUPS_CLAIM`       |          | `groups`          | JWT claim containing group memberships           |
+| `EMDEX_GROUP_ACL`         |          | —                 | JSON map: OIDC group → namespace list            |
+
 *Either `EMDEX_AUTH_KEY` or `EMDEX_API_KEYS` must be set.
+**Required when `OIDC_ISSUER` is set.
 
 ### Node Environment
 
@@ -115,7 +121,7 @@ Each binary reads only its own environment variables. In a bare-metal deployment
 | `EMDEX_NAMESPACE`         | ✅       | `default`         | Namespace tag on all indexed vectors             |
 | `QDRANT_HOST`             | ✅       | `localhost:6334`  | Qdrant gRPC endpoint (direct write)              |
 | `EMDEX_QDRANT_COLLECTION` |          | `emdexer_v1`      | Qdrant collection name                           |
-| `NODE_TYPE`               |          | `local`           | `local` / `smb` / `sftp` / `nfs`                |
+| `NODE_TYPE`               |          | `local`           | `local` / `smb` / `sftp` / `nfs` / `s3`         |
 | `NODE_ROOT`               |          | `./test_dir`      | Root path to index                               |
 | `EMBED_PROVIDER`          |          | `gemini`          | `gemini` or `ollama`                             |
 | `GOOGLE_API_KEY`          | ✅*      | —                 | Gemini key (when `EMBED_PROVIDER=gemini`)         |
@@ -157,34 +163,89 @@ type FileSystem interface {
 
 The `Indexer` in `pkg/node/` operates exclusively on `vfs.FileSystem`. Adding a new backend (e.g., Azure Blob) requires only implementing four methods — no changes to the indexing or embedding pipeline.
 
+### VFS Backends
+
+| Backend | `NODE_TYPE` | Implementation | Connection Model |
+|---------|------------|----------------|------------------|
+| Local FS | `local` | `vfs/os.go` | Direct `os.*` calls |
+| SMB/CIFS | `smb` | `vfs/smb.go` | NTLM session + share mount |
+| SFTP | `sftp` | `vfs/sftp.go` | SSH + SFTP client |
+| NFS | `nfs` | `vfs/nfs.go` | NFS mount + Unix auth |
+| **S3/MinIO** | **`s3`** | **`vfs/s3.go`** | **MinIO-Go v7 HTTP client** |
+
+### S3 Zero-Mount Streaming
+
+The S3 backend (`vfs/s3.go`) uses MinIO-Go v7 which is compatible with AWS S3, MinIO, DigitalOcean Spaces, and Wasabi.
+
+**Data flow:** `S3 GetObject → *minio.Object (in memory) → Extractous → SmartChunk → Embed → Qdrant Upsert`
+
+No local disk writes at any point. MinIO's `*minio.Object` implements `io.Reader`, `io.Seeker`, and `io.ReaderAt` using S3 range requests internally — this means delta detection (partial hash of first+last 1 MB) works without downloading the full object.
+
+The S3 transport uses `safenet.NewSafeTransport()` to prevent SSRF via malicious `S3_ENDPOINT` values.
+
 ### Why not use `io/fs.FS`?
 
 `io/fs.FS` is read-only and does not model stateful connections (SMB sessions, SFTP connections). Our interface adds `Close()` to ensure resources are cleaned up, and we control the `ReadDir` contract to handle protocol-specific pagination.
 
 ---
 
-## 5. Authentication Model
+## 5. Authentication & Identity
 
-### Gateway (Consumer → Gateway)
-Emdexer supports two authentication modes:
+### Dual-Auth Middleware
 
-1.  **Simple Mode**: All endpoints (except `/health*` and `/metrics`) require:
-    ```
-    Authorization: Bearer <EMDEX_AUTH_KEY>
-    ```
-    The key is set at startup and is static. There is one key per gateway deployment.
+The gateway uses a **tiered authentication strategy** implemented in `src/pkg/auth/auth.go`. Every request to a protected endpoint goes through this middleware:
 
-2.  **Advanced Multi-Key Mode**: Support for multi-tenant or multi-team access using:
-    ```
-    EMDEX_API_KEYS='{"sk-admin": ["*"], "sk-hr": ["hr", "legal"]}'
-    ```
-    The gateway middleware extracts the key, retrieves allowed namespaces, and validates that the requested `X-Emdex-Namespace` (or `?namespace=`) is authorized for that specific key.
-    - `["*"]` allows access to all namespaces.
-    - Specific lists (e.g., `["hr", "legal"]`) restrict the key to those namespaces only.
-    - Unauthorized namespace requests return `403 Forbidden`.
+```
+Request with Authorization: Bearer <token>
+  │
+  ├─ Step 1: OIDC JWT validation (if OIDC_ISSUER is configured)
+  │   ├─ Valid JWT → extract UserClaims (sub, email, groups)
+  │   │   → resolve namespaces via GroupACL → proceed
+  │   └─ Invalid JWT → fall through to Step 2
+  │
+  └─ Step 2: Legacy static key validation
+      ├─ Match in EMDEX_API_KEYS → use per-key namespace ACL → proceed
+      ├─ Match EMDEX_AUTH_KEY → wildcard access → proceed
+      └─ No match → 401 Unauthorized
+```
+
+Both paths inject `UserClaims` into the request context (via `auth.WithUserClaims`), so handlers can always call `auth.GetUserClaims(r)` to identify the caller regardless of auth method.
+
+### OIDC/JWT (Enterprise Identity)
+
+When `OIDC_ISSUER` is set, the gateway discovers the provider's JWKS endpoint via OpenID Connect Discovery and validates JWT signatures automatically (using `github.com/coreos/go-oidc/v3`). Key rotation is handled transparently.
+
+| Variable | Description |
+|----------|-------------|
+| `OIDC_ISSUER` | Provider URL (e.g., `https://keycloak.internal/realms/emdexer`) |
+| `OIDC_CLIENT_ID` | Client ID for audience validation |
+| `OIDC_GROUPS_CLAIM` | JWT claim containing group memberships (default: `groups`) |
+
+**Fail-secure**: If the OIDC provider is unreachable at startup, the gateway calls `log.Fatalf` and refuses to start.
+
+### Group-Based ACLs
+
+OIDC groups are mapped to namespace lists via `EMDEX_GROUP_ACL`:
+
+```
+EMDEX_GROUP_ACL='{"hr-admins": ["hr", "hiring"], "engineers": ["*"], "finance": ["finance"]}'
+```
+
+- A user in groups `["hr-admins", "finance"]` can access namespaces `["hr", "hiring", "finance"]`.
+- A user in group `["engineers"]` gets wildcard access to all namespaces.
+- A user with no matching groups gets zero namespaces → 403 on all queries.
+
+The namespace resolution uses the same `search.ResolveNamespaces` function as static keys — the intersection logic is shared.
+
+### Static API Keys (Legacy / Automation)
+
+1.  **Simple Mode**: Single shared bearer token via `EMDEX_AUTH_KEY`. Grants wildcard namespace access.
+2.  **Advanced Multi-Key Mode**: Per-key namespace ACL via `EMDEX_API_KEYS` JSON map (e.g., `{"sk-hr": ["hr", "legal"]}`).
+
+Static keys are tried only after OIDC validation fails. This means a deployment can serve both OIDC-authenticated human users and static-key-authenticated automation bots simultaneously.
 
 ### Node → Gateway (Registration)
-Nodes call `POST /nodes/register` with `Authorization: Bearer <EMDEX_GATEWAY_AUTH_KEY>`. The auth key on the node must match one of the gateway's valid keys (`EMDEX_AUTH_KEY` or a key within `EMDEX_API_KEYS`).
+Nodes call `POST /nodes/register` with `Authorization: Bearer <EMDEX_GATEWAY_AUTH_KEY>`. The auth key on the node must match one of the gateway's valid keys.
 
 ### Node → Qdrant (Internal)
 Nodes write directly to Qdrant via gRPC. This is an internal network path — Qdrant is not exposed externally. In K8s, this is enforced via NetworkPolicy.
@@ -266,7 +327,48 @@ Gateway:
 
 ---
 
-## 10. Registry Persistence
+## 10. Global Namespace Aggregation (Phase 15.3)
+
+When a user sends `namespace=*` (or `namespace=__global__`), the gateway queries all authorized namespaces in parallel and merges the results.
+
+### Fan-Out Search Orchestrator
+
+```
+Client: GET /v1/search?q=budget&namespace=*
+  │
+  Gateway:
+  1. Resolve namespaces: intersect known topology with user's allowed namespaces
+  2. If single namespace → fast path (existing direct Qdrant search)
+  3. If multiple namespaces:
+     a. Launch parallel goroutines via errgroup (one per namespace)
+     b. Each goroutine: searchQdrant(ctx, collection, vector, limit, namespace)
+     c. Timeout: EMDEX_GLOBAL_SEARCH_TIMEOUT (default 500ms)
+     d. Non-fatal failures: partial results from healthy namespaces
+  4. Merge via Reciprocal Rank Fusion (RRF, k=60)
+  5. Return top-K with source_namespace in each result payload
+```
+
+### Reciprocal Rank Fusion (RRF)
+
+Results from multiple namespace searches are merged using RRF. For each result, the score is:
+
+```
+score = Σ 1/(k + rank + 1)    where k=60 (standard constant)
+```
+
+Results are deduplicated by `namespace:path:chunk` composite key, sorted by RRF score descending, and truncated to the requested limit.
+
+### Namespace Topology Map
+
+The gateway maintains an in-memory `map[string][]string` (namespace → node IDs), refreshed every 30 seconds from the node registry. This tells the fan-out orchestrator which namespaces exist. The map is also refreshed immediately after a new node registers.
+
+### Global RAG
+
+When `X-Emdex-Namespace: *` is used with `/v1/chat/completions`, the context builder includes `[Source: namespace/path]` tags so the LLM can cite which namespace each fact came from.
+
+---
+
+## 11. Registry Persistence (renumbered)
 
 The Node Registry stores registered nodes in `nodes.json` (path configurable via `EMDEX_REGISTRY_FILE`). Writes use an atomic temp-file swap (`nodes.json.tmp` → `nodes.json`) to prevent corruption on crash.
 
@@ -280,7 +382,7 @@ Why not SQLite? For the current node count (< 100), JSON is sufficient and has z
 
 | Boundary | Mechanism | Gap |
 |----------|-----------|-----|
-| Consumer ↔ Gateway | Bearer token | Single shared key — no per-user isolation |
+| Consumer ↔ Gateway | OIDC JWT or Bearer token | OIDC provides per-user identity; static keys are shared |
 | Namespace isolation | Qdrant filter | Not cryptographic; trust the gateway |
 | Node ↔ Gateway | Bearer token (`EMDEX_GATEWAY_AUTH_KEY`) | Same trust model as consumer keys |
 | Node ↔ Qdrant | Internal gRPC | NetworkPolicy required in K8s |

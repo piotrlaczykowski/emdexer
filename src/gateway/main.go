@@ -381,6 +381,22 @@ func (s *Server) handleStartup(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]string{"status": "STARTED"})
 }
 
+func (s *Server) handleWhoami(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.GetUserClaims(r)
+	if !ok {
+		http.Error(w, "No identity", http.StatusForbidden)
+		return
+	}
+	ns, _ := auth.GetAllowedNamespaces(r)
+	s.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"auth_type":  claims.AuthType,
+		"subject":    claims.Subject,
+		"email":      claims.Email,
+		"groups":     claims.Groups,
+		"namespaces": ns,
+	})
+}
+
 func main() {
 	cwd, _ := os.Getwd()
 	config.LoadEnv(filepath.Join(cwd, ".env"))
@@ -407,6 +423,39 @@ func main() {
 		if err := json.Unmarshal([]byte(keysJSON), &apiKeys); err != nil {
 			log.Printf("Failed to parse EMDEX_API_KEYS: %v", err)
 		}
+	}
+
+	// OIDC configuration (optional — enabled when OIDC_ISSUER is set)
+	var oidcVerifier *auth.OIDCVerifier
+	if issuer := os.Getenv("OIDC_ISSUER"); issuer != "" {
+		clientID := os.Getenv("OIDC_CLIENT_ID")
+		if clientID == "" {
+			log.Fatalf("[auth] FATAL: OIDC_ISSUER is set but OIDC_CLIENT_ID is missing")
+		}
+		groupsClaim := os.Getenv("OIDC_GROUPS_CLAIM")
+		if groupsClaim == "" {
+			groupsClaim = "groups"
+		}
+		var oidcErr error
+		oidcVerifier, oidcErr = auth.NewOIDCVerifier(context.Background(), auth.OIDCConfig{
+			Issuer:      issuer,
+			ClientID:    clientID,
+			GroupsClaim: groupsClaim,
+		})
+		if oidcErr != nil {
+			log.Fatalf("[auth] FATAL: OIDC configured but provider unreachable: %v", oidcErr)
+		}
+		log.Printf("[auth] OIDC enabled: issuer=%s client_id=%s groups_claim=%s", issuer, clientID, groupsClaim)
+	}
+
+	var groupACL *auth.GroupACL
+	if aclJSON := os.Getenv("EMDEX_GROUP_ACL"); aclJSON != "" {
+		var aclErr error
+		groupACL, aclErr = auth.NewGroupACL(aclJSON)
+		if aclErr != nil {
+			log.Fatalf("[auth] FATAL: invalid EMDEX_GROUP_ACL: %v", aclErr)
+		}
+		log.Printf("[auth] Group ACL loaded: %d group mappings", len(groupACL.Mapping))
 	}
 
 	conn, err := grpc.NewClient(qdrantHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -445,7 +494,7 @@ func main() {
 		embedder:            embedder,
 		collection:          collection,
 		apiKey:              apiKey,
-		authCfg:             &auth.Config{AuthKey: authKey, APIKeys: apiKeys},
+		authCfg:             &auth.Config{AuthKey: authKey, APIKeys: apiKeys, OIDC: oidcVerifier, GroupACL: groupACL},
 		port:                port,
 		startTime:           time.Now(),
 		nsTopology:          make(map[string][]string),
@@ -472,6 +521,7 @@ func main() {
 	mux.HandleFunc("/nodes", middleware.Instrument("/nodes", srv.authCfg.Middleware(srv.handleListNodes)))
 	mux.HandleFunc("/v1/search", middleware.Instrument("/v1/search", srv.authCfg.Middleware(srv.handleSearch)))
 	mux.HandleFunc("/v1/chat/completions", middleware.Instrument("/v1/chat/completions", srv.authCfg.Middleware(srv.handleChatCompletions)))
+	mux.HandleFunc("/v1/whoami", middleware.Instrument("/v1/whoami", srv.authCfg.Middleware(srv.handleWhoami)))
 
 	addr := ":" + port
 	log.Printf("Gateway starting on %s", addr)

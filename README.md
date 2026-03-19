@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Turn any filesystem — NAS, SMB share, NFS export, or SFTP server — into a semantic search and AI-powered knowledge base.</strong>
+  <strong>Turn any filesystem — NAS, SMB share, NFS export, SFTP server, or S3 bucket — into a semantic search and AI-powered knowledge base.</strong>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
 
 ## What Is Emdexer?
 
-Emdexer is an open-source, distributed **Retrieval-Augmented Generation (RAG)** engine written in Go. It indexes documents from heterogeneous filesystems — local disks, SMB/CIFS shares, NFS exports, and SFTP servers — into a [Qdrant](https://qdrant.tech/) vector database using Google [Gemini](https://ai.google.dev/) embeddings (or local models via [Ollama](https://ollama.com/)), and exposes an OpenAI-compatible chat completions API with multi-hop semantic search.
+Emdexer is an open-source, distributed **Retrieval-Augmented Generation (RAG)** engine written in Go. It indexes documents from heterogeneous filesystems — local disks, SMB/CIFS shares, NFS exports, SFTP servers, and S3/MinIO buckets — into a [Qdrant](https://qdrant.tech/) vector database using Google [Gemini](https://ai.google.dev/) embeddings (or local models via [Ollama](https://ollama.com/)), and exposes an OpenAI-compatible chat completions API with multi-hop semantic search.
 
 **Key differentiator:** Emdexer uses a **Zero-Mount architecture** — lightweight indexing nodes deploy directly where the data lives. No central mount points, no data copying, no network bottlenecks. Only vector embeddings travel to the database.
 
@@ -32,11 +32,13 @@ Emdexer is an open-source, distributed **Retrieval-Augmented Generation (RAG)** 
 |---|---|
 | **Multi-Hop RAG** | Two-hop retrieval pipeline with LLM-driven query refinement. Both hops enforce namespace isolation — no cross-tenant context bleed. |
 | **Distributed Indexing** | Deploy lightweight `emdex-node` agents on any storage endpoint. Nodes self-register with the central `emdex-gateway`. |
-| **Protocol Agnostic** | Native VFS backends for Local FS, SMB/CIFS, NFS, and SFTP. No `mount` required. S3 support is a stub (planned). |
+| **Protocol Agnostic** | Native VFS backends for Local FS, SMB/CIFS, NFS, SFTP, and **S3/MinIO**. No `mount` required. S3 uses Zero-Mount streaming — data flows directly from S3 to memory without touching disk. |
 | **Delta-Only Re-indexing** | Three-stage change detection pipeline (stat → partial XXH3 → full XXH3) avoids redundant embedding API calls. |
 | **OpenAI-Compatible API** | Drop-in replacement for `/v1/chat/completions`. Works with any OpenAI client SDK, Claude Desktop (via MCP), Telegram, Slack, and Teams. |
-| **Format Agnostic** | Handles PDF, DOCX, XLSX, Markdown, HTML, plain text, and more via the [Extractous](https://github.com/yobix-ai/extractous) sidecar. Up to 50 MB per file. Archive traversal for `.zip`/`.tar`/`.gz`; 7z and ISO are stubs (planned). OCR and video transcription are planned (not yet implemented). |
+| **Format Agnostic** | Handles PDF, DOCX, XLSX, Markdown, HTML, plain text, and more via the [Extractous](https://github.com/yobix-ai/extractous) sidecar. Up to 50 MB per file. Archive traversal for `.zip`/`.tar`/`.gz`. OCR and video transcription are roadmap items (not yet implemented). |
 | **Stable Document Identity** | Content-addressable UUIDv5 ensures consistent file tracking across re-indexes — no duplicate vectors. |
+| **Global Search** | Query all authorized namespaces simultaneously with `namespace=*`. Parallel fan-out with Reciprocal Rank Fusion merging. Results include source namespace citations. |
+| **OIDC Identity** | OpenID Connect JWT validation with group-based namespace ACLs. Dual-auth: OIDC first, static API keys as fallback. Fail-secure by design. |
 | **Enterprise Observability** | Prometheus metrics, Grafana dashboards, structured JSON audit logging. |
 | **Air-Gap Ready** | Swap to `EMBED_PROVIDER=ollama` for fully local embeddings and LLM inference. Zero external API calls. |
 
@@ -55,7 +57,8 @@ graph TD
         NodeA[Node A — Local FS] --> Qdrant
         NodeB[Node B — SMB Share] --> Qdrant
         NodeC[Node C — NFS Export] --> Qdrant
-        NodeA & NodeB & NodeC --> Extractous[Extractous Sidecar]
+        NodeD[Node D — S3 / MinIO] --> Qdrant
+        NodeA & NodeB & NodeC & NodeD --> Extractous[Extractous Sidecar]
     end
 
     Gateway --- MCP[MCP Server]
@@ -125,7 +128,7 @@ Key environment variables (see [.env.example](.env.example) for all options):
 | `EMBED_PROVIDER` | Embedding backend: `gemini` or `ollama` | `gemini` |
 | `QDRANT_HOST` | Qdrant gRPC endpoint | `localhost:6334` |
 | `EMDEX_PORT` | Gateway HTTP listen port | `7700` |
-| `NODE_TYPE` | VFS backend: `local`, `smb`, `nfs`, `sftp` | `local` |
+| `NODE_TYPE` | VFS backend: `local`, `smb`, `nfs`, `sftp`, `s3` | `local` |
 | `EMDEX_NAMESPACE` | Namespace tag for indexed vectors | `default` |
 | `EMDEX_EMBEDDING_DIMS` | Embedding vector dimensions | `3072` |
 | `EMDEX_DELTA_ENABLED` | Checksum-based delta re-indexing | `1` |
@@ -150,16 +153,19 @@ Emdexer is designed with security isolation at every layer. Understanding the tr
 
 ### Protected
 
-- **Authentication**: All API endpoints (except `/health*`, `/metrics`) require a Bearer token. No token, no access.
-- **Namespace isolation**: Every indexed document is tagged with a namespace. Search and RAG queries are hard-filtered to one namespace. The `/v1/chat/completions` endpoint **requires** `X-Emdex-Namespace` — missing namespace returns `400`, not a global result.
+- **Dual authentication**: All API endpoints (except `/health*`, `/metrics`) require a Bearer token. The gateway supports two auth modes in priority order:
+  1. **OIDC/JWT** (when `OIDC_ISSUER` is configured) — validates JWT signatures via JWKS, extracts user identity (subject, email, groups), and maps groups to namespaces via `EMDEX_GROUP_ACL`.
+  2. **Static API keys** (fallback) — `EMDEX_AUTH_KEY` (wildcard) or `EMDEX_API_KEYS` (per-key namespace ACL).
+- **Group-based namespace ACLs**: OIDC groups are mapped to namespace lists via `EMDEX_GROUP_ACL` JSON (e.g., `{"hr-admins": ["hr", "hiring"]}`). Namespace intersection is enforced on every search and RAG query.
+- **Namespace isolation**: Every indexed document is tagged with a namespace. Search and RAG queries are hard-filtered. The `/v1/chat/completions` endpoint **requires** `X-Emdex-Namespace` — missing namespace returns `400`, not a global result.
 - **Multi-hop isolation**: Both retrieval hops in the RAG pipeline are scoped to the declared namespace. The LLM's query refinement loop cannot escape its namespace boundary.
-- **Multi-key ACL**: `EMDEX_API_KEYS` supports per-key namespace restrictions (e.g., `{"sk-hr": ["hr", "legal"]}`).
 - **Registry integrity**: Node registrations persist atomically to disk. Registry reads return deep copies — callers cannot mutate live state.
-- **SSRF protection**: Embedding providers block connections to RFC 1918, loopback, and link-local addresses.
+- **SSRF protection**: Embedding providers, Extractous sidecar, and S3 VFS all use `safenet.NewSafeTransport()`, blocking connections to RFC 1918, loopback, and link-local addresses at dial time.
+- **Fail-secure OIDC**: If `OIDC_ISSUER` is configured but the provider is unreachable at startup, the gateway **refuses to start**.
 
 ### Not Protected (by design)
 
-- **Namespace is not cryptographic** — it is a soft boundary enforced by the gateway. Per-user cryptographic isolation requires OIDC/JWT (planned).
+- **Namespace is not cryptographic** — it is a soft boundary enforced by the gateway. OIDC + Group ACLs provide user-level identity but not per-document encryption.
 - **No data encryption at rest** — Qdrant stores vectors in plaintext. Apply disk encryption (LUKS, dm-crypt) at the infrastructure level.
 - **No TLS in-process** — the gateway speaks plain HTTP. Use a reverse proxy (Nginx, Traefik) for TLS termination.
 
@@ -183,6 +189,8 @@ By default, document text is sent to the Gemini API for embedding and answering.
 | Text Extraction | [Extractous](https://github.com/yobix-ai/extractous) (Python sidecar) |
 | MCP Server | Python — Claude Desktop / AI agent integration |
 | Change Detection | [XXH3](https://github.com/zeebo/xxh3) (non-cryptographic, SIMD-accelerated) |
+| Identity | [OpenID Connect](https://openid.net/) JWT via [go-oidc](https://github.com/coreos/go-oidc) + static API key fallback |
+| S3 / Object Storage | [MinIO-Go v7](https://github.com/minio/minio-go) (compatible with AWS S3, DigitalOcean Spaces, Wasabi) |
 | Observability | Prometheus, Grafana, structured JSON audit logs |
 | Deployment | Docker Compose, Helm (Kubernetes), systemd (bare metal) |
 

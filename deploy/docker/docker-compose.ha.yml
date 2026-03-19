@@ -154,6 +154,9 @@ services:
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
       - POSTGRES_URL=postgres://emdexer:${POSTGRES_PASSWORD:-emdexer_secret}@postgres:5432/emdexer?sslmode=disable
+      - EMDEX_HA_MODE=true
+      - EMDEX_GLOBAL_SEARCH_TIMEOUT=${EMDEX_GLOBAL_SEARCH_TIMEOUT:-500}
+      - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
     volumes:
       - ../../logs:/app/logs
     networks:
@@ -186,6 +189,9 @@ services:
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
       - POSTGRES_URL=postgres://emdexer:${POSTGRES_PASSWORD:-emdexer_secret}@postgres:5432/emdexer?sslmode=disable
+      - EMDEX_HA_MODE=true
+      - EMDEX_GLOBAL_SEARCH_TIMEOUT=${EMDEX_GLOBAL_SEARCH_TIMEOUT:-500}
+      - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
     volumes:
       - ../../logs:/app/logs
     networks:
@@ -251,6 +257,8 @@ services:
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMDEX_GATEWAY_URL=http://nginx:80
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
     networks:
       - emdexer-net
     depends_on:
@@ -287,6 +295,8 @@ services:
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMDEX_GATEWAY_URL=http://nginx:80
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
     networks:
       - emdexer-net
     depends_on:
@@ -322,6 +332,8 @@ services:
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMDEX_GATEWAY_URL=http://nginx:80
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
     networks:
       - emdexer-net
     depends_on:

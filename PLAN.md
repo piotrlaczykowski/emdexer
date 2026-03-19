@@ -43,8 +43,8 @@ The goal is to move from a "trusted tool" to "critical infrastructure."
 |-----------|-------------|--------|
 | 15.1 | Distributed Qdrant Clustering | ✅ Done | 3-node Qdrant cluster with Raft consensus; bootstrap via qdrant-1; isolated named volumes; healthchecks. Design doc at `docs/design/ha-infrastructure.md`. |
 | 15.2 | Gateway High Availability (multi-replica + shared registry) | ✅ Done | 2 gateway replicas behind Nginx round-robin LB; `NodeRegistry` interface with `FileNodeRegistry` (default) and `DBNodeRegistry` (PostgreSQL, HA mode); `newRegistry()` factory toggles on `POSTGRES_URL`. |
-| 15.3 | Global Namespace Aggregation | 📋 Planned |
-| 15.4 | OIDC/Active Directory Integration (per-file ACL) | 📋 Planned |
+| 15.3 | Global Namespace Aggregation | ✅ Done | Fan-out search orchestrator with `namespace=*` support. Parallel Qdrant searches per namespace via `errgroup` + 500ms timeout. Results merged via Reciprocal Rank Fusion (RRF, k=60). Namespace topology map refreshed every 30s from registry. `buildContext` includes `[Source: namespace/path]` citations. |
+| 15.4 | OIDC/JWT Identity & Group-Based ACLs | ✅ Done | Dual-auth middleware: OIDC JWT validation (via `go-oidc/v3`) tried first, static API keys as fallback. `EMDEX_GROUP_ACL` maps OIDC groups to namespace lists. `UserClaims` (subject, email, groups) injected into request context. `/v1/whoami` endpoint. Fail-secure: unreachable OIDC provider blocks gateway startup. |
 | 15.5 | Air-Gapped Optimization — Ollama/vLLM local embeddings | ✅ Done | `EmbedProvider` interface implemented; `OllamaProvider` fully implemented. Refactored into `src/pkg/embed` (DRY). |
 | 15.6 | Delta-Only Re-indexing (checksum-based) | ✅ Done | 3-stage pipeline (stat → partial XXH3 → full XXH3); `EMDEX_DELTA_ENABLED` / `EMDEX_FULL_HASH` env vars; 7 tests; design doc at `docs/design/delta-indexing.md`. |
 | 15.7 | S3 node full pipeline (P6 completion) | ✅ Done | `vfs/s3.go` S3FileSystem + `NODE_TYPE=s3` in the standard `emdex-node` binary. Uses `watcher.Poller` for delta polling, `indexer.IndexDataToPoints` for pipeline. No separate binary — S3 is a VFS backend like SMB/SFTP/NFS. |
@@ -80,12 +80,23 @@ The following structural issues were identified and fixed in the v1.0.1 sprint:
 
 ## Integrity Notes (Go 1.26.1 Hardening Sprint — 2026-03-15)
 
-1. **Full Go 1.26.1 migration** — All 6 modules (`gateway`, `node`, `node-s3`, `node-smb`, `node-nfs`, `mcp`) migrated to Go 1.26.1. `go.mod` and CI matrix updated across the board.
+1. **Full Go 1.26.1 migration** — All Go modules (`gateway`, `node`, `pkg`) and MCP (Python) migrated to Go 1.26.1. `go.mod` and CI matrix updated across the board. S3/SMB/NFS are VFS backends in the standard `emdex-node` binary, not separate modules.
 2. **Native `gosec` in CI** — `gosec` static analysis integrated as a mandatory CI step; blocks merge on high-severity findings. Replaces ad-hoc manual audits.
 3. **`EmbedProvider` refactored to `src/pkg/embed`** — Shared provider logic extracted from per-module copies into a single `src/pkg/embed` package. All modules import from there (DRY).
 4. **Cache directory permissions hardened (0700)** — `os.MkdirAll` calls for cache dirs now use `0700` instead of `0755`, preventing other local users from reading embedding caches.
 5. **Hardcoded secrets removed from E2E tests** — All API keys, tokens, and passwords inlined in test fixtures replaced with environment variable lookups (`os.Getenv`). No secrets in source.
 6. **HTTP server timeouts** — Strict `ReadTimeout` and `WriteTimeout` enforced in `gateway` and `node` HTTP servers to prevent Slowloris attacks and connection leakage.
+
+---
+
+## Integrity Notes (Enterprise Expansion Sprint — 2026-03-19)
+
+1. **OIDC JWT validation** — Gateway now supports OpenID Connect identity via `go-oidc/v3`. JWKS discovery, key rotation, and signature validation are handled automatically. Configured via `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_GROUPS_CLAIM`. Fail-secure: gateway refuses to start if the OIDC provider is unreachable.
+2. **Group-based ACLs** — `EMDEX_GROUP_ACL` maps OIDC groups to namespace lists (e.g., `{"hr-admins": ["hr", "hiring"]}`). Wildcard `["*"]` grants access to all namespaces. Namespace intersection is enforced by the existing `search.ResolveNamespaces` pipeline — zero handler changes required.
+3. **Dual-auth middleware** — OIDC JWT is tried first; if the token is not a valid JWT (e.g., a static API key), the middleware falls through to legacy `EMDEX_AUTH_KEY`/`EMDEX_API_KEYS` validation. Both paths inject `UserClaims` into the request context.
+4. **S3 Zero-Mount streaming** — Full S3/MinIO indexing pipeline via `NODE_TYPE=s3`. Uses MinIO-Go v7 with `safenet.NewSafeTransport()` for SSRF protection. `*minio.Object` implements `io.Reader`, `io.Seeker`, `io.ReaderAt` via S3 range requests — no local disk buffering. Reuses the existing `watcher.Poller` for delta detection.
+5. **Global namespace aggregation** — `namespace=*` triggers parallel fan-out search across all authorized namespaces using `errgroup` with configurable timeout (`EMDEX_GLOBAL_SEARCH_TIMEOUT`, default 500ms). Results merged via Reciprocal Rank Fusion (k=60). LLM prompt includes `[Source: namespace/path]` citations for cross-namespace RAG.
+6. **Modular refactor** — `gateway/main.go` reduced from 1253 to 488 lines, `node/main.go` from 714 to 350 lines. 15 packages under `src/pkg/` (registry, search, auth, middleware, rag, llm, openai, audit, health, nodereg, extract, ui, config, indexer extensions, queue extensions).
 
 ---
 *Time is a flat circle, but your data doesn't have to be lost in it.*

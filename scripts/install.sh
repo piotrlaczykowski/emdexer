@@ -224,6 +224,20 @@ collect_gateway_config() {
         OLLAMA_EMBED_MODEL=""
     fi
 
+    echo
+    echo "  OIDC/JWT Authentication (optional):"
+    echo "    Leave empty to skip OIDC and use static API keys only."
+    prompt OIDC_ISSUER "OIDC Issuer URL (leave blank to skip)" ""
+    if [[ -n "$OIDC_ISSUER" ]]; then
+        prompt OIDC_CLIENT_ID "OIDC Client ID" ""
+        prompt OIDC_GROUPS_CLAIM "OIDC Groups Claim" "groups"
+        prompt EMDEX_GROUP_ACL "Group ACL JSON (e.g. {\"admins\": [\"*\"]})" ""
+    else
+        OIDC_CLIENT_ID=""
+        OIDC_GROUPS_CLAIM=""
+        EMDEX_GROUP_ACL=""
+    fi
+
     EMDEX_REGISTRY_FILE="$DATA_DIR/nodes/nodes.json"
 }
 
@@ -248,7 +262,7 @@ collect_node_config() {
     echo "    smb   — Samba / Windows Share"
     echo "    sftp  — SSH File Transfer Protocol"
     echo "    nfs   — Network File System"
-    prompt NODE_TYPE "VFS type [local|smb|sftp|nfs]" "local"
+    prompt NODE_TYPE "VFS type [local|smb|sftp|nfs|s3]" "local"
 
     SMB_HOST="" SMB_USER="" SMB_PASS="" SMB_SHARE=""
     SFTP_HOST="" SFTP_PORT="" SFTP_USER="" SFTP_PASS=""
@@ -277,8 +291,17 @@ collect_node_config() {
             prompt NFS_HOST   "NFS host"
             prompt NFS_PATH   "NFS export path"
             ;;
+        s3)
+            prompt S3_ENDPOINT "S3/MinIO endpoint" "play.min.io"
+            prompt S3_ACCESS_KEY "S3 access key"
+            prompt_secret S3_SECRET_KEY "S3 secret key"
+            prompt S3_BUCKET "S3 bucket name"
+            prompt S3_USE_SSL "Use SSL [true|false]" "true"
+            prompt S3_PREFIX "S3 key prefix (empty for entire bucket)" ""
+            NODE_ROOT="${S3_PREFIX:-.}"
+            ;;
         *)
-            error "Unknown VFS type: $NODE_TYPE. Valid: local, smb, sftp, nfs"
+            error "Unknown VFS type: $NODE_TYPE. Valid: local, smb, sftp, nfs, s3"
             ;;
     esac
 
@@ -318,6 +341,11 @@ EMBED_PROVIDER=${EMBED_PROVIDER}
 OLLAMA_HOST=${OLLAMA_HOST:-}
 OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-}
 EMDEX_REGISTRY_FILE=${EMDEX_REGISTRY_FILE}
+OIDC_ISSUER=${OIDC_ISSUER:-}
+OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+OIDC_GROUPS_CLAIM=${OIDC_GROUPS_CLAIM:-}
+EMDEX_GROUP_ACL=${EMDEX_GROUP_ACL:-}
+EMDEX_GLOBAL_SEARCH_TIMEOUT=500
 EMDEX_HA_MODE=${EMDEX_HA_MODE:-}
 POSTGRES_URL=${POSTGRES_URL:-}
 EOF
@@ -356,6 +384,12 @@ SFTP_USER=${SFTP_USER:-}
 SFTP_PASS=${SFTP_PASS:-}
 NFS_HOST=${NFS_HOST:-}
 NFS_PATH=${NFS_PATH:-}
+S3_ENDPOINT=${S3_ENDPOINT:-}
+S3_ACCESS_KEY=${S3_ACCESS_KEY:-}
+S3_SECRET_KEY=${S3_SECRET_KEY:-}
+S3_BUCKET=${S3_BUCKET:-}
+S3_USE_SSL=${S3_USE_SSL:-}
+S3_PREFIX=${S3_PREFIX:-}
 EOF
     sudo chmod 640 "$ENV_FILE"
     [[ "$OS_TYPE" == "linux" ]] && sudo chown "root:$SERVICE_USER" "$ENV_FILE" 2>/dev/null || true

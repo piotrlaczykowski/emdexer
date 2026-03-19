@@ -7,9 +7,11 @@ from prefab_ui.components.charts import BarChart
 
 # Configuration
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://gateway:7700")
-BEARER_TOKEN = os.getenv("EMDEX_AUTH_KEY", "")
+# Supports both static API keys (EMDEX_AUTH_KEY) and OIDC JWT tokens (EMDEX_BEARER_TOKEN).
+# EMDEX_BEARER_TOKEN takes precedence if set — use it when the gateway is OIDC-protected.
+BEARER_TOKEN = os.getenv("EMDEX_BEARER_TOKEN", "") or os.getenv("EMDEX_AUTH_KEY", "")
 if not BEARER_TOKEN:
-    raise RuntimeError("EMDEX_AUTH_KEY environment variable is required. Run 'emdex init' to generate one.")
+    raise RuntimeError("EMDEX_AUTH_KEY or EMDEX_BEARER_TOKEN environment variable is required.")
 
 mcp = FastMCP("emdexer")
 
@@ -18,7 +20,7 @@ def get_headers():
 
 @mcp.tool()
 def search_files(query: str, namespace: str = "default") -> PrefabApp:
-    """Search for files in EMDEX with semantic ranking."""
+    """Search for files in EMDEX with semantic ranking. Use namespace='*' for global search across all authorized namespaces."""
     url = f"{GATEWAY_URL}/v1/search"
     params = {"q": query, "namespace": namespace}
     

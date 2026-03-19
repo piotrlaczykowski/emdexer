@@ -144,7 +144,14 @@ func main() {
 		globalCfg.NodeType = "local"
 	}
 	if globalCfg.Namespace == "" {
-		globalCfg.Namespace = "default"
+		// For S3 nodes, default the namespace to the bucket name so it registers
+		// as a distinct data source in the cluster topology.
+		if globalCfg.NodeType == "s3" && globalCfg.S3Bucket != "" {
+			globalCfg.Namespace = "s3/" + globalCfg.S3Bucket
+			log.Printf("📦 [node] S3 namespace auto-set to %q from bucket name", globalCfg.Namespace)
+		} else {
+			globalCfg.Namespace = "default"
+		}
 	}
 
 	globalCB = extractor.NewCircuitBreaker(5, 5*time.Minute)

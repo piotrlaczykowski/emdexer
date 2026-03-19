@@ -47,6 +47,7 @@ services:
       - QDRANT_HOST=qdrant:6334
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
     volumes:
       - ../../logs:/app/logs
     networks:
@@ -77,7 +78,8 @@ services:
       - EMDEX_NAMESPACE=default
       - NODE_HEALTH_PORT=8081
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
-      - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-768}
+      - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
+      - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
     networks:
       - emdexer-net
     depends_on:

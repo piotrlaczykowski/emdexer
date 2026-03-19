@@ -1,7 +1,7 @@
 # Emdexer API Reference
 
-**Version:** v1  
-**Base URL:** `http://<gateway-host>:7700`  
+**Version:** v1
+**Base URL:** `http://<gateway-host>:7700`
 **Authentication:** Header `Authorization: Bearer <Emdexer_AUTH_KEY>`
 
 ## Endpoints
@@ -11,7 +11,7 @@ Returns the most relevant chunks from the indexed documents across all or specif
 
 - **Method:** `GET`
 - **Path:** `/v1/search`
-- **Headers:** 
+- **Headers:**
   - `Authorization: Bearer <your-auth-key>`
 - **Query Parameters:**
   - `q`: Search query string
@@ -20,15 +20,15 @@ Returns the most relevant chunks from the indexed documents across all or specif
 - **Response:**
 ```json
 {
-  "query": "What is the policy on turkey for Krysia?",
+  "query": "What is the onboarding process for new employees?",
   "results": [
     {
       "id": "550e8400-e29b-41d4-a716-446655440000",
       "score": 0.98,
       "payload": {
-        "text": "Krysia really likes turkey and should be given some every morning.",
-        "path": "/opt/emdexer/test_dir/cats.txt",
-        "namespace": "alpha"
+        "text": "New employees must complete the onboarding checklist within their first week, including setting up VPN access and completing the security training module.",
+        "path": "/data/docs/hr/onboarding.md",
+        "namespace": "hr"
       }
     }
   ]
@@ -40,7 +40,7 @@ OpenAI-compatible chat completions with integrated Multi-Hop RAG.
 
 - **Method:** `POST`
 - **Path:** `/v1/chat/completions`
-- **Headers:** 
+- **Headers:**
   - `Authorization: Bearer <your-auth-key>`
   - `Content-Type: application/json`
 - **Request Body:**
@@ -48,7 +48,7 @@ OpenAI-compatible chat completions with integrated Multi-Hop RAG.
 {
   "model": "emdexer-v1",
   "messages": [
-    {"role": "user", "content": "Tell me about Krysia's diet."}
+    {"role": "user", "content": "Summarize the Q1 budget report."}
   ],
   "stream": false,
   "max_context": 5
@@ -67,7 +67,7 @@ OpenAI-compatible chat completions with integrated Multi-Hop RAG.
       "index": 0,
       "message": {
         "role": "assistant",
-        "content": "Based on the documents in the 'alpha' namespace, Krysia's diet primarily consists of turkey, which she enjoys every morning."
+        "content": "Based on the documents in the 'finance' namespace, the Q1 budget report indicates a 12% increase in operational costs driven by infrastructure upgrades."
       },
       "finish_reason": "stop"
     }
@@ -80,7 +80,7 @@ Retrieve and summarize files indexed in the last 24 hours.
 
 - **Method:** `GET`
 - **Path:** `/v1/daily-delta`
-- **Headers:** 
+- **Headers:**
   - `Authorization: Bearer <your-auth-key>`
 - **Response:**
 ```json

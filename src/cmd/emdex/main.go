@@ -26,6 +26,8 @@ func main() {
 			cmdStatus()
 		case "nodes":
 			cmdNodes()
+		case "search":
+			cmdSearch()
 		case "whoami":
 			cmdWhoami()
 		default:
@@ -58,6 +60,7 @@ func printUsage() {
 	fmt.Printf("    %s     Start emdexer services via Docker Compose\n", ui.Cyan("start"))
 	fmt.Printf("    %s    Show status of emdexer services\n", ui.Cyan("status"))
 	fmt.Printf("    %s     List registered nodes and their status\n", ui.Cyan("nodes"))
+	fmt.Printf("    %s    Search indexed documents  %s\n", ui.Cyan("search"), ui.Dim("(--namespace, --global, --limit)"))
 	fmt.Printf("    %s    Show current caller identity and authorized namespaces\n", ui.Cyan("whoami"))
 	fmt.Println()
 	fmt.Printf("  %s\n", ui.Bold("Flags:"))
@@ -242,6 +245,7 @@ func checkWorker(url string) workerResult {
 }
 
 // checkRegistry verifies the gateway's node registry is reachable and parseable.
+// It also counts distinct namespaces across all nodes for the topology summary.
 func checkRegistry(gatewayURL string) workerResult {
 	authKey := os.Getenv("EMDEX_AUTH_KEY")
 	if authKey == "" {
@@ -268,12 +272,25 @@ func checkRegistry(gatewayURL string) workerResult {
 		return workerResult{"❌", ui.Red(fmt.Sprintf("HTTP %d", resp.StatusCode))}
 	}
 
-	var nodes []interface{}
+	var nodes []struct {
+		Namespaces []string `json:"namespaces"`
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&nodes); err != nil {
 		return workerResult{"❌", ui.Red("CORRUPT") + "  " + ui.Dim("registry response not valid JSON")}
 	}
 
-	return workerResult{"✅", ui.Green(fmt.Sprintf("OK (%d nodes)", len(nodes)))}
+	// Count distinct namespaces across all nodes for the topology summary.
+	nsSet := make(map[string]struct{})
+	for _, n := range nodes {
+		for _, ns := range n.Namespaces {
+			nsSet[ns] = struct{}{}
+		}
+	}
+	detail := fmt.Sprintf("OK  %s  %s",
+		ui.Green(fmt.Sprintf("%d nodes", len(nodes))),
+		ui.Cyan(fmt.Sprintf("%d namespaces", len(nsSet))),
+	)
+	return workerResult{"✅", detail}
 }
 
 // cmdNodes queries the gateway registry and displays a colorized node table.
@@ -349,6 +366,139 @@ func cmdNodes() {
 			ui.Dim(ago))
 	}
 	fmt.Println()
+}
+
+// cmdSearch queries the gateway's /v1/search endpoint.
+// Usage: emdex search <query> [--namespace=<ns>] [--global] [--limit=<n>]
+func cmdSearch() {
+	args := os.Args[2:]
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+		fmt.Printf("\n  %s\n\n", ui.Bold("emdex search <query> [flags]"))
+		fmt.Printf("  %s\n", ui.Bold("Flags:"))
+		fmt.Printf("    %s       Namespace to search (default: 'default')\n", ui.Cyan("--namespace=<ns>"))
+		fmt.Printf("    %s           Fan-out across all authorized namespaces\n", ui.Cyan("--global"))
+		fmt.Printf("    %s       Max results to return\n", ui.Cyan("--limit=<n>"))
+		fmt.Println()
+		return
+	}
+
+	gatewayURL := os.Getenv("EMDEX_GATEWAY_URL")
+	if gatewayURL == "" {
+		gatewayURL = "http://localhost:7700"
+	}
+	authKey := os.Getenv("EMDEX_AUTH_KEY")
+	if authKey == "" {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", "❌", ui.Red("EMDEX_AUTH_KEY required to search"))
+		os.Exit(1)
+	}
+
+	// Parse flags and collect query words.
+	namespace := ""
+	global := false
+	limit := ""
+	var queryParts []string
+
+	for _, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "--namespace="):
+			namespace = strings.TrimPrefix(arg, "--namespace=")
+		case arg == "--global":
+			global = true
+		case strings.HasPrefix(arg, "--limit="):
+			limit = strings.TrimPrefix(arg, "--limit=")
+		default:
+			queryParts = append(queryParts, arg)
+		}
+	}
+
+	query := strings.Join(queryParts, " ")
+	if query == "" {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", "❌", ui.Red("Search query required"))
+		os.Exit(1)
+	}
+
+	if global {
+		namespace = "*"
+	}
+	if namespace == "" {
+		namespace = os.Getenv("EMDEX_NAMESPACE")
+	}
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	searchURL := fmt.Sprintf("%s/v1/search?q=%s&namespace=%s", gatewayURL,
+		strings.ReplaceAll(query, " ", "+"), namespace)
+	if limit != "" {
+		searchURL += "&limit=" + limit
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, _ := http.NewRequest("GET", searchURL, nil)
+	req.Header.Set("Authorization", "Bearer "+authKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  %s %s: %v\n", "❌", ui.Red("Cannot reach gateway"), err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "  %s HTTP %d from gateway\n", "❌", resp.StatusCode)
+		os.Exit(1)
+	}
+
+	var result struct {
+		Query              string                   `json:"query"`
+		NamespacesSearched []string                 `json:"namespaces_searched"`
+		PartialFailures    []string                 `json:"partial_failures"`
+		Results            []map[string]interface{} `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", "❌", ui.Red("Invalid response from gateway"))
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n  %s  %s\n", "🔍", ui.Bold(fmt.Sprintf("Search: %q", result.Query)))
+	if len(result.NamespacesSearched) > 0 {
+		fmt.Printf("  %s %s\n", ui.Dim("Namespaces:"), ui.Cyan(strings.Join(result.NamespacesSearched, ", ")))
+	}
+	if len(result.PartialFailures) > 0 {
+		fmt.Printf("  %s %s\n", "⚠️", ui.Yellow(fmt.Sprintf("partial failures: %s", strings.Join(result.PartialFailures, ", "))))
+	}
+	fmt.Printf("  %s\n\n", ui.Dim(fmt.Sprintf("────────────────────────────────────  (%d results)", len(result.Results))))
+
+	if len(result.Results) == 0 {
+		fmt.Printf("  %s\n\n", ui.Dim("No results found."))
+		return
+	}
+
+	for i, r := range result.Results {
+		payload, _ := r["payload"].(map[string]interface{})
+		if payload == nil {
+			payload = r
+		}
+		text, _ := payload["text"].(string)
+		path, _ := payload["path"].(string)
+		ns, _ := payload["namespace"].(string)
+		if ns == "" {
+			ns, _ = payload["source_namespace"].(string)
+		}
+		score, _ := r["score"].(float64)
+
+		fmt.Printf("  %s  %s\n", ui.Cyan(fmt.Sprintf("[%d]", i+1)), ui.Bold(path))
+		if ns != "" {
+			fmt.Printf("      %s %s  %s %.4f\n", ui.Dim("namespace:"), ui.Cyan(ns), ui.Dim("score:"), score)
+		}
+		if len(text) > 200 {
+			text = text[:200] + "…"
+		}
+		if text != "" {
+			fmt.Printf("      %s\n", ui.Dim(text))
+		}
+		fmt.Println()
+	}
 }
 
 // cmdWhoami queries the gateway's /v1/whoami endpoint and displays the caller's identity.

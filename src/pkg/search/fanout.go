@@ -7,38 +7,45 @@ import (
 	"time"
 
 	"github.com/qdrant/go-client/qdrant"
-	"golang.org/x/sync/errgroup"
 )
 
 // FanOutSearch runs parallel Qdrant searches across multiple namespaces and merges via RRF.
-func FanOutSearch(ctx context.Context, pc qdrant.PointsClient, collection string, vector []float32, namespaces []string, limit uint64, timeout time.Duration) ([]Result, error) {
+// It returns partial results even when some namespaces fail (partial failures preferred over 504).
+// failedNS lists the namespaces that returned errors so callers can surface them to the client.
+func FanOutSearch(ctx context.Context, pc qdrant.PointsClient, collection string, vector []float32, namespaces []string, limit uint64, timeout time.Duration) (results []Result, failedNS []string, err error) {
 	if timeout == 0 {
 		timeout = 500 * time.Millisecond
 	}
-	g, gctx := errgroup.WithContext(ctx)
-	gctx, cancel := context.WithTimeout(gctx, timeout)
+
+	// Shared deadline for all per-namespace goroutines.
+	tctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	var mu sync.Mutex
 	perNS := make(map[string][]Result)
 
+	var wg sync.WaitGroup
 	for _, ns := range namespaces {
 		ns := ns
-		g.Go(func() error {
-			results, err := SearchQdrant(gctx, pc, collection, vector, limit, ns)
-			if err != nil {
-				log.Printf("[search] namespace %q fan-out error: %v", ns, err)
-				return nil
-			}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Each goroutine uses the shared timeout context. A slow or hung node
+			// is cancelled when the overall deadline fires, unblocking the WaitGroup.
+			nsResults, nsErr := SearchQdrant(tctx, pc, collection, vector, limit, ns)
 			mu.Lock()
-			perNS[ns] = results
-			mu.Unlock()
-			return nil
-		})
+			defer mu.Unlock()
+			if nsErr != nil {
+				log.Printf("[search] namespace %q fan-out error: %v", ns, nsErr)
+				failedNS = append(failedNS, ns)
+				return
+			}
+			perNS[ns] = nsResults
+		}()
 	}
-	_ = g.Wait()
+	wg.Wait()
 
-	return MergeRRF(perNS, int(limit)), nil
+	return MergeRRF(perNS, int(limit)), failedNS, nil
 }
 
 // ResolveNamespaces returns the list of namespaces to search.

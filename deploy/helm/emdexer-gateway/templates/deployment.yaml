@@ -54,6 +54,15 @@ spec:
             - name: POSTGRES_URL
               value: {{ .Values.config.postgresUrl | quote }}
             {{- end }}
+            {{- if .Values.persistence.enabled }}
+            - name: EMDEX_REGISTRY_FILE
+              value: {{ .Values.persistence.registryFile | quote }}
+            {{- end }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: registry-storage
+              mountPath: {{ .Values.persistence.registryFile | dir | quote }}
+          {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz/liveness
@@ -70,3 +79,9 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: registry-storage
+          persistentVolumeClaim:
+            claimName: {{ include "emdexer-gateway.fullname" . }}-registry
+      {{- end }}

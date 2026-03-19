@@ -1,0 +1,205 @@
+# Multi-Node deployment example (Phase 15.3)
+#
+# 1 Gateway + 2 indexing nodes with separate namespaces.
+# The gateway maintains a node registry (file-backed) and fans out
+# global searches across all registered namespaces.
+#
+# Usage:
+#   cp .env.example .env   # fill in GOOGLE_API_KEY and EMDEX_AUTH_KEY
+#   docker compose -f deploy/docker/docker-compose.multi-node.yml up -d
+#
+# After startup:
+#   emdex status            # shows 2 nodes, 2 namespaces
+#   emdex search --global "your query"
+
+services:
+  # ============================================================
+  # Qdrant — shared vector store
+  # ============================================================
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.0
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    volumes:
+      - qdrant-storage:/qdrant/storage
+    networks:
+      - emdexer-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # Extractous sidecar (document text extraction)
+  # ============================================================
+
+  extractous:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.node
+    entrypoint: []
+    command: ["extractous-server"]
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    networks:
+      - emdexer-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # Gateway — API gateway + node registry + fan-out search
+  # ============================================================
+
+  gateway:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.gateway
+    ports:
+      - "7700:7700"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+    environment:
+      - EMDEX_PORT=7700
+      - QDRANT_HOST=qdrant:6334
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMDEX_REGISTRY_FILE=/var/lib/emdexer/nodes/nodes.json
+      - EMDEX_GLOBAL_SEARCH_TIMEOUT=${EMDEX_GLOBAL_SEARCH_TIMEOUT:-500}
+      - EMDEX_SEARCH_LIMIT=${EMDEX_SEARCH_LIMIT:-10}
+      - EMDEX_CHAT_LIMIT=${EMDEX_CHAT_LIMIT:-5}
+      - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
+    volumes:
+      - gateway-registry:/var/lib/emdexer/nodes
+    networks:
+      - emdexer-net
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # Node A — indexes local documents under the "docs" namespace
+  # Mount your document directory at /app/data via the volume below.
+  # ============================================================
+
+  node-docs:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.node
+    ports:
+      - "8081:8081"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    environment:
+      - QDRANT_HOST=qdrant:6334
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - EMDEX_NAMESPACE=docs
+      - NODE_TYPE=local
+      - NODE_ROOT=/app/data
+      - NODE_HEALTH_PORT=8081
+      - EMDEX_EXTRACTOUS_URL=http://extractous:8000
+      - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
+      - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMDEX_GATEWAY_URL=http://gateway:7700
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_POLL_INTERVAL=${EMDEX_POLL_INTERVAL:-60s}
+    volumes:
+      # Replace ./docs-data with your actual documents directory
+      - ${DOCS_DATA_PATH:-./docs-data}:/app/data:ro
+    networks:
+      - emdexer-net
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+      extractous:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # Node B — indexes a second directory under the "code" namespace
+  # Mount your source code directory at /app/data via the volume below.
+  # ============================================================
+
+  node-code:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.node
+    ports:
+      - "8082:8082"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    environment:
+      - QDRANT_HOST=qdrant:6334
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - EMDEX_NAMESPACE=code
+      - NODE_TYPE=local
+      - NODE_ROOT=/app/data
+      - NODE_HEALTH_PORT=8082
+      - EMDEX_EXTRACTOUS_URL=http://extractous:8000
+      - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
+      - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMDEX_GATEWAY_URL=http://gateway:7700
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_POLL_INTERVAL=${EMDEX_POLL_INTERVAL:-60s}
+    volumes:
+      # Replace ./code-data with your actual source directory
+      - ${CODE_DATA_PATH:-./code-data}:/app/data:ro
+    networks:
+      - emdexer-net
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+      extractous:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  emdexer-net:
+    driver: bridge
+
+volumes:
+  qdrant-storage:
+  # Named volume keeps the node registry across gateway restarts
+  gateway-registry:

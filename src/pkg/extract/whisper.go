@@ -1,7 +1,7 @@
 package extract
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,9 +38,10 @@ type whisperResponse struct {
 	Text string `json:"text"`
 }
 
-// Transcribe sends audio/video bytes to the Whisper sidecar and returns the transcript.
+// Transcribe sends audio/video content from r to the Whisper sidecar and returns the transcript.
 // The endpoint is OpenAI-compatible: POST /v1/audio/transcriptions with multipart form data.
-func (w *WhisperClient) Transcribe(filename string, data []byte) (string, error) {
+// r is streamed via io.Pipe so memory usage stays constant regardless of file size.
+func (w *WhisperClient) Transcribe(ctx context.Context, filename string, r io.Reader) (string, error) {
 	if w.URL == "" {
 		return "", fmt.Errorf("whisper sidecar not configured (EMDEX_WHISPER_URL is empty)")
 	}
@@ -49,33 +50,39 @@ func (w *WhisperClient) Transcribe(filename string, data []byte) (string, error)
 		return "", fmt.Errorf("whisper circuit breaker open")
 	}
 
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
 
-	part, err := writer.CreateFormFile("file", filepath.Base(filename))
+	go func() {
+		var werr error
+		defer func() { pw.CloseWithError(werr) }()
+
+		part, err := writer.CreateFormFile("file", filepath.Base(filename))
+		if err != nil {
+			werr = fmt.Errorf("whisper: create form file: %w", err)
+			return
+		}
+		if _, err = io.Copy(part, r); err != nil {
+			werr = fmt.Errorf("whisper: stream content: %w", err)
+			return
+		}
+
+		// Model field (required by OpenAI-compatible API).
+		model := w.Model
+		if model == "" {
+			model = "base"
+		}
+		_ = writer.WriteField("model", model)
+
+		// Response format: json for structured output.
+		_ = writer.WriteField("response_format", "json")
+
+		werr = writer.Close()
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", w.URL+"/v1/audio/transcriptions", pr)
 	if err != nil {
-		return "", fmt.Errorf("whisper: create form file: %w", err)
-	}
-	if _, err = part.Write(data); err != nil {
-		return "", fmt.Errorf("whisper: write data: %w", err)
-	}
-
-	// Model field (required by OpenAI-compatible API).
-	model := w.Model
-	if model == "" {
-		model = "base"
-	}
-	_ = writer.WriteField("model", model)
-
-	// Response format: json for structured output.
-	_ = writer.WriteField("response_format", "json")
-
-	if err = writer.Close(); err != nil {
-		return "", fmt.Errorf("whisper: close writer: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", w.URL+"/v1/audio/transcriptions", body)
-	if err != nil {
+		_ = pr.CloseWithError(err) // unblock the writer goroutine
 		return "", fmt.Errorf("whisper: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())

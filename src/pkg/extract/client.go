@@ -2,6 +2,7 @@ package extract
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -48,6 +49,7 @@ const pdfOCRMinChars = 50
 
 // ExtractFromBytes extracts text content from raw bytes, routing to the
 // appropriate sidecar based on file extension.
+// For large audio/video files prefer ExtractContent which streams without buffering.
 func (c *Client) ExtractFromBytes(path string, data []byte, extractousHost string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 
@@ -57,11 +59,12 @@ func (c *Client) ExtractFromBytes(path string, data []byte, extractousHost strin
 	}
 
 	// 2. Audio/Video — route to Whisper sidecar.
+	//    bytes.NewReader wraps without copying, so memory = 1× file size (not 2×).
 	if IsAudioExt(path) {
 		if c.Whisper == nil {
 			return "", fmt.Errorf("whisper sidecar not configured for %s", ext)
 		}
-		return c.Whisper.Transcribe(path, data)
+		return c.Whisper.Transcribe(context.Background(), path, bytes.NewReader(data))
 	}
 
 	// 3. Images — route to Extractous with OCR flag.
@@ -69,18 +72,18 @@ func (c *Client) ExtractFromBytes(path string, data []byte, extractousHost strin
 		if !c.EnableOCR {
 			return "", fmt.Errorf("OCR disabled: set EMDEX_ENABLE_OCR=true to extract text from images")
 		}
-		return c.extractWithOCR(path, data, extractousHost)
+		return c.extractViaExtractous(path, bytes.NewReader(data), extractousHost, true)
 	}
 
 	// 4. PDF — extract normally, then OCR fallback if near-zero text.
 	if ext == ".pdf" {
-		text, err := c.extractViaExtractous(path, data, extractousHost, false)
+		text, err := c.extractViaExtractous(path, bytes.NewReader(data), extractousHost, false)
 		if err != nil {
 			return "", err
 		}
 		if c.EnableOCR && len(strings.TrimSpace(text)) < pdfOCRMinChars {
 			log.Printf("[extract] PDF %s returned %d chars — retrying with OCR", path, len(strings.TrimSpace(text)))
-			ocrText, ocrErr := c.extractViaExtractous(path, data, extractousHost, true)
+			ocrText, ocrErr := c.extractViaExtractous(path, bytes.NewReader(data), extractousHost, true)
 			if ocrErr == nil && len(strings.TrimSpace(ocrText)) > len(strings.TrimSpace(text)) {
 				return ocrText, nil
 			}
@@ -89,33 +92,46 @@ func (c *Client) ExtractFromBytes(path string, data []byte, extractousHost strin
 	}
 
 	// 5. Everything else — Extractous sidecar (DOCX, XLSX, etc.)
-	return c.extractViaExtractous(path, data, extractousHost, false)
+	return c.extractViaExtractous(path, bytes.NewReader(data), extractousHost, false)
 }
 
-// extractWithOCR sends an image to the Extractous sidecar with the ocr=true parameter.
-func (c *Client) extractWithOCR(path string, data []byte, extractousHost string) (string, error) {
-	return c.extractViaExtractous(path, data, extractousHost, true)
-}
-
-// extractViaExtractous sends file data to the Extractous sidecar. When ocr is true,
-// the ?ocr=true query parameter is appended to enable Tesseract-based OCR.
-func (c *Client) extractViaExtractous(path string, data []byte, extractousHost string, ocr bool) (string, error) {
+// extractViaExtractous sends file content from r to the Extractous sidecar. When ocr is
+// true, the ?ocr=true query parameter is appended to enable Tesseract-based OCR.
+// r is streamed via io.Pipe so only a small pipe buffer is held in memory.
+func (c *Client) extractViaExtractous(path string, r io.Reader, extractousHost string, ocr bool) (string, error) {
 	if !c.CB.Allow() {
 		return "", fmt.Errorf("cb open")
 	}
 
-	bodyBuf := &bytes.Buffer{}
-	writer := multipart.NewWriter(bodyBuf)
-	part, _ := writer.CreateFormFile("file", filepath.Base(path))
-	_, _ = part.Write(data)
-	_ = writer.Close()
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+
+	go func() {
+		var werr error
+		defer func() { pw.CloseWithError(werr) }()
+
+		part, err := writer.CreateFormFile("file", filepath.Base(path))
+		if err != nil {
+			werr = err
+			return
+		}
+		if _, err = io.Copy(part, r); err != nil {
+			werr = err
+			return
+		}
+		werr = writer.Close()
+	}()
 
 	endpoint := extractousHost + "/extract"
 	if ocr {
 		endpoint += "?ocr=true"
 	}
 
-	req, _ := http.NewRequest("POST", endpoint, bodyBuf)
+	req, err := http.NewRequest("POST", endpoint, pr)
+	if err != nil {
+		_ = pr.CloseWithError(err) // unblock the writer goroutine
+		return "", err
+	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	res, err := c.HTTP.Do(req)
 	if err != nil {
@@ -136,12 +152,31 @@ func (c *Client) extractViaExtractous(path string, data []byte, extractousHost s
 }
 
 // ExtractContent reads a file from the VFS and extracts its text content.
+// For audio/video files the VFS stream is piped directly to the Whisper sidecar
+// without buffering the full file in memory, supporting files >500 MB.
 func (c *Client) ExtractContent(path, extractousHost string) (string, error) {
+	// Audio/video: stream directly to Whisper — never call io.ReadAll on large media.
+	if IsAudioExt(path) {
+		if c.Whisper == nil {
+			return "", fmt.Errorf("whisper sidecar not configured for %s", filepath.Ext(path))
+		}
+		f, err := c.FS.Open(path)
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = f.Close() }()
+		return c.Whisper.Transcribe(context.Background(), path, f)
+	}
+
+	// All other types: buffer once, then route through ExtractFromBytes.
 	f, err := c.FS.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = f.Close() }()
-	data, _ := io.ReadAll(f)
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return "", err
+	}
 	return c.ExtractFromBytes(path, data, extractousHost)
 }

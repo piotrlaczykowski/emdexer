@@ -1,6 +1,8 @@
 package extract
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -45,7 +47,7 @@ func TestWhisperTranscribe(t *testing.T) {
 		CB:    extractor.NewCircuitBreaker(5, time.Minute),
 	}
 
-	text, err := client.Transcribe("test.mp3", []byte("fake audio data"))
+	text, err := client.Transcribe(context.Background(), "test.mp3", bytes.NewReader([]byte("fake audio data")))
 	if err != nil {
 		t.Fatalf("Transcribe failed: %v", err)
 	}
@@ -67,7 +69,7 @@ func TestWhisperTranscribeError(t *testing.T) {
 		CB:   extractor.NewCircuitBreaker(5, time.Minute),
 	}
 
-	_, err := client.Transcribe("test.mp3", []byte("fake audio data"))
+	_, err := client.Transcribe(context.Background(), "test.mp3", bytes.NewReader([]byte("fake audio data")))
 	if err == nil {
 		t.Error("expected error for 500 response")
 	}
@@ -80,7 +82,7 @@ func TestWhisperNotConfigured(t *testing.T) {
 		CB:   extractor.NewCircuitBreaker(5, time.Minute),
 	}
 
-	_, err := client.Transcribe("test.mp3", []byte("data"))
+	_, err := client.Transcribe(context.Background(), "test.mp3", bytes.NewReader([]byte("data")))
 	if err == nil {
 		t.Error("expected error when URL is empty")
 	}

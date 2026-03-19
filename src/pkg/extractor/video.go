@@ -1,10 +1,10 @@
 package extractor
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
@@ -29,7 +29,8 @@ type whisperTranscription struct {
 
 // ProcessWhisper transcribes audio content using the whisper.cpp sidecar.
 // It posts to the OpenAI-compatible /v1/audio/transcriptions endpoint.
-func (v *VideoSampler) ProcessWhisper(ctx context.Context, filename string, audioContent []byte) (string, error) {
+// r is streamed via io.Pipe so memory usage stays constant regardless of file size.
+func (v *VideoSampler) ProcessWhisper(ctx context.Context, filename string, r io.Reader) (string, error) {
 	if v.WhisperURL == "" {
 		return "", fmt.Errorf("whisper: sidecar URL not configured (EMDEX_WHISPER_URL)")
 	}
@@ -39,31 +40,36 @@ func (v *VideoSampler) ProcessWhisper(ctx context.Context, filename string, audi
 		client = http.DefaultClient
 	}
 
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
 
-	part, err := writer.CreateFormFile("file", filepath.Base(filename))
-	if err != nil {
-		return "", fmt.Errorf("whisper: create form file: %w", err)
-	}
-	if _, err = part.Write(audioContent); err != nil {
-		return "", fmt.Errorf("whisper: write content: %w", err)
-	}
+	go func() {
+		var werr error
+		defer func() { pw.CloseWithError(werr) }()
 
-	model := v.WhisperModel
-	if model == "" {
-		model = "base"
-	}
-	_ = writer.WriteField("model", model)
-	_ = writer.WriteField("response_format", "json")
+		part, err := writer.CreateFormFile("file", filepath.Base(filename))
+		if err != nil {
+			werr = fmt.Errorf("whisper: create form file: %w", err)
+			return
+		}
+		if _, err = io.Copy(part, r); err != nil {
+			werr = fmt.Errorf("whisper: stream content: %w", err)
+			return
+		}
 
-	if err = writer.Close(); err != nil {
-		return "", fmt.Errorf("whisper: close writer: %w", err)
-	}
+		model := v.WhisperModel
+		if model == "" {
+			model = "base"
+		}
+		_ = writer.WriteField("model", model)
+		_ = writer.WriteField("response_format", "json")
+		werr = writer.Close()
+	}()
 
 	endpoint := v.WhisperURL + "/v1/audio/transcriptions"
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, body)
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, pr)
 	if err != nil {
+		_ = pr.CloseWithError(err) // unblock the writer goroutine
 		return "", fmt.Errorf("whisper: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -75,7 +81,8 @@ func (v *VideoSampler) ProcessWhisper(ctx context.Context, filename string, audi
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("whisper: HTTP %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("whisper: HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
 	var result whisperTranscription

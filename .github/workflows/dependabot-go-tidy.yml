@@ -1,0 +1,48 @@
+name: Dependabot Go Tidy
+
+on:
+  pull_request:
+    paths:
+      - 'src/pkg/go.mod'
+      - 'src/pkg/go.sum'
+
+permissions:
+  contents: write
+
+jobs:
+  tidy-dependents:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.1
+
+      - name: Tidy dependent modules
+        run: |
+          for mod in src/gateway src/node; do
+            echo "Running go mod tidy in $mod"
+            cd "$GITHUB_WORKSPACE/$mod"
+            go mod tidy
+          done
+
+      - name: Check for changes
+        id: diff
+        run: |
+          git diff --quiet || echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/gateway/go.mod src/gateway/go.sum src/node/go.mod src/node/go.sum
+          git commit -m "fix(deps): tidy dependent Go modules after pkg update"
+          git push

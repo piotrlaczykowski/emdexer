@@ -32,6 +32,27 @@ services:
       timeout: 5s
       retries: 5
 
+  whisper:
+    image: ghcr.io/ggml-org/whisper.cpp:main
+    # OpenAI-compatible /v1/audio/transcriptions endpoint.
+    # No host port mappings — internal only via emdexer-net (whisper:8080).
+    command: ["--model", "/models/${EMDEX_WHISPER_MODEL:-base}.bin", "--host", "0.0.0.0", "--port", "8080"]
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+    volumes:
+      - whisper-models:/models
+    networks:
+      - emdexer-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
   gateway:
     build:
       context: ../../
@@ -78,12 +99,17 @@ services:
       - EMDEX_NAMESPACE=default
       - NODE_HEALTH_PORT=8081
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
+      - EMDEX_WHISPER_URL=${EMDEX_WHISPER_URL:-http://whisper:8080}
+      - EMDEX_WHISPER_MODEL=${EMDEX_WHISPER_MODEL:-base}
+      - EMDEX_ENABLE_OCR=${EMDEX_ENABLE_OCR:-true}
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
     networks:
       - emdexer-net
     depends_on:
       extractous:
+        condition: service_healthy
+      whisper:
         condition: service_healthy
     restart: always
     healthcheck:
@@ -116,3 +142,6 @@ services:
 networks:
   emdexer-net:
     driver: bridge
+
+volumes:
+  whisper-models:

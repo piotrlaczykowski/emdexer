@@ -10,6 +10,10 @@ config:
   namespace: "default"
   mountPath: "/data"
   extractousHost: "http://extractous:8000"
+  # Whisper sidecar (audio/video transcription)
+  whisperUrl: "http://whisper:8080"
+  whisperModel: "base"
+  enableOcr: "true"
   deltaEnabled: "1"
   fullHash: "0"
   # VFS backend: local | smb | sftp | nfs | s3

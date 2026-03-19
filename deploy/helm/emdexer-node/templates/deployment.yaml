@@ -25,6 +25,12 @@ spec:
               value: {{ .Values.config.namespace | quote }}
             - name: EMDEX_EXTRACTOUS_URL
               value: {{ .Values.config.extractousHost | quote }}
+            - name: EMDEX_WHISPER_URL
+              value: {{ .Values.config.whisperUrl | quote }}
+            - name: EMDEX_WHISPER_MODEL
+              value: {{ .Values.config.whisperModel | default "base" | quote }}
+            - name: EMDEX_ENABLE_OCR
+              value: {{ .Values.config.enableOcr | default "true" | quote }}
             - name: GOOGLE_API_KEY
               valueFrom:
                 secretKeyRef:

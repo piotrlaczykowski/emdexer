@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
@@ -21,23 +22,84 @@ type Result struct {
 }
 
 // Client wraps content extraction with circuit breaker and VFS support.
+// It routes files to the appropriate sidecar based on extension:
+//   - Text files → returned as-is (no sidecar)
+//   - Images (.png, .jpg, .jpeg, .tiff) → Extractous with ocr=true
+//   - Audio/Video (.mp3, .wav, .mp4, .mkv, etc.) → Whisper sidecar
+//   - PDFs → Extractous, with OCR fallback if near-zero text extracted
+//   - Everything else → Extractous sidecar
 type Client struct {
-	CB   *extractor.CircuitBreaker
-	FS   vfs.FileSystem
-	HTTP *http.Client
+	CB        *extractor.CircuitBreaker
+	FS        vfs.FileSystem
+	HTTP      *http.Client
+	Whisper   *WhisperClient // nil if Whisper sidecar is not configured
+	EnableOCR bool           // when true, images are sent to Extractous with ocr=true
 }
 
 // internalExts are file extensions handled directly without the Extractous sidecar.
 var internalExts = map[string]bool{".txt": true, ".md": true, ".go": true, ".py": true, ".json": true}
 
-// ExtractFromBytes extracts text content from raw bytes, using the Extractous sidecar
-// for non-text formats.
+// imageExts are file extensions routed to Extractous with ocr=true for OCR processing.
+var imageExts = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".tiff": true, ".tif": true, ".bmp": true}
+
+// pdfOCRMinChars is the minimum number of characters from a PDF extraction
+// before triggering an OCR retry. Scanned PDFs often return near-zero text.
+const pdfOCRMinChars = 50
+
+// ExtractFromBytes extracts text content from raw bytes, routing to the
+// appropriate sidecar based on file extension.
 func (c *Client) ExtractFromBytes(path string, data []byte, extractousHost string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(path))
+
+	// 1. Plain text — return as-is.
 	if internalExts[ext] {
 		return string(data), nil
 	}
 
+	// 2. Audio/Video — route to Whisper sidecar.
+	if IsAudioExt(path) {
+		if c.Whisper == nil {
+			return "", fmt.Errorf("whisper sidecar not configured for %s", ext)
+		}
+		return c.Whisper.Transcribe(path, data)
+	}
+
+	// 3. Images — route to Extractous with OCR flag.
+	if imageExts[ext] {
+		if !c.EnableOCR {
+			return "", fmt.Errorf("OCR disabled: set EMDEX_ENABLE_OCR=true to extract text from images")
+		}
+		return c.extractWithOCR(path, data, extractousHost)
+	}
+
+	// 4. PDF — extract normally, then OCR fallback if near-zero text.
+	if ext == ".pdf" {
+		text, err := c.extractViaExtractous(path, data, extractousHost, false)
+		if err != nil {
+			return "", err
+		}
+		if c.EnableOCR && len(strings.TrimSpace(text)) < pdfOCRMinChars {
+			log.Printf("[extract] PDF %s returned %d chars — retrying with OCR", path, len(strings.TrimSpace(text)))
+			ocrText, ocrErr := c.extractViaExtractous(path, data, extractousHost, true)
+			if ocrErr == nil && len(strings.TrimSpace(ocrText)) > len(strings.TrimSpace(text)) {
+				return ocrText, nil
+			}
+		}
+		return text, nil
+	}
+
+	// 5. Everything else — Extractous sidecar (DOCX, XLSX, etc.)
+	return c.extractViaExtractous(path, data, extractousHost, false)
+}
+
+// extractWithOCR sends an image to the Extractous sidecar with the ocr=true parameter.
+func (c *Client) extractWithOCR(path string, data []byte, extractousHost string) (string, error) {
+	return c.extractViaExtractous(path, data, extractousHost, true)
+}
+
+// extractViaExtractous sends file data to the Extractous sidecar. When ocr is true,
+// the ?ocr=true query parameter is appended to enable Tesseract-based OCR.
+func (c *Client) extractViaExtractous(path string, data []byte, extractousHost string, ocr bool) (string, error) {
 	if !c.CB.Allow() {
 		return "", fmt.Errorf("cb open")
 	}
@@ -47,7 +109,13 @@ func (c *Client) ExtractFromBytes(path string, data []byte, extractousHost strin
 	part, _ := writer.CreateFormFile("file", filepath.Base(path))
 	_, _ = part.Write(data)
 	_ = writer.Close()
-	req, _ := http.NewRequest("POST", extractousHost+"/extract", bodyBuf)
+
+	endpoint := extractousHost + "/extract"
+	if ocr {
+		endpoint += "?ocr=true"
+	}
+
+	req, _ := http.NewRequest("POST", endpoint, bodyBuf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	res, err := c.HTTP.Do(req)
 	if err != nil {

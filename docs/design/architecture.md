@@ -127,6 +127,9 @@ Each binary reads only its own environment variables. In a bare-metal deployment
 | `GOOGLE_API_KEY`          | ✅*      | —                 | Gemini key (when `EMBED_PROVIDER=gemini`)         |
 | `EMDEX_GEMINI_MODEL`      |          | `gemini-embedding-2-preview`| Gemini model for embeddings                      |
 | `EMDEX_EXTRACTOUS_URL`    |          | `http://localhost:8000/extract` | Extractous sidecar URL             |
+| `EMDEX_WHISPER_URL`       |          | —                 | Whisper sidecar URL (enables audio/video)        |
+| `EMDEX_WHISPER_MODEL`     |          | `base`            | Whisper model: `base`, `small`, `medium`, `large`|
+| `EMDEX_ENABLE_OCR`        |          | `false`           | Enable OCR for images and scanned PDF fallback   |
 | `EMDEX_POLL_INTERVAL`     |          | `60s`             | Remote VFS poll interval                         |
 | `EMDEX_CACHE_DIR`         |          | `./cache`         | SQLite metadata cache directory                  |
 | `EMDEX_QUEUE_DB`          |          | `queue.db`        | Indexing queue SQLite path                       |
@@ -141,8 +144,56 @@ Each binary reads only its own environment variables. In a bare-metal deployment
 
 | Variable              | Required | Default | Description                |
 |-----------------------|----------|---------|----------------------------|
-| `EMDEX_SIDECAR_PORT`  |          | `8000`  | Sidecar HTTP listen port   |
+| `EMDEX_SIDECAR_PORT`  |          | `8000`  | Extractous HTTP listen port |
+| `EMDEX_WHISPER_URL`   |          | —       | Whisper sidecar URL (e.g. `http://whisper:8080`) |
+| `EMDEX_WHISPER_MODEL` |          | `base`  | Whisper model: `base`, `small`, `medium`, `large` |
+| `EMDEX_ENABLE_OCR`    |          | `false` | Enable OCR for images and scanned PDF fallback |
 
+
+---
+
+## 3b. Multi-Modal "Zero-Token" Sidecar Architecture (Phase 9)
+
+Emdexer uses a **sidecar architecture** for content extraction. All heavy processing is performed by optimized C++ sidecars — zero LLM API tokens are burned on extraction or transcription.
+
+```
+File arrives at extract.Client.ExtractFromBytes(path, data)
+  │
+  ├─ .txt/.md/.go/.py/.json → return as-is (no sidecar)
+  │
+  ├─ .png/.jpg/.jpeg/.tiff  → Extractous sidecar  POST /extract?ocr=true
+  │                             (Tesseract-based OCR)
+  │
+  ├─ .mp3/.wav/.mp4/.mkv    → Whisper sidecar  POST /v1/audio/transcriptions
+  │   .m4a/.ogg/.flac/.webm    (OpenAI-compatible endpoint, whisper.cpp)
+  │
+  ├─ .pdf                   → Extractous sidecar  POST /extract
+  │                             If < 50 chars → retry with POST /extract?ocr=true
+  │                             (scanned PDF fallback)
+  │
+  └─ .docx/.xlsx/etc.       → Extractous sidecar  POST /extract
+```
+
+### Sidecars
+
+| Sidecar | Image | Endpoint | Purpose |
+|---------|-------|----------|---------|
+| Extractous | `build: ./extractous-sidecar` | `POST /extract` | Text extraction from PDF, DOCX, XLSX, images (with `?ocr=true`) |
+| whisper.cpp | `ghcr.io/ggml-org/whisper.cpp:main` | `POST /v1/audio/transcriptions` | Speech-to-text for audio and video files |
+
+### Circuit Breakers
+
+Both sidecars are protected by independent circuit breakers (5 failures → 5 minute open window). If a sidecar is down, the circuit opens and files of that type are skipped until the sidecar recovers.
+
+### PDF OCR Fallback
+
+When `EMDEX_ENABLE_OCR=true`, the extract client implements a two-pass strategy for PDFs:
+
+1. **First pass**: Standard extraction via Extractous.
+2. **Check**: If the result contains fewer than 50 characters (scanned document), retry with `?ocr=true`.
+3. **Best result**: Return the longer of the two results.
+
+This ensures both text-native and scanned PDFs are handled without user intervention.
 
 ---
 

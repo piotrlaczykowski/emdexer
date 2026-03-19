@@ -100,7 +100,7 @@ func loadEnv(path string) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -112,7 +112,7 @@ func loadEnv(path string) {
 			key := strings.TrimSpace(parts[0])
 			val := strings.TrimSpace(parts[1])
 			if os.Getenv(key) == "" {
-				os.Setenv(key, val)
+				_ = os.Setenv(key, val)
 			}
 		}
 	}
@@ -168,11 +168,11 @@ func main() {
 
 	globalCB = extractor.NewCircuitBreaker(5, 5*time.Minute)
 	globalCtx = context.Background()
-	conn, err := grpc.Dial(globalCfg.QdrantHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(globalCfg.QdrantHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	globalEmbedder = embed.New(
 		globalCfg.GoogleAPIKey,
@@ -189,21 +189,21 @@ func main() {
 	if queuePath == "" {
 		queuePath = filepath.Join(cwd, "cache", "queue.db")
 	}
-	os.MkdirAll(filepath.Dir(queuePath), 0700)
+	_ = os.MkdirAll(filepath.Dir(queuePath), 0700)
 	globalQueue, err = queue.NewPersistentQueue(queuePath)
 	if err == nil {
 		go startQueueWorker()
 	}
 
 	initVFS()
-	defer globalFS.Close()
+	defer func() { _ = globalFS.Close() }()
 
 	_, err = collectionsClient.Get(globalCtx, &qdrant.GetCollectionInfoRequest{
 		CollectionName: globalCfg.CollectionName,
 	})
 
 	if err != nil {
-		collectionsClient.Create(globalCtx, &qdrant.CreateCollection{
+		_, _ = collectionsClient.Create(globalCtx, &qdrant.CreateCollection{
 			CollectionName: globalCfg.CollectionName,
 			VectorsConfig: &qdrant.VectorsConfig{
 				Config: &qdrant.VectorsConfig_Params{
@@ -231,7 +231,7 @@ func main() {
 					Points:         points,
 				})
 				if err != nil && globalQueue != nil {
-					globalQueue.Enqueue(points)
+					_ = globalQueue.Enqueue(points)
 				}
 				return err
 			}
@@ -245,7 +245,7 @@ func main() {
 		if cacheDir == "" {
 			cacheDir = filepath.Join(cwd, "cache")
 		}
-		os.MkdirAll(cacheDir, 0700)
+		_ = os.MkdirAll(cacheDir, 0700)
 		cache, _ := watcher.NewMetadataCache(filepath.Join(cacheDir, "emdex_cache.db"))
 		if cache != nil {
 			p := watcher.NewPoller(
@@ -261,7 +261,7 @@ func main() {
 							Points:         points,
 						})
 						if err != nil && globalQueue != nil {
-							globalQueue.Enqueue(points)
+							_ = globalQueue.Enqueue(points)
 						}
 						return err
 					}
@@ -306,12 +306,12 @@ func main() {
 				Points:         batch,
 			})
 			if err != nil && globalQueue != nil {
-				globalQueue.Enqueue(batch)
+				_ = globalQueue.Enqueue(batch)
 			}
 			batch = nil
 		}
 
-		idx.Walk(root, func(path string, isDir bool, content []byte) error {
+		_ = idx.Walk(root, func(path string, isDir bool, content []byte) error {
 			points := indexDataToPoints(path, content)
 			for _, p := range points {
 				batch = append(batch, p)
@@ -412,8 +412,8 @@ func extractFromBytes(path string, data []byte, extractousHost string) (string, 
 	bodyBuf := &bytes.Buffer{}
 	writer := multipart.NewWriter(bodyBuf)
 	part, _ := writer.CreateFormFile("file", filepath.Base(path))
-	part.Write(data)
-	writer.Close()
+	_, _ = part.Write(data)
+	_ = writer.Close()
 	req, _ := http.NewRequest("POST", extractousHost+"/extract", bodyBuf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	client := &http.Client{Timeout: 60 * time.Second}
@@ -422,7 +422,7 @@ func extractFromBytes(path string, data []byte, extractousHost string) (string, 
 		globalCB.RecordFailure()
 		return "", err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		globalCB.RecordFailure()
@@ -431,14 +431,14 @@ func extractFromBytes(path string, data []byte, extractousHost string) (string, 
 
 	globalCB.RecordSuccess()
 	var result ExtractedResult
-	json.NewDecoder(res.Body).Decode(&result)
+	_ = json.NewDecoder(res.Body).Decode(&result)
 	return result.Text, nil
 }
 
 func extractContent(path, extractousHost string) (string, error) {
 	f, err := globalFS.Open(path)
 	if err != nil { return "", err }
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, _ := io.ReadAll(f)
 	return extractFromBytes(path, data, extractousHost)
 }
@@ -450,7 +450,7 @@ func startHealthServer(qdrantConn *grpc.ClientConn) {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/healthz/liveness", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
 	})
 
 	mux.HandleFunc("/healthz/readiness", func(w http.ResponseWriter, r *http.Request) {
@@ -459,19 +459,19 @@ func startHealthServer(qdrantConn *grpc.ClientConn) {
 		resp, err := healthClient.Check(ctx, &grpc_health_v1.HealthCheckRequest{Service: ""})
 		if err != nil || resp.Status != grpc_health_v1.HealthCheckResponse_SERVING {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"status": "DOWN"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "DOWN"})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
 	})
 
 	mux.HandleFunc("/healthz/startup", func(w http.ResponseWriter, r *http.Request) {
 		if time.Since(startTime) < 5*time.Second {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"status": "STARTING"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "STARTING"})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"status": "STARTED"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "STARTED"})
 	})
 
 	port := os.Getenv("NODE_HEALTH_PORT")
@@ -516,7 +516,7 @@ func startQueueWorker() {
 				CollectionName: globalCfg.CollectionName,
 				Points:         item.Points,
 			})
-			if err == nil { globalQueue.Delete(item.ID) } else { break }
+			if err == nil { _ = globalQueue.Delete(item.ID) } else { break }
 		}
 	}
 }

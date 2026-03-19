@@ -80,7 +80,7 @@ The following structural issues were identified and fixed in the v1.0.1 sprint:
 
 ## Integrity Notes (Go 1.26.1 Hardening Sprint — 2026-03-15)
 
-1. **Full Go 1.26.1 migration** — All 6 modules (`gateway`, `node`, `node-s3`, `node-smb`, `node-nfs`, `mcp`) migrated to Go 1.26.1. `go.mod` and CI matrix updated across the board.
+1. **Full Go 1.26.1 migration** — All Go modules (`gateway`, `node`, `pkg`) and MCP (Python) migrated to Go 1.26.1. `go.mod` and CI matrix updated across the board. S3/SMB/NFS are VFS backends in the standard `emdex-node` binary, not separate modules.
 2. **Native `gosec` in CI** — `gosec` static analysis integrated as a mandatory CI step; blocks merge on high-severity findings. Replaces ad-hoc manual audits.
 3. **`EmbedProvider` refactored to `src/pkg/embed`** — Shared provider logic extracted from per-module copies into a single `src/pkg/embed` package. All modules import from there (DRY).
 4. **Cache directory permissions hardened (0700)** — `os.MkdirAll` calls for cache dirs now use `0700` instead of `0755`, preventing other local users from reading embedding caches.

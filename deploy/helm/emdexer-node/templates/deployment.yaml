@@ -23,7 +23,7 @@ spec:
               value: {{ .Values.config.qdrantHost | quote }}
             - name: EMDEX_NAMESPACE
               value: {{ .Values.config.namespace | quote }}
-            - name: EXTRACTOUS_HOST
+            - name: EMDEX_EXTRACTOUS_URL
               value: {{ .Values.config.extractousHost | quote }}
             - name: GOOGLE_API_KEY
               valueFrom:
@@ -34,6 +34,28 @@ spec:
               value: {{ .Values.config.deltaEnabled | default "1" | quote }}
             - name: EMDEX_FULL_HASH
               value: {{ .Values.config.fullHash | default "0" | quote }}
+            - name: NODE_TYPE
+              value: {{ .Values.config.nodeType | default "local" | quote }}
+            {{- if .Values.config.gatewayUrl }}
+            - name: EMDEX_GATEWAY_URL
+              value: {{ .Values.config.gatewayUrl | quote }}
+            - name: EMDEX_GATEWAY_AUTH_KEY
+              value: {{ .Values.config.gatewayAuthKey | quote }}
+            {{- end }}
+            {{- if eq .Values.config.nodeType "s3" }}
+            - name: S3_ENDPOINT
+              value: {{ .Values.config.s3Endpoint | quote }}
+            - name: S3_ACCESS_KEY
+              value: {{ .Values.config.s3AccessKey | quote }}
+            - name: S3_SECRET_KEY
+              value: {{ .Values.config.s3SecretKey | quote }}
+            - name: S3_BUCKET
+              value: {{ .Values.config.s3Bucket | quote }}
+            - name: S3_USE_SSL
+              value: {{ .Values.config.s3UseSsl | default "true" | quote }}
+            - name: S3_PREFIX
+              value: {{ .Values.config.s3Prefix | quote }}
+            {{- end }}
           volumeMounts:
             - name: data
               mountPath: /opt/emdexer/test_dir

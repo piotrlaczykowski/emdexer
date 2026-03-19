@@ -23,8 +23,18 @@ ingress:
 config:
   qdrantHost: "qdrant:6334"
   qdrantCollection: "emdexer_v1"
-  # authKey: MUST be set — generate with 'emdex init' or openssl rand -hex 32
   authKey: ""
+  # OIDC / JWT (optional — set issuer to enable)
+  oidcIssuer: ""
+  oidcClientId: ""
+  oidcGroupsClaim: "groups"
+  # Group-to-namespace ACL (JSON string)
+  groupAcl: ""
+  # Global search timeout (ms)
+  globalSearchTimeout: "500"
+  # HA mode
+  haMode: "false"
+  postgresUrl: ""
 
 secret:
   googleApiKey: ""

@@ -18,7 +18,7 @@ def get_headers():
 
 @mcp.tool()
 def search_files(query: str, namespace: str = "default") -> PrefabApp:
-    """Search for files in EMDEX with semantic ranking."""
+    """Search for files in EMDEX with semantic ranking. Use namespace='*' for global search across all authorized namespaces."""
     url = f"{GATEWAY_URL}/v1/search"
     params = {"q": query, "namespace": namespace}
     

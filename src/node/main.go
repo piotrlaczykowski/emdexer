@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/piotrlaczykowski/emdexer/embed"
+	"github.com/piotrlaczykowski/emdexer/safenet"
 	"github.com/piotrlaczykowski/emdexer/extractor"
 	"github.com/piotrlaczykowski/emdexer/indexer"
 	"github.com/piotrlaczykowski/emdexer/queue"
@@ -416,7 +417,7 @@ func extractFromBytes(path string, data []byte, extractousHost string) (string, 
 	_ = writer.Close()
 	req, _ := http.NewRequest("POST", extractousHost+"/extract", bodyBuf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := safenet.NewSafeClient(60 * time.Second)
 	res, err := client.Do(req)
 	if err != nil {
 		globalCB.RecordFailure()

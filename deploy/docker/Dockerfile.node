@@ -17,7 +17,9 @@ COPY src/node/ src/node/
 WORKDIR /app/src/node
 # CGO_ENABLED=0: all dependencies (including github.com/zeebo/xxh3 added in
 # Phase 15.6 for delta-indexing) are pure Go — no CGO required.
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app/emdexer-node .
+ARG VERSION=dev
+ARG COMMIT=none
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X 'github.com/piotrlaczykowski/emdexer/version.Version=${VERSION:-dev}' -X 'github.com/piotrlaczykowski/emdexer/version.Commit=${COMMIT:-none}'" -o /app/emdexer-node .
 
 FROM alpine:3.21
 RUN apk add --no-cache curl

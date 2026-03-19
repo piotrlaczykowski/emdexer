@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,11 +35,12 @@ import (
 )
 
 const (
-	Version        = "v1.0.5"
-	EmbeddingDims  = 3072
-	CollectionName = "emdexer_v1"
+	DefaultEmbedDims = 768
+	CollectionName   = "emdexer_v1"
 	ProjectNamespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 )
+
+var EmbeddingDims uint64 = DefaultEmbedDims
 
 var (
 	indexingThroughput = promauto.NewCounter(prometheus.CounterOpts{
@@ -123,6 +125,14 @@ func main() {
 	}
 	cwd, _ := os.Getwd()
 	loadEnv(filepath.Join(cwd, ".env"))
+
+	if dimStr := os.Getenv("EMDEX_EMBEDDING_DIMS"); dimStr != "" {
+		if d, err := strconv.ParseUint(dimStr, 10, 64); err == nil && d > 0 {
+			EmbeddingDims = d
+		} else {
+			log.Fatalf("invalid EMDEX_EMBEDDING_DIMS=%q: must be a positive integer", dimStr)
+		}
+	}
 
 	apiKey := os.Getenv("GOOGLE_API_KEY")
 	qdrantHost := os.Getenv("QDRANT_HOST")

@@ -6,7 +6,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/jhillyerd/enmime v1.3.0
-	github.com/mattn/go-sqlite3 v1.14.34
+	github.com/mattn/go-sqlite3 v1.14.37
 	github.com/pkg/sftp v1.13.10
 	github.com/qdrant/go-client v1.17.1
 	github.com/willscott/go-nfs-client v0.0.0-20251022144359-801f10d98886

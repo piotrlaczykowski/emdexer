@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +13,29 @@ import (
 
 	"github.com/piotrlaczykowski/emdexer/extractor"
 )
+
+// whisperErrAfterReader returns an error once exactly n bytes have been delivered.
+// Setting remaining=0 causes failure on the very first Read call, simulating a
+// source that errors before any payload bytes can be streamed.
+type whisperErrAfterReader struct {
+	remaining int64
+	err       error
+}
+
+func (r *whisperErrAfterReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		return 0, r.err
+	}
+	n := int64(len(p))
+	if n > r.remaining {
+		n = r.remaining
+	}
+	for i := int64(0); i < n; i++ {
+		p[i] = 0
+	}
+	r.remaining -= n
+	return int(n), nil
+}
 
 func TestWhisperTranscribe(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +131,43 @@ func TestWhisperHealth(t *testing.T) {
 
 	if err := client.Health(); err != nil {
 		t.Errorf("Health check failed: %v", err)
+	}
+}
+
+// TestWhisperTranscribe_MidStreamFailure verifies that when the source io.Reader
+// returns an error, that error propagates back through the io.Pipe, aborts the
+// in-flight HTTP request, and surfaces from Transcribe.
+//
+// Flow:
+//  1. Goroutine writes the multipart file-part header to pw (HTTP transport reads it).
+//  2. io.Copy calls r.Read — whisperErrAfterReader(remaining=0) returns sentinelErr.
+//  3. Goroutine calls pw.CloseWithError(wrapped sentinelErr).
+//  4. HTTP transport's next read from pr returns that error → client.Do fails.
+//  5. Transcribe returns an error whose chain contains sentinelErr.
+func TestWhisperTranscribe_MidStreamFailure(t *testing.T) {
+	sentinelErr := errors.New("simulated source read failure")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Drain whatever bytes arrived before the connection is reset.
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	client := &WhisperClient{
+		URL:   ts.URL,
+		Model: "base",
+		HTTP:  ts.Client(),
+		CB:    extractor.NewCircuitBreaker(5, time.Minute),
+	}
+
+	r := &whisperErrAfterReader{remaining: 0, err: sentinelErr}
+	_, err := client.Transcribe(context.Background(), "failing.mp3", r)
+	if err == nil {
+		t.Fatal("expected error when source reader fails; got nil")
+	}
+	if !errors.Is(err, sentinelErr) {
+		t.Errorf("expected error chain to contain sentinel error\ngot: %v", err)
 	}
 }
 

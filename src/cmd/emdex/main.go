@@ -176,9 +176,12 @@ func cmdStatus() {
 	nodeStatus, nodeOK := checkHealth(nodeURL + "/healthz/readiness")
 	workerStatus := checkWorker(nodeURL + "/healthz/worker")
 
+	regStatus := checkRegistry(gatewayURL)
+
 	printStatusLine("Gateway", gatewayURL, gwStatus, gwOK)
 	printStatusLine("Node", nodeURL, nodeStatus, nodeOK)
 	fmt.Printf("  %s  %-10s %s\n", workerStatus.emoji, bold("Worker"), workerStatus.detail)
+	fmt.Printf("  %s  %-10s %s\n", regStatus.emoji, bold("Registry"), regStatus.detail)
 
 	fmt.Printf("\n  %s\n\n", dim("────────────────────────────────────"))
 }
@@ -240,6 +243,41 @@ func checkWorker(url string) workerResult {
 	default:
 		return workerResult{"❓", yellow(status)}
 	}
+}
+
+// checkRegistry verifies the gateway's node registry is reachable and parseable.
+func checkRegistry(gatewayURL string) workerResult {
+	authKey := os.Getenv("EMDEX_AUTH_KEY")
+	if authKey == "" {
+		return workerResult{"⚠️", yellow("SKIPPED") + "  " + dim("set EMDEX_AUTH_KEY to check registry")}
+	}
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, err := http.NewRequest("GET", gatewayURL+"/nodes", nil)
+	if err != nil {
+		return workerResult{"❌", red("ERROR") + "  " + dim(err.Error())}
+	}
+	req.Header.Set("Authorization", "Bearer "+authKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return workerResult{"❌", red("DOWN") + "  " + dim("(gateway unreachable)")}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return workerResult{"⚠️", yellow("AUTH FAILED") + "  " + dim("check EMDEX_AUTH_KEY")}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return workerResult{"❌", red(fmt.Sprintf("HTTP %d", resp.StatusCode))}
+	}
+
+	var nodes []interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&nodes); err != nil {
+		return workerResult{"❌", red("CORRUPT") + "  " + dim("registry response not valid JSON")}
+	}
+
+	return workerResult{"✅", green(fmt.Sprintf("OK (%d nodes)", len(nodes)))}
 }
 
 // formatTimeAgo parses an RFC3339 timestamp and returns a human-readable duration.

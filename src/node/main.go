@@ -370,9 +370,11 @@ func indexDataToPoints(path string, content []byte) []*qdrant.PointStruct {
 	// Zero-vector guard: if extraction produced no usable text, skip indexing
 	// entirely. This prevents polluting Qdrant with zero-vectors from empty
 	// files, stubbed formats (7z, ISO), or failed extractions.
+	// A minimum of 10 characters avoids wasting embedding API credits on
+	// trivially short content that has no semantic value.
 	text = strings.TrimSpace(text)
-	if text == "" {
-		log.Printf("[node] WARN: Skipping %s — empty extraction (no text content to index)", path)
+	if len(text) < 10 {
+		log.Printf("[node] WARN: Skipping %s — extraction too short (%d chars, min 10)", path, len(text))
 		return nil
 	}
 

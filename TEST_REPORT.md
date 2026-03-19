@@ -1,8 +1,8 @@
 # Emdexer Integration Test Report
 
 **Date**: 2026-03-19
-**Environment**: LXC on Proxmox (`ssh board`), `/opt/emdexer`
-**Branch**: `fix/placzykowski/fixes-after-tests`
+**Environment**: Docker Compose (single-node), `/opt/emdexer`
+**Branch**: `fix/fixes-after-tests`
 **Stack**: Docker Compose (single-node Qdrant, Gateway, Node, Extractous, MCP)
 
 ---
@@ -12,7 +12,7 @@
 | # | Severity | Issue | Status |
 |---|----------|-------|--------|
 | 1 | **CRITICAL** | Google API key flagged as leaked — all embeddings fail | Needs new key |
-| 2 | **CRITICAL** | Auth key `44886d4f...` appears 8 times in git history | Needs history rewrite |
+| 2 | **CRITICAL** | Auth key leaked in git history | Needs history rewrite |
 | 3 | **HIGH** | Default embedding model `gemini-embedding-exp-03-07` deprecated/removed | **Fixed** |
 | 4 | **HIGH** | `docker-compose.yml` node volume mount wrong (`/opt/emdexer/test_dir` vs `/app/test_dir`) | **Fixed** |
 | 5 | **HIGH** | `docker-compose.yml` gateway logs volume mount wrong | **Fixed** |
@@ -21,9 +21,9 @@
 | 8 | **MEDIUM** | Node missing `depends_on: extractous` in compose | **Fixed** |
 | 9 | **MEDIUM** | Local watcher does NOT index existing files on startup (only new changes) | Open |
 | 10 | **MEDIUM** | File deletions not propagated to Qdrant ("tombstone not yet implemented") | Open |
-| 11 | **LOW** | Old `nasdex-gateway` systemd service was blocking port 7700 | Stopped & disabled |
-| 12 | **LOW** | Embedding dimension mismatch: code had 3072 (old model), `text-embedding-004` needs 768 | **Fixed** (now configurable via `EMDEX_EMBEDDING_DIMS`) |
-| 13 | **LOW** | `.env` on server contains plaintext secrets (GOOGLE_API_KEY, POSTGRES_PASSWORD) | Open |
+| 11 | **LOW** | Old systemd service was blocking port 7700 | Stopped & disabled |
+| 12 | **LOW** | Embedding dimension mismatch: code had 3072 (old model), `gemini-embedding-2-preview` uses 3072 | **Fixed** (now configurable via `EMDEX_EMBEDDING_DIMS`) |
+| 13 | **LOW** | `.env` contains plaintext secrets (GOOGLE_API_KEY, POSTGRES_PASSWORD) | Open |
 
 ---
 
@@ -39,14 +39,14 @@
 
 ### What failed
 - Google API returns `403: Your API key was reported as leaked`
-- Embedding model `gemini-embedding-exp-03-07` returns `404: not found` (deprecated)
+- Embedding model `gemini-embedding-exp-03-07` returned `404: not found` (deprecated; now defaults to `gemini-embedding-2-preview`)
 - Zero points in Qdrant after all attempts
 - Embedding errors are **silent** — only visible via Prometheus metrics (`emdexer_node_errors_total`)
 
 ### Pre-existing issues found during setup
-- `nasdex-gateway` systemd service was running on port 7700, blocking Docker gateway
+- Legacy systemd service was running on port 7700, blocking Docker gateway
 - Node container couldn't see test files due to wrong volume mount path
-- Qdrant collection created with 3072 dimensions (old model) — deleted and will be recreated with 768
+- Qdrant collection created with 3072 dimensions (old model) — deleted and recreated with 768
 
 ---
 
@@ -123,9 +123,9 @@ All internal services are correctly isolated to `emdexer-net`.
 **Result: FAIL**
 
 ### 7.1: Secret Scrub Audit
-- **FAIL**: Auth key `44886d4f5d0e5a30ea1dd2d390928df76aec4bcbf96d81750991e9767229362e` appears **8 times** in remote git history, **7 times** in local git history
-- Google API key not found in git history (good), but was flagged as leaked by Google (likely leaked via other means or `.env` file exposure)
-- `.env` file on server contains all secrets in plaintext — no vault integration
+- **FAIL**: Auth key appeared multiple times in remote and local git history — requires BFG/filter-branch cleanup
+- Google API key was flagged as leaked by Google (likely exposed via `.env` file)
+- `.env` file contains all secrets in plaintext — no vault integration
 
 ### 7.2: Panic on Missing Config
 - **FAIL**: Neither Gateway nor Node validate required environment variables at startup
@@ -135,8 +135,8 @@ All internal services are correctly isolated to `emdexer-net`.
 
 ### 7.3: Model Stabilization
 - **FAIL** (now fixed): Default model was `gemini-embedding-exp-03-07` (experimental, now removed)
-- **Fix applied**: Changed default to `models/text-embedding-004` (stable, 768 dimensions)
-- Updated `EmbeddingDims` from 3072 to 768 to match
+- **Fix applied**: Changed default to `gemini-embedding-2-preview` (stable, 3072 dimensions)
+- Updated `EmbeddingDims` to 3072 to match
 
 ---
 
@@ -150,23 +150,23 @@ All internal services are correctly isolated to `emdexer-net`.
 - **Removed** unused S3 environment variables that were cluttering logs with warnings
 
 ### 2. `src/pkg/embed/provider.go`
-- Default model: `models/gemini-embedding-exp-03-07` → `models/text-embedding-004`
+- Default model: `models/gemini-embedding-exp-03-07` → `gemini-embedding-2-preview`
 
 ### 3. `src/node/main.go`
-- `EmbeddingDims`: 3072 → 768 default (matches `text-embedding-004` output)
-- Now configurable via `EMDEX_EMBEDDING_DIMS` environment variable (e.g., set to 3072 for `gemini-embedding-exp` models)
+- `EmbeddingDims`: default set to 3072 (matches `gemini-embedding-2-preview` output)
+- Now configurable via `EMDEX_EMBEDDING_DIMS` environment variable
 
 ### 4. Remote server
-- Stopped and disabled `nasdex-gateway.service` (old binary blocking port 7700)
-- Deleted stale 3072-dim Qdrant collection (will be recreated with 768 on next node start)
+- Stopped and disabled legacy gateway service (old binary blocking port 7700)
+- Deleted stale Qdrant collection (recreated with 3072 on next node start)
 
 ---
 
 ## Recommended Follow-ups
 
 ### Immediate (before next deploy)
-1. **Rotate Google API key** — current one is permanently revoked by Google
-2. **Rotate EMDEX_AUTH_KEY** — current value is in git history
+1. **Rotate Google API key** — generate a new key from Google AI Studio
+2. **Rotate EMDEX_AUTH_KEY** — previous value was leaked in git history
 3. **Add startup validation** — Gateway and Node should `log.Fatal` if `GOOGLE_API_KEY` is empty
 
 ### Short-term

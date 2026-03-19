@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	DefaultEmbedDims = 768
+	DefaultEmbedDims = 3072
 	CollectionName   = "emdexer_v1"
 	ProjectNamespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 )

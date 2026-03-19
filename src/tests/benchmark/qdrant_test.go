@@ -32,7 +32,7 @@ func BenchmarkQdrantUpsertLatency(b *testing.B) {
 	for i := 0; i < batchSize; i++ {
 		points[i] = &qdrant.PointStruct{
 			Id: qdrant.NewIDNum(uint64(i)),
-			Vectors: qdrant.NewVector(make([]float32, 768)), // standard embedding size
+			Vectors: qdrant.NewVector(make([]float32, 3072)), // standard embedding size
 			Payload: map[string]*qdrant.Value{
 				"path": qdrant.NewValueStr("/bench/test"),
 				"text": qdrant.NewValueStr("benchmark text"),

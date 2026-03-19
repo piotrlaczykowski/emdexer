@@ -29,7 +29,7 @@ and systemd service setup in one shot.
 
 ```bash
 # Clone the repo
-git clone https://github.com/piotr-laczykowski/emdexer
+git clone https://github.com/piotrlaczykowski/emdexer
 cd emdexer
 
 # Install ONLY the gateway
@@ -89,7 +89,7 @@ sudo chown -R emdexer:emdexer /var/lib/emdexer /var/log/emdexer
 
 ```ini
 GOOGLE_API_KEY=your-gemini-api-key
-EMDEX_GEMINI_MODEL=gemini-1.5-flash
+EMDEX_GEMINI_MODEL=gemini-embedding-2-preview
 QDRANT_HOST=localhost:6334
 QDRANT_URL=http://localhost:6333
 QDRANT_COLLECTION=emdexer_v1
@@ -113,7 +113,7 @@ NODE_TYPE=local
 NODE_ROOT=/opt/emdexer/data
 EMBED_PROVIDER=gemini
 GOOGLE_API_KEY=your-gemini-api-key
-EMDEX_GEMINI_MODEL=gemini-1.5-flash
+EMDEX_GEMINI_MODEL=gemini-embedding-2-preview
 EXTRACTOUS_HOST=http://localhost:8000
 EMDEX_POLL_INTERVAL=60s
 EMDEX_CACHE_DIR=/var/lib/emdexer/cache
@@ -287,7 +287,7 @@ OLLAMA_EMBED_MODEL=nomic-embed-text
 ```
 
 > **Note**: Vector dimensions must match the Qdrant collection config.
-> `nomic-embed-text` produces 768-dim vectors; the default collection expects 3072 (Gemini).
+> `nomic-embed-text` produces 768-dim vectors; the default collection expects 3072 (Gemini `gemini-embedding-2-preview`).
 > Re-create the collection if switching providers.
 
 ---

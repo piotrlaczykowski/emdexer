@@ -40,6 +40,6 @@
 
 ## Phase 7: Compliance & Secret Hardening
 **Goal**: Verify "Zero-Leak" and robust configuration policies.
-1. **Secret Scrub Audit**: Verify that the repository history is clean of the legacy `EMDEX_AUTH_KEY` (`44886d4f...`).
+1. **Secret Scrub Audit**: Verify that the repository history is clean of any leaked secrets (auth keys, API keys).
 2. **Test Panic Enforcement**: Run E2E tests without setting environment variables. Verify the system panics/fails rather than using a hardcoded fallback.
-3. **Model Stabilization**: Verify that all embedding calls in Node/Gateway use `text-embedding-004` instead of experimental models.
+3. **Model Stabilization**: Verify that all embedding calls in Node/Gateway use `gemini-embedding-2-preview` instead of experimental models.

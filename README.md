@@ -1,146 +1,195 @@
-# Emdexer (Network Attached Storage Document EXpert)
+# Emdexer — Distributed RAG Engine for Filesystem Intelligence
 
 <p align="center">
   <img src="assets/logo.png" alt="Emdexer Logo" width="400">
 </p>
 
-Emdexer is a high-performance, multi-node RAG (Retrieval-Augmented Generation) system designed to turn your local storage, NAS, or document archives into a searchable, chat-ready knowledge base.
+<p align="center">
+  <strong>Turn any filesystem — NAS, SMB share, NFS export, or SFTP server — into a semantic search and AI-powered knowledge base.</strong>
+</p>
 
-## The Pattern
+<p align="center">
+  <a href="docs/getting-started/installation.md">Installation</a> · <a href="docs/reference/api.md">API Reference</a> · <a href="docs/design/architecture.md">Architecture</a> · <a href="CONTRIBUTING.md">Contributing</a>
+</p>
 
-The world is a flat circle of unindexed data. Emdexer breaks the loop. It doesn't just find files; it understands the shadows they cast.
+---
 
-## Primary USP: Zero-Mount Intelligence
+## What Is Emdexer?
 
-Emdexer's core strength is its **Zero-Mount** architecture. Unlike traditional indexing tools that require mounting shares to a central server, Emdexer deploys lightweight **Indexing Nodes** directly where the data lives. 
+Emdexer is an open-source, distributed **Retrieval-Augmented Generation (RAG)** engine written in Go. It indexes documents from heterogeneous filesystems — local disks, SMB/CIFS shares, NFS exports, and SFTP servers — into a [Qdrant](https://qdrant.tech/) vector database using Google [Gemini](https://ai.google.dev/) embeddings (or local models via [Ollama](https://ollama.com/)), and exposes an OpenAI-compatible chat completions API with multi-hop semantic search.
 
-- **No central bottlenecks:** Data is processed locally and only vector embeddings are sent to the database.
-- **Protocol Agnostic:** Native support for Local FS, SMB, NFS, and SFTP without complex mount points.
-- **Massive Scalability:** Scale horizontally by adding nodes to any network-attached storage in minutes.
+**Key differentiator:** Emdexer uses a **Zero-Mount architecture** — lightweight indexing nodes deploy directly where the data lives. No central mount points, no data copying, no network bottlenecks. Only vector embeddings travel to the database.
 
-## Use Cases
+### Who Is It For?
 
-- **Home Lab Intelligence:** Turn your NAS (e.g., TrueNAS or DIY server) into a private AI. Search decades of family documents, manuals, and archives with natural language.
-- **Private Developer Assistant:** Index local codebases, documentation, and research papers. Get answers from your private library without leaking intellectual property to the public web.
-- **Secure Enterprise Search:** Compliance-ready and air-gapped capable. Deploy in restricted environments to search internal knowledge bases while maintaining strict data sovereignty.
+- **Home lab users** who want to search decades of personal documents on a NAS with natural language.
+- **Developers** who need a private AI assistant over local codebases, documentation, and research papers — without sending data to third-party services.
+- **Enterprises** that require compliance-ready, air-gap-capable semantic search over internal knowledge bases with strict data sovereignty.
 
-## Features
+## Core Capabilities
 
-- **Semantic Intelligence:** Multi-hop RAG architecture for deep context synthesis.
-- **Stable Identity:** Uses Content-addressable UUID v5 for consistent file tracking across re-indexes.
-- **Universal Ingestion:** Native support for Local FS, SMB, NFS, and SFTP.
-- **Plugin Architecture:** Extensible extraction API (Go/Python) for custom data formats.
-- **Enterprise Observability:** Prometheus/Grafana metrics and structured audit logging.
-- **Privacy-First:** Local-first processing with isolated namespaces.
-- **Format Agnostic:** Handles PDF, Word, Excel, Images (OCR), Video, and Email via native extractors and Extractous. Supports files up to 50MB per file.
-
-## Quick Start
-
-1. **Configure:** Add your `GOOGLE_API_KEY` and `EMDEX_AUTH_KEY` to `.env`.
-2. **Launch:** `docker compose up -d`
-3. **Chat:** Connect to the Gateway API or MCP server.
+| Capability | Description |
+|---|---|
+| **Multi-Hop RAG** | Two-hop retrieval pipeline with LLM-driven query refinement. Both hops enforce namespace isolation — no cross-tenant context bleed. |
+| **Distributed Indexing** | Deploy lightweight `emdex-node` agents on any storage endpoint. Nodes self-register with the central `emdex-gateway`. |
+| **Protocol Agnostic** | Native VFS backends for Local FS, SMB/CIFS, NFS, and SFTP. No `mount` required. S3 support planned. |
+| **Delta-Only Re-indexing** | Three-stage change detection pipeline (stat → partial XXH3 → full XXH3) avoids redundant embedding API calls. |
+| **OpenAI-Compatible API** | Drop-in replacement for `/v1/chat/completions`. Works with any OpenAI client SDK, Claude Desktop (via MCP), Telegram, Slack, and Teams. |
+| **Format Agnostic** | Handles PDF, DOCX, XLSX, Markdown, HTML, plain text, and more via the [Extractous](https://github.com/yobix-ai/extractous) sidecar. Up to 50 MB per file. |
+| **Stable Document Identity** | Content-addressable UUIDv5 ensures consistent file tracking across re-indexes — no duplicate vectors. |
+| **Enterprise Observability** | Prometheus metrics, Grafana dashboards, structured JSON audit logging. |
+| **Air-Gap Ready** | Swap to `EMBED_PROVIDER=ollama` for fully local embeddings and LLM inference. Zero external API calls. |
 
 ## Architecture
 
-Emdexer uses a distributed gateway-node architecture designed for security and performance.
+Emdexer uses a distributed gateway-node architecture where the gateway handles API requests, search, and RAG, while nodes handle filesystem watching, text extraction, and embedding.
 
 ```mermaid
 graph TD
-    User([User / Agent]) <--> Gateway[Emdexer Gateway]
+    User([User / Agent]) <--> Gateway[Emdexer Gateway :7700]
     Gateway <--> Qdrant[(Qdrant Vector DB)]
-    Gateway <--> Gemini[Google Gemini AI]
+    Gateway <--> Gemini[Gemini AI / Ollama]
     Gateway <--> Metrics[Prometheus / Grafana]
-    
+
     subgraph "Indexing Nodes"
-        NodeA[Node Alpha] --> Qdrant
-        NodeA --> ExtractousA[Extractous Sidecar]
-        NodeA <--> Plugins[Plugin API]
-        
-        Local[/Local Folder/] --> NodeA
-        SMB[/SMB Share/] --> NodeA
-        NFS[/NFS Export/] --> NodeA
-        SFTP[/SFTP Server/] --> NodeA
+        NodeA[Node A — Local FS] --> Qdrant
+        NodeB[Node B — SMB Share] --> Qdrant
+        NodeC[Node C — NFS Export] --> Qdrant
+        NodeA & NodeB & NodeC --> Extractous[Extractous Sidecar]
     end
-    
+
     Gateway --- MCP[MCP Server]
-    MCP <--> Claude([Claude Desktop / OpenClaw])
+    MCP <--> Claude([Claude Desktop / AI Agents])
+```
+
+### Dual-Binary Design
+
+| Binary | Role | Deployment |
+|---|---|---|
+| `emdex-gateway` | API server, search, multi-hop RAG, node registry | Central server |
+| `emdex-node` | Filesystem watcher, text extraction, embedding, Qdrant upsert | Deployed where data lives |
+
+Binaries are statically linked (`CGO_ENABLED=0`) — no libc dependency. Runs on any Linux distribution including Alpine, Raspberry Pi OS, and NAS appliances.
+
+## Quick Start
+
+### Docker Compose (recommended)
+
+```bash
+git clone https://github.com/piotrlaczykowski/emdexer.git
+cd emdexer/deploy/docker
+
+cp ../../.env.example .env
+# Edit .env — set GOOGLE_API_KEY and EMDEX_AUTH_KEY
+
+docker compose up -d
+```
+
+Services started: Qdrant, Extractous sidecar, Gateway (:7700), Node (:8081), MCP server (:8002).
+
+### Bare Metal
+
+```bash
+./scripts/install.sh --all    # Builds, configures, installs systemd services
+```
+
+See the full [Installation Guide](docs/getting-started/installation.md) for manual setup, Kubernetes Helm charts, and remote VFS configuration.
+
+### Verify
+
+```bash
+# Gateway readiness
+curl http://localhost:7700/healthz/readiness
+
+# Semantic search
+curl -H "Authorization: Bearer $EMDEX_AUTH_KEY" \
+     "http://localhost:7700/v1/search?q=quarterly+budget&namespace=default"
+
+# Chat (OpenAI-compatible)
+curl -X POST http://localhost:7700/v1/chat/completions \
+     -H "Authorization: Bearer $EMDEX_AUTH_KEY" \
+     -H "Content-Type: application/json" \
+     -H "X-Emdex-Namespace: default" \
+     -d '{"model":"emdexer-v1","messages":[{"role":"user","content":"Summarize the project status."}]}'
 ```
 
 ### Configuration
 
-The following environment variables are used to configure Emdexer:
+Key environment variables (see [.env.example](.env.example) for all options):
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `EMDEX_PORT` | Port for the Gateway API | `7700` |
+| `GOOGLE_API_KEY` | Google AI API key for Gemini embeddings and LLM | — |
 | `EMDEX_AUTH_KEY` | Bearer token for API authentication | — |
-| `EMDEX_GEMINI_MODEL` | Gemini model for RAG and chat | `gemini-1.5-flash` |
-| `GOOGLE_API_KEY` | Your Google AI API key | — |
+| `EMDEX_GEMINI_MODEL` | Gemini embedding model | `gemini-embedding-2-preview` |
+| `EMBED_PROVIDER` | Embedding backend: `gemini` or `ollama` | `gemini` |
 | `QDRANT_HOST` | Qdrant gRPC endpoint | `localhost:6334` |
-| `EMDEX_SEARCH_LIMIT` | Max results for `/v1/search` | `10` |
-| `EMDEX_CHAT_LIMIT` | Max results for RAG context | `5` |
-| `EMDEX_DELTA_ENABLED` | Enable checksum-based delta detection (Phase 15.6); set to `0` for legacy stat-only mode | `1` |
-| `EMDEX_FULL_HASH` | Enable Stage 3 full-file XXH3 hash for maximum accuracy (higher I/O cost) | `0` |
+| `EMDEX_PORT` | Gateway HTTP listen port | `7700` |
+| `NODE_TYPE` | VFS backend: `local`, `smb`, `nfs`, `sftp` | `local` |
+| `EMDEX_NAMESPACE` | Namespace tag for indexed vectors | `default` |
+| `EMDEX_EMBEDDING_DIMS` | Embedding vector dimensions | `3072` |
+| `EMDEX_DELTA_ENABLED` | Checksum-based delta re-indexing | `1` |
 
-For a complete list, see [ARCHITECTURE.md](docs/design/architecture.md#3-configuration-decoupling).
+For the full configuration reference, see [Architecture → Configuration Decoupling](docs/design/architecture.md#3-configuration-decoupling).
 
 ## Documentation
 
-- [Installation Guide](docs/getting-started/installation.md)
-- [API Reference](docs/reference/api.md)
-- [Architecture & Design Decisions](docs/design/architecture.md)
-- [Delivery Plan & Status](PLAN.md)
-- [Multi-Node Setup](docker-compose.multi-node.yml)
-- [Contributing](CONTRIBUTING.md)
+| Document | Description |
+|----------|-------------|
+| [Installation Guide](docs/getting-started/installation.md) | Bare metal, Docker Compose, Kubernetes Helm |
+| [API Reference](docs/reference/api.md) | OpenAI-compatible endpoints, search, health |
+| [Architecture](docs/design/architecture.md) | Dual-binary model, VFS abstraction, auth, namespaces |
+| [HA Infrastructure](docs/design/ha-infrastructure.md) | Qdrant clustering, gateway replication, PostgreSQL registry |
+| [Delta Indexing](docs/design/delta-indexing.md) | Three-stage change detection pipeline |
+| [Delivery Plan](PLAN.md) | Roadmap and phase status |
+| [Contributing](CONTRIBUTING.md) | Branch strategy, commit conventions, release process |
 
-## Trust Model
+## Security & Trust Model
 
-Understanding what Emdexer does and does not protect is critical before deploying it.
+Emdexer is designed with security isolation at every layer. Understanding the trust boundaries is critical before deploying in production.
 
-### What is protected
-- **Authentication**: All API endpoints (except `/health*`, `/metrics`) require a Bearer token (`EMDEX_AUTH_KEY`). No token, no access.
-- **Namespace isolation**: Every indexed document is tagged with a namespace. Search and RAG queries are hard-filtered to a single namespace. The `/v1/chat/completions` endpoint **requires** the `X-Emdex-Namespace` header — missing namespace returns 400, not a global result.
-- **Multi-hop isolation**: Both hops in the RAG pipeline are scoped to the declared namespace. The LLM's query refinement loop cannot escape its namespace boundary.
-- **Registry integrity**: Node registrations persist to `nodes.json` with atomic file swaps (no partial writes on crash). Registry reads return deep copies — callers cannot mutate live state.
+### Protected
 
-### What is NOT protected
-- **Namespace is not cryptographic**: a client with a valid auth token and knowledge of another namespace name can query it. This is a soft boundary enforced by the gateway, not by encryption.
-- **Single shared auth key**: there is one `EMDEX_AUTH_KEY` per gateway deployment. All consumers share the same key. Per-user isolation requires OIDC/JWT (planned for Phase 15.4).
-- **No data encryption at rest**: Qdrant stores vectors and payloads in plaintext. Disk encryption (LUKS, dm-crypt, cloud KMS) must be applied at the infrastructure level.
-- **No TLS in-process**: the gateway speaks plain HTTP. TLS termination must be handled by a reverse proxy or ingress controller (Traefik, nginx, cloud LB).
+- **Authentication**: All API endpoints (except `/health*`, `/metrics`) require a Bearer token. No token, no access.
+- **Namespace isolation**: Every indexed document is tagged with a namespace. Search and RAG queries are hard-filtered to one namespace. The `/v1/chat/completions` endpoint **requires** `X-Emdex-Namespace` — missing namespace returns `400`, not a global result.
+- **Multi-hop isolation**: Both retrieval hops in the RAG pipeline are scoped to the declared namespace. The LLM's query refinement loop cannot escape its namespace boundary.
+- **Multi-key ACL**: `EMDEX_API_KEYS` supports per-key namespace restrictions (e.g., `{"sk-hr": ["hr", "legal"]}`).
+- **Registry integrity**: Node registrations persist atomically to disk. Registry reads return deep copies — callers cannot mutate live state.
+- **SSRF protection**: Embedding providers block connections to RFC 1918, loopback, and link-local addresses.
+
+### Not Protected (by design)
+
+- **Namespace is not cryptographic** — it is a soft boundary enforced by the gateway. Per-user cryptographic isolation requires OIDC/JWT (planned).
+- **No data encryption at rest** — Qdrant stores vectors in plaintext. Apply disk encryption (LUKS, dm-crypt) at the infrastructure level.
+- **No TLS in-process** — the gateway speaks plain HTTP. Use a reverse proxy (Nginx, Traefik) for TLS termination.
 
 ### Data Boundaries
+
 ```
 [Consumer] --Bearer--> [Gateway] --gRPC (internal)--> [Qdrant]
                            |
                            └--HTTPS--> [Gemini API]   ← external call
 ```
 
-By default, document text is sent to Google's Gemini API for embedding and answering. This means:
-- **Document content leaves your infrastructure** on every index and every query.
-- If this is unacceptable, see the Air-Gap Roadmap below.
+By default, document text is sent to the Gemini API for embedding and answering. To keep all data on-premises, set `EMBED_PROVIDER=ollama` and configure a local LLM. See the [Installation Guide](docs/getting-started/installation.md#local-air-gap-embedding-ollama) for air-gap deployment.
 
-### Air-Gap Roadmap (Phase 15.5)
-For deployments where data must never leave the premises:
+## Tech Stack
 
-1. **Local embeddings**: Set `EMBED_PROVIDER=ollama` and configure `OLLAMA_HOST`. The `OllamaProvider` interface is implemented but the HTTP call body is a stub — contribution welcome.
-2. **Local LLM**: Replace `callGemini()` in `gateway/main.go` with calls to a local Ollama/vLLM endpoint. The function signature is isolated and the swap is surgical.
-3. **Zero-external-call guarantee**: Once both embedding and LLM are local, Emdexer can operate fully air-gapped. The Qdrant instance and all models run on-premises.
-
-Until Phase 15.5 is complete, treat Emdexer as a **cloud-assisted local search** tool, not a fully private one.
-
----
-
-## Project Goals
-
-To be the standard interface for "Local Intelligence" on personal and enterprise storage systems. Truth is found in the data you forgot you had.
+| Component | Technology |
+|---|---|
+| Gateway & Node | Go 1.26.1 (statically linked, `CGO_ENABLED=0`) |
+| Vector Database | [Qdrant](https://qdrant.tech/) (gRPC, Raft clustering) |
+| Embeddings | [Google Gemini](https://ai.google.dev/) or [Ollama](https://ollama.com/) (local) |
+| Text Extraction | [Extractous](https://github.com/yobix-ai/extractous) (Python sidecar) |
+| MCP Server | Python — Claude Desktop / AI agent integration |
+| Change Detection | [XXH3](https://github.com/zeebo/xxh3) (non-cryptographic, SIMD-accelerated) |
+| Observability | Prometheus, Grafana, structured JSON audit logs |
+| Deployment | Docker Compose, Helm (Kubernetes), systemd (bare metal) |
 
 ## Licensing
 
-Everything has a price, but for the individual searching for truth in their own data, the path is clear.
+- **Individual / Personal Use:** Free. Run it on your home NAS, your homelab, or your personal machines.
+- **Enterprise / Commercial Use:** Requires a paid license for organizations with > $1M revenue or > 10 employees.
+- **Source Code:** Open for audit and individual use.
 
-- **Individual / Personal Use:** 100% Free. If you're running this on your home NAS or your personal rig, you're good.
-- **Enterprise / Commercial Use:** Requires a paid license for companies with > $1M revenue or > 10 employees. Large-scale operations need a different kind of contract.
-- **Source Code:** Open for audit and individual use on GitHub. Transparency is the only way to see the shadows.
-
-Licensed under the **Business Source License 1.1**, converting to **Apache 2.0** on January 1st, 2030. See the [LICENSE](LICENSE) file for the fine print.
+Licensed under the **Business Source License 1.1**, converting to **Apache 2.0** on January 1st, 2030. See [LICENSE](LICENSE) for details.

@@ -35,8 +35,8 @@
    │ Local  │  │ SMB/NFS  │  │    SFTP    │
    │  Node  │  │   Node   │  │    Node    │
    └────────┘  └──────────┘  └────────────┘
- emdex-node                 
- :8081 health             
+ emdex-node
+ :8081 health
 ```
 
 ---
@@ -101,7 +101,7 @@ Each binary reads only its own environment variables. In a bare-metal deployment
 | `EMDEX_AUDIT_LOG_FILE`    |          | `logs/audit.json` | Path to the audit log file                       |
 | `EMDEX_SEARCH_LIMIT`      |          | `10`              | Max results returned in search                   |
 | `EMDEX_CHAT_LIMIT`        |          | `5`               | Max results considered during RAG hops           |
-| `EMDEX_GEMINI_MODEL`      |          | `gemini-1.5-flash`| Gemini model for RAG/Chat                        |
+| `EMDEX_GEMINI_MODEL`      |          | `gemini-embedding-2-preview`| Gemini model for RAG/Chat                        |
 | `EMDEX_STRICT_NAMESPACE`  |          | `false`           | Require namespace header for all requests        |
 
 *Either `EMDEX_AUTH_KEY` or `EMDEX_API_KEYS` must be set.
@@ -119,7 +119,7 @@ Each binary reads only its own environment variables. In a bare-metal deployment
 | `NODE_ROOT`               |          | `./test_dir`      | Root path to index                               |
 | `EMBED_PROVIDER`          |          | `gemini`          | `gemini` or `ollama`                             |
 | `GOOGLE_API_KEY`          | ✅*      | —                 | Gemini key (when `EMBED_PROVIDER=gemini`)         |
-| `EMDEX_GEMINI_MODEL`      |          | `gemini-1.5-flash`| Gemini model for embeddings                      |
+| `EMDEX_GEMINI_MODEL`      |          | `gemini-embedding-2-preview`| Gemini model for embeddings                      |
 | `EMDEX_EXTRACTOUS_URL`    |          | `http://localhost:8000/extract` | Extractous sidecar URL             |
 | `EMDEX_POLL_INTERVAL`     |          | `60s`             | Remote VFS poll interval                         |
 | `EMDEX_CACHE_DIR`         |          | `./cache`         | SQLite metadata cache directory                  |
@@ -211,7 +211,7 @@ type EmbedProvider interface {
 }
 ```
 
-**`GeminiProvider`** — default, calls Google Generative Language API.  
+**`GeminiProvider`** — default, calls Google Generative Language API.
 **`OllamaProvider`** — stub, ready for Phase 15.5 (local model, zero external calls).
 
 Switch via `EMBED_PROVIDER=ollama`. Vector dimensions must match the Qdrant collection config; changing providers on an existing collection requires re-indexing.

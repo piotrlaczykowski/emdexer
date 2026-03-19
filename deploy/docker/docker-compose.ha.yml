@@ -140,7 +140,7 @@ services:
 
   whisper:
     image: ghcr.io/ggml-org/whisper.cpp:main
-    command: ["--model", "/models/${EMDEX_WHISPER_MODEL:-base}.bin", "--host", "0.0.0.0", "--port", "8080"]
+    command: ["/app/build/bin/whisper-server", "-m", "/models/ggml-${EMDEX_WHISPER_MODEL:-base}.bin", "--host", "0.0.0.0", "--port", "8080"]
     deploy:
       resources:
         limits:

@@ -35,7 +35,7 @@ Emdexer is an open-source, distributed **Retrieval-Augmented Generation (RAG)** 
 | **Protocol Agnostic** | Native VFS backends for Local FS, SMB/CIFS, NFS, SFTP, and **S3/MinIO**. No `mount` required. S3 uses Zero-Mount streaming — data flows directly from S3 to memory without touching disk. |
 | **Delta-Only Re-indexing** | Three-stage change detection pipeline (stat → partial XXH3 → full XXH3) avoids redundant embedding API calls. |
 | **OpenAI-Compatible API** | Drop-in replacement for `/v1/chat/completions`. Works with any OpenAI client SDK, Claude Desktop (via MCP), Telegram, Slack, and Teams. |
-| **Format Agnostic** | Handles PDF, DOCX, XLSX, Markdown, HTML, plain text, and more via the [Extractous](https://github.com/yobix-ai/extractous) sidecar. Up to 50 MB per file. Archive traversal for `.zip`/`.tar`/`.gz`. OCR and video transcription are roadmap items (not yet implemented). |
+| **Format Agnostic** | Handles PDF, DOCX, XLSX, Markdown, HTML, plain text, audio (MP3/WAV/etc.), and video (MP4/MKV/etc.). Multi-modal extraction via [Extractous](https://github.com/yobix-ai/extractous) and [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) sidecars. Zero-RAM streaming for large files. |
 | **Stable Document Identity** | Content-addressable UUIDv5 ensures consistent file tracking across re-indexes — no duplicate vectors. |
 | **Global Search** | Query all authorized namespaces simultaneously with `namespace=*`. Parallel fan-out with Reciprocal Rank Fusion merging. Results include source namespace citations. |
 | **OIDC Identity** | OpenID Connect JWT validation with group-based namespace ACLs. Dual-auth: OIDC first, static API keys as fallback. Fail-secure by design. |
@@ -59,6 +59,7 @@ graph TD
         NodeC[Node C — NFS Export] --> Qdrant
         NodeD[Node D — S3 / MinIO] --> Qdrant
         NodeA & NodeB & NodeC & NodeD --> Extractous[Extractous Sidecar]
+        NodeA & NodeB & NodeC & NodeD --> Whisper[Whisper Sidecar]
     end
 
     Gateway --- MCP[MCP Server]
@@ -129,6 +130,9 @@ Key environment variables (see [.env.example](.env.example) for all options):
 | `QDRANT_HOST` | Qdrant gRPC endpoint | `localhost:6334` |
 | `EMDEX_PORT` | Gateway HTTP listen port | `7700` |
 | `NODE_TYPE` | VFS backend: `local`, `smb`, `nfs`, `sftp`, `s3` | `local` |
+| `EMDEX_EXTRACTOUS_URL` | Extractous sidecar endpoint | `http://localhost:8000/extract` |
+| `EMDEX_WHISPER_URL` | Whisper.cpp sidecar endpoint | — |
+| `EMDEX_ENABLE_OCR` | Enable OCR for images/scanned PDFs | `false` |
 | `EMDEX_NAMESPACE` | Namespace tag for indexed vectors | `default` |
 | `EMDEX_EMBEDDING_DIMS` | Embedding vector dimensions | `3072` |
 | `EMDEX_DELTA_ENABLED` | Checksum-based delta re-indexing | `1` |

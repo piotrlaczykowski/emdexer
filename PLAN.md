@@ -27,7 +27,7 @@
 | P6 | Cloud Storage (S3) | ✅ Done | Full S3/MinIO indexing via `NODE_TYPE=s3`. `src/pkg/vfs/s3.go` implements VFS interface via MinIO client. Uses the same `emdex-node` binary as local/SMB/SFTP/NFS — no separate binary. Polling, delta detection, extraction, embedding, and Qdrant upsert all reuse existing infrastructure. Zero-Mount: data streams S3 → Memory → Embedder → Qdrant without touching disk. |
 | P7 | Mobile Access (Telegram adapter) | ✅ Done | |
 | P8 | Enterprise Connect (Slack/Teams) | ✅ Done | |
-| P9 | Multi-modal Support (OCR/Video) | 📋 Planned | `pkg/extractor/ocr.go` and `video.go` are explicit **stubs** — both return `not yet implemented` errors. OCR routes through Extractous sidecar for supported formats (PDF, DOCX). Direct image OCR and video transcription require Tesseract and Whisper integration (post-P14). |
+| P9 | Multi-modal Support (OCR/Video) | ✅ Done | Zero-Token sidecar architecture: images (.png/.jpg/.tiff) → Extractous with `ocr=true`; audio/video (.mp3/.wav/.mp4/.mkv) → whisper.cpp sidecar (`/v1/audio/transcriptions`); scanned PDFs → automatic OCR fallback. See `src/pkg/extract/{client.go,whisper.go}`. |
 | P10 | Infrastructure-as-Code (Helm charts) | ✅ Done | |
 | P11 | Native Protocol Support — SMB | ✅ Done | |
 | P12 | Native Protocol Support — NFS | ✅ Done | |
@@ -97,6 +97,21 @@ The following structural issues were identified and fixed in the v1.0.1 sprint:
 4. **S3 Zero-Mount streaming** — Full S3/MinIO indexing pipeline via `NODE_TYPE=s3`. Uses MinIO-Go v7 with `safenet.NewSafeTransport()` for SSRF protection. `*minio.Object` implements `io.Reader`, `io.Seeker`, `io.ReaderAt` via S3 range requests — no local disk buffering. Reuses the existing `watcher.Poller` for delta detection.
 5. **Global namespace aggregation** — `namespace=*` triggers parallel fan-out search across all authorized namespaces using `errgroup` with configurable timeout (`EMDEX_GLOBAL_SEARCH_TIMEOUT`, default 500ms). Results merged via Reciprocal Rank Fusion (k=60). LLM prompt includes `[Source: namespace/path]` citations for cross-namespace RAG.
 6. **Modular refactor** — `gateway/main.go` reduced from 1253 to 488 lines, `node/main.go` from 714 to 350 lines. 15 packages under `src/pkg/` (registry, search, auth, middleware, rag, llm, openai, audit, health, nodereg, extract, ui, config, indexer extensions, queue extensions).
+
+---
+
+## Integrity Notes (Phase 9 — Multi-modal "Eyes & Ears" Sprint — 2026-03-19)
+
+1. **Whisper sidecar client** — `src/pkg/extract/whisper.go` implements an OpenAI-compatible client for the whisper.cpp server (`/v1/audio/transcriptions`). Supports `.mp3`, `.wav`, `.mp4`, `.mkv`, `.m4a`, `.ogg`, `.flac`, `.webm`. Circuit breaker protects against sidecar outages.
+2. **OCR via Extractous** — Image files (`.png`, `.jpg`, `.jpeg`, `.tiff`) route to the Extractous sidecar with `?ocr=true` query parameter. Controlled by `EMDEX_ENABLE_OCR` env var.
+3. **PDF OCR fallback** — When a PDF extraction returns fewer than 50 characters (scanned document), the client automatically retries with `ocr=true`. Only triggers when `EMDEX_ENABLE_OCR=true`.
+4. **Multi-modal routing** — `extract.Client.ExtractFromBytes` now branches on file extension: plain text → direct, images → Extractous+OCR, audio/video → Whisper, PDFs → Extractous with OCR fallback, everything else → Extractous.
+5. **Zero-Token architecture** — All extraction/transcription is performed by local C++ sidecars (whisper.cpp, Extractous+Tesseract). No LLM API tokens are burned for content extraction.
+6. **Docker deployment** — `whisper` service added to both `docker-compose.yml` and `docker-compose.ha.yml` using `ghcr.io/ggml-org/whisper.cpp:main`. All worker nodes depend on the Whisper sidecar.
+7. **Helm charts** — Node chart updated with `whisperUrl`, `whisperModel`, `enableOcr` values and corresponding deployment env vars.
+8. **CLI status** — `emdex status` now reports Whisper sidecar health alongside Gateway/Node/Worker/Registry.
+9. **MCP media tags** — Search results include `[Media: Image/OCR]`, `[Media: Audio/Transcript]`, `[Media: Video/Transcript]` prefix tags for multi-modal content.
+10. **14 unit tests** — Full test coverage for Whisper client, audio extension detection, OCR routing, PDF OCR fallback, and disabled-OCR guard.
 
 ---
 *Time is a flat circle, but your data doesn't have to be lost in it.*

@@ -18,7 +18,7 @@
           │  ─────────────────   │
           │  /v1/search          │
           │  /v1/chat/completions│──► Gemini LLM (generateContent)
-          │  /v1/daily-delta     │
+          │  /v1/whoami          │
           │  /nodes/register     │◄── Node heartbeat (EMDEX_GATEWAY_URL)
           │  /metrics            │
           └──────────┬───────────┘
@@ -37,6 +37,9 @@
    └────────┘  └──────────┘  └────────────┘  └────────┘
  emdex-node
  :8081 health
+     │
+     ├─► Extractous Sidecar (:8000)
+     └─► Whisper.cpp Sidecar (:8080)
 ```
 
 ---
@@ -127,6 +130,9 @@ Each binary reads only its own environment variables. In a bare-metal deployment
 | `GOOGLE_API_KEY`          | ✅*      | —                 | Gemini key (when `EMBED_PROVIDER=gemini`)         |
 | `EMDEX_GEMINI_MODEL`      |          | `gemini-embedding-2-preview`| Gemini model for embeddings                      |
 | `EMDEX_EXTRACTOUS_URL`    |          | `http://localhost:8000/extract` | Extractous sidecar URL             |
+| `EMDEX_WHISPER_URL`       |          | —                 | Whisper sidecar URL (enables audio/video)        |
+| `EMDEX_WHISPER_MODEL`     |          | `base`            | Whisper model: `base`, `small`, `medium`, `large`|
+| `EMDEX_ENABLE_OCR`        |          | `false`           | Enable OCR for images and scanned PDF fallback   |
 | `EMDEX_POLL_INTERVAL`     |          | `60s`             | Remote VFS poll interval                         |
 | `EMDEX_CACHE_DIR`         |          | `./cache`         | SQLite metadata cache directory                  |
 | `EMDEX_QUEUE_DB`          |          | `queue.db`        | Indexing queue SQLite path                       |
@@ -141,8 +147,72 @@ Each binary reads only its own environment variables. In a bare-metal deployment
 
 | Variable              | Required | Default | Description                |
 |-----------------------|----------|---------|----------------------------|
-| `EMDEX_SIDECAR_PORT`  |          | `8000`  | Sidecar HTTP listen port   |
+| `EMDEX_SIDECAR_PORT`  |          | `8000`  | Extractous HTTP listen port |
+| `EMDEX_WHISPER_URL`   |          | —       | Whisper sidecar URL (e.g. `http://whisper:8080`) |
+| `EMDEX_WHISPER_MODEL` |          | `base`  | Whisper model: `base`, `small`, `medium`, `large` |
+| `EMDEX_ENABLE_OCR`    |          | `false` | Enable OCR for images and scanned PDF fallback |
 
+
+---
+
+## 3b. Multi-Modal "Zero-Token" Streaming Architecture (Phase 9)
+
+Emdexer uses a **sidecar architecture** for content extraction. All heavy processing (OCR, transcription) is performed by optimized C++ sidecars — zero LLM API tokens are burned on extraction or transcription.
+
+### Zero-RAM Overhead Streaming
+
+To handle multi-gigabyte video and audio files without exhausting system memory, Emdexer implements a **fully streamed pipeline** using `io.Pipe`.
+
+1.  **VFS Source**: The `vfs.FileSystem` opens a file as an `io.ReadCloser`.
+2.  **Streaming Pipeline**: Data is piped directly from the source (e.g., S3, SMB, or Local FS) into the sidecar's HTTP request body.
+3.  **No Buffering**: Files are never loaded entirely into RAM or written to temporary disk storage. The memory footprint remains constant regardless of the file size (e.g., a 4GB .mkv file uses the same minimal RAM as a 10KB .txt file).
+
+```mermaid
+sequenceDiagram
+    participant VFS as VFS Backend (S3/SMB/Local)
+    participant Node as Emdex Node
+    participant Sidecar as Sidecar (Extractous/Whisper)
+    
+    VFS->>Node: io.ReadCloser (Stream)
+    Node->>Node: Create io.Pipe
+    par Reader to Request
+        Node->>Sidecar: POST /extract (Chunked Transfer-Encoding)
+    and Writer from VFS
+        Node->>Node: io.Copy(pipeWriter, VFS)
+    end
+    Sidecar->>Node: Extracted Text / JSON
+    Node->>Node: SmartChunk & Embed
+```
+
+### Supported Media Types
+
+| Media Category | Extensions | Primary Sidecar | Config Variable |
+|----------------|------------|-----------------|-----------------|
+| **Text/Code** | `.txt`, `.md`, `.go`, `.py`, `.json` | Native (Go) | - |
+| **Documents** | `.pdf`, `.docx`, `.xlsx`, `.pptx` | Extractous | `EMDEX_EXTRACTOUS_URL` |
+| **Images** | `.png`, `.jpg`, `.jpeg`, `.tiff` | Extractous (OCR) | `EMDEX_EXTRACTOUS_URL` |
+| **Audio** | `.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac` | Whisper.cpp | `EMDEX_WHISPER_URL` |
+| **Video** | `.mp4`, `.mkv`, `.mov`, `.webm`, `.avi` | Whisper.cpp | `EMDEX_WHISPER_URL` |
+
+### Whisper.cpp Integration
+
+The **Whisper sidecar** (`EMDEX_WHISPER_URL`) is the primary path for multi-modal extraction. When a node detects an audio or video file, it streams the content to the Whisper sidecar's OpenAI-compatible `/v1/audio/transcriptions` endpoint.
+
+- **Model selection**: Controlled via `EMDEX_WHISPER_MODEL` (e.g., `base`, `small`, `medium`, `large-v3-turbo`).
+- **Language detection**: Automatic by default, or optionally pinned via metadata.
+- **Hardware acceleration**: Sidecars are typically deployed with GPU passthrough (CUDA) for high-speed transcription.
+
+### Circuit Breakers & Fallbacks
+
+Both sidecars are protected by independent circuit breakers (5 failures → 5 minute open window). If a sidecar is down, the circuit opens and files of that type are skipped until the sidecar recovers.
+
+### PDF OCR Fallback
+
+When `EMDEX_ENABLE_OCR=true`, the extract client implements a two-pass strategy for PDFs:
+
+1. **First pass**: Standard extraction via Extractous.
+2. **Check**: If the result contains fewer than 50 characters (likely a scanned document), retry with `?ocr=true`.
+3. **Best result**: Return the longer of the two results.
 
 ---
 

@@ -161,14 +161,21 @@ func cmdStatus() {
 	fmt.Printf("\n  %s  %s\n", "📦", ui.Bold("Emdexer Service Status"))
 	fmt.Printf("  %s\n\n", ui.Dim("────────────────────────────────────"))
 
+	whisperURL := os.Getenv("EMDEX_WHISPER_URL")
+	if whisperURL == "" {
+		whisperURL = "http://localhost:8080"
+	}
+
 	gwStatus, gwOK := checkHealth(gatewayURL + "/healthz/readiness")
 	nodeStatus, nodeOK := checkHealth(nodeURL + "/healthz/readiness")
 	workerStatus := checkWorker(nodeURL + "/healthz/worker")
+	whisperStatus, whisperOK := checkHealth(whisperURL + "/health")
 
 	regStatus := checkRegistry(gatewayURL)
 
 	printStatusLine("Gateway", gatewayURL, gwStatus, gwOK)
 	printStatusLine("Node", nodeURL, nodeStatus, nodeOK)
+	printStatusLine("Whisper", whisperURL, whisperStatus, whisperOK)
 	fmt.Printf("  %s  %-10s %s\n", workerStatus.emoji, ui.Bold("Worker"), workerStatus.detail)
 	fmt.Printf("  %s  %-10s %s\n", regStatus.emoji, ui.Bold("Registry"), regStatus.detail)
 

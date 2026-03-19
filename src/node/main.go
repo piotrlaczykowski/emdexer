@@ -63,6 +63,9 @@ type Config struct {
 	S3Bucket       string
 	S3UseSSL       bool
 	S3Prefix       string
+	WhisperURL     string // Whisper sidecar URL (e.g. http://whisper:8080)
+	WhisperModel   string // Whisper model name (default: "base")
+	EnableOCR      bool   // Enable OCR for images and scanned PDFs
 }
 
 var globalPointsClient qdrant.PointsClient
@@ -135,6 +138,9 @@ func main() {
 		S3Bucket:       os.Getenv("S3_BUCKET"),
 		S3UseSSL:       os.Getenv("S3_USE_SSL") == "true",
 		S3Prefix:       os.Getenv("S3_PREFIX"),
+		WhisperURL:     os.Getenv("EMDEX_WHISPER_URL"),
+		WhisperModel:   os.Getenv("EMDEX_WHISPER_MODEL"),
+		EnableOCR:      os.Getenv("EMDEX_ENABLE_OCR") == "true",
 	}
 
 	if globalCfg.ExtractousHost == "" {
@@ -187,10 +193,27 @@ func main() {
 	defer func() { _ = globalFS.Close() }()
 
 	// Create extract client and pipeline config after VFS, CB, and embedder are ready.
+	safeHTTP := safenet.NewSafeClient(60 * time.Second)
 	extractClient := &extract.Client{
-		CB:   globalCB,
-		FS:   globalFS,
-		HTTP: safenet.NewSafeClient(60 * time.Second),
+		CB:        globalCB,
+		FS:        globalFS,
+		HTTP:      safeHTTP,
+		EnableOCR: globalCfg.EnableOCR,
+	}
+
+	// Configure Whisper sidecar if URL is set.
+	if globalCfg.WhisperURL != "" {
+		whisperCB := extractor.NewCircuitBreaker(5, 5*time.Minute)
+		extractClient.Whisper = &extract.WhisperClient{
+			URL:   globalCfg.WhisperURL,
+			Model: globalCfg.WhisperModel,
+			HTTP:  safeHTTP,
+			CB:    whisperCB,
+		}
+		log.Printf("[node] Whisper sidecar configured: %s (model=%s)", globalCfg.WhisperURL, globalCfg.WhisperModel)
+	}
+	if globalCfg.EnableOCR {
+		log.Println("[node] OCR enabled for images and scanned PDFs")
 	}
 
 	pipelineCfg := indexer.PipelineConfig{

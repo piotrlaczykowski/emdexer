@@ -32,14 +32,31 @@ def search_files(query: str, namespace: str = "default") -> PrefabApp:
     except Exception as e:
         return PrefabApp(children=[Text(text=f"Error searching EMDEX: {str(e)}")])
 
+    # Map file extensions to media type tags for multi-modal content.
+    IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp"}
+    AUDIO_VIDEO_EXTS = {".mp3", ".wav", ".mp4", ".mkv", ".m4a", ".ogg", ".flac", ".webm"}
+
+    def media_tag(path: str) -> str:
+        ext = os.path.splitext(path)[1].lower()
+        if ext in IMAGE_EXTS:
+            return "[Media: Image/OCR] "
+        if ext in AUDIO_VIDEO_EXTS:
+            return "[Media: Video/Transcript] " if ext in {".mp4", ".mkv", ".webm"} else "[Media: Audio/Transcript] "
+        if ext == ".pdf":
+            return "[Media: PDF] "
+        return ""
+
     # Transform results for DataTable
     table_data = []
     for r in results:
         payload = r.get("payload", {})
+        path = payload.get("path", "N/A")
+        tag = media_tag(path)
+        preview = payload.get("text", "")[:100] + "..." if payload.get("text") else ""
         table_data.append({
-            "Path": payload.get("path", "N/A"),
+            "Path": path,
             "Score": float(r.get('score', 0)),
-            "Preview": payload.get("text", "")[:100] + "..." if payload.get("text") else ""
+            "Preview": tag + preview
         })
 
     return PrefabApp(

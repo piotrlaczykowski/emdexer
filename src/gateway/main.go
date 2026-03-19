@@ -39,7 +39,7 @@ func loadEnv(path string) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -97,7 +97,7 @@ func logAudit(entry AuditEntry) {
 		log.Printf("Failed to open audit log: %v", err)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	b, _ := json.Marshal(entry)
 	_, _ = f.Write(append(b, '\n'))
@@ -248,13 +248,13 @@ func NewDBNodeRegistry(dsn string) (*DBNodeRegistry, error) {
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("[registry] failed to ping postgres: %w", err)
 	}
 
 	r := &DBNodeRegistry{db: db}
 	if err := r.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("[registry] migration failed: %w", err)
 	}
 

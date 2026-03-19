@@ -95,6 +95,7 @@ var globalCfg Config
 var globalCtx context.Context
 var globalFS vfs.FileSystem
 var globalEmbedder embed.EmbedProvider
+var globalWorkerHeartbeat *watcher.Heartbeat
 
 func loadEnv(path string) {
 	f, err := os.Open(path)
@@ -237,8 +238,9 @@ func main() {
 				return err
 			}
 			return nil
-		})
+		}, deletePointsByPath)
 		if w != nil {
+			globalWorkerHeartbeat = w.Heartbeat
 			go w.Start()
 		}
 	} else {
@@ -268,31 +270,9 @@ func main() {
 					}
 					return nil
 				},
-				func(path string) error {
-					_, err := globalPointsClient.Delete(globalCtx, &qdrant.DeletePoints{
-						CollectionName: globalCfg.CollectionName,
-						Points: &qdrant.PointsSelector{
-							PointsSelectorOneOf: &qdrant.PointsSelector_Filter{
-								Filter: &qdrant.Filter{
-									Must: []*qdrant.Condition{
-										{
-											ConditionOneOf: &qdrant.Condition_Field{
-												Field: &qdrant.FieldCondition{
-													Key: "path",
-													Match: &qdrant.Match{
-														MatchValue: &qdrant.Match_Keyword{Keyword: path},
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					})
-					return err
-				},
+				deletePointsByPath,
 			)
+			globalWorkerHeartbeat = p.Heartbeat
 			go p.Start()
 		}
 	}
@@ -353,6 +333,7 @@ func indexDataToPoints(path string, content []byte) []*qdrant.PointStruct {
 	extractionLatency.Observe(float64(time.Since(startExt).Milliseconds()))
 
 	if err != nil {
+		log.Printf("[node] Extraction failed for %s: %v", path, err)
 		errorCount.WithLabelValues("extraction", globalCfg.NodeType).Inc()
 		text = ""
 	}
@@ -369,6 +350,7 @@ func indexDataToPoints(path string, content []byte) []*qdrant.PointStruct {
 			startEmb := time.Now()
 			vector, err = globalEmbedder.Embed(chunk)
 			if err != nil {
+				log.Printf("[node] Embedding failed for %s (chunk %d): %v", path, i, err)
 				errorCount.WithLabelValues("embedding", globalCfg.NodeType).Inc()
 				continue
 			}
@@ -399,6 +381,32 @@ func indexDataToPoints(path string, content []byte) []*qdrant.PointStruct {
 	}
 	indexingThroughput.Inc()
 	return points
+}
+
+// deletePointsByPath removes all Qdrant points matching the given file path.
+func deletePointsByPath(path string) error {
+	_, err := globalPointsClient.Delete(globalCtx, &qdrant.DeletePoints{
+		CollectionName: globalCfg.CollectionName,
+		Points: &qdrant.PointsSelector{
+			PointsSelectorOneOf: &qdrant.PointsSelector_Filter{
+				Filter: &qdrant.Filter{
+					Must: []*qdrant.Condition{
+						{
+							ConditionOneOf: &qdrant.Condition_Field{
+								Field: &qdrant.FieldCondition{
+									Key: "path",
+									Match: &qdrant.Match{
+										MatchValue: &qdrant.Match_Keyword{Keyword: path},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	return err
 }
 
 func extractFromBytes(path string, data []byte, extractousHost string) (string, error) {
@@ -464,6 +472,28 @@ func startHealthServer(qdrantConn *grpc.ClientConn) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
+	})
+
+	mux.HandleFunc("/healthz/worker", func(w http.ResponseWriter, r *http.Request) {
+		if globalWorkerHeartbeat == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "NO_WORKER"})
+			return
+		}
+		alive := globalWorkerHeartbeat.Alive(5 * time.Minute)
+		lastActive := globalWorkerHeartbeat.LastActive().Format(time.RFC3339)
+		if !alive {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":      "STALE",
+				"last_active": lastActive,
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":      "ALIVE",
+			"last_active": lastActive,
+		})
 	})
 
 	mux.HandleFunc("/healthz/startup", func(w http.ResponseWriter, r *http.Request) {

@@ -107,14 +107,15 @@ type FileState struct {
 
 // Poller periodically walks a VFS root, detects changes, and calls handlers.
 type Poller struct {
-	fs       vfs.FileSystem
-	root     string
-	cache    *MetadataCache
-	interval time.Duration
-	handler  func(path string, content []byte) error
-	onDelete func(path string) error
-	stopCh   chan struct{}
-	delta    deltaConfig
+	fs        vfs.FileSystem
+	root      string
+	cache     *MetadataCache
+	interval  time.Duration
+	handler   func(path string, content []byte) error
+	onDelete  func(path string) error
+	stopCh    chan struct{}
+	delta     deltaConfig
+	Heartbeat *Heartbeat
 }
 
 func NewPoller(
@@ -126,14 +127,15 @@ func NewPoller(
 	onDelete func(path string) error,
 ) *Poller {
 	return &Poller{
-		fs:       fs,
-		root:     root,
-		cache:    cache,
-		interval: interval,
-		handler:  handler,
-		onDelete: onDelete,
-		stopCh:   make(chan struct{}),
-		delta:    loadDeltaConfig(),
+		fs:        fs,
+		root:      root,
+		cache:     cache,
+		interval:  interval,
+		handler:   handler,
+		onDelete:  onDelete,
+		stopCh:    make(chan struct{}),
+		delta:     loadDeltaConfig(),
+		Heartbeat: NewHeartbeat(),
 	}
 }
 
@@ -145,6 +147,7 @@ func (p *Poller) Start() {
 
 	// Initial poll
 	p.poll()
+	p.Heartbeat.Touch()
 
 	for {
 		select {
@@ -152,6 +155,7 @@ func (p *Poller) Start() {
 			return
 		case <-ticker.C:
 			p.poll()
+			p.Heartbeat.Touch()
 		}
 	}
 }

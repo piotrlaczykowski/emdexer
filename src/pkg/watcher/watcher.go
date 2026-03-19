@@ -40,30 +40,42 @@ type FileEvent struct {
 // stall the whole stream.
 type OnFileChange func(event FileEvent) error
 
+// OnFileDelete is called when a file is removed or renamed.
+type OnFileDelete func(path string) error
+
 // Watcher wraps fsnotify with recursive directory watching and debouncing.
 type Watcher struct {
-	root    string
-	inner   *fsnotify.Watcher
-	handler OnFileChange
+	root     string
+	inner    *fsnotify.Watcher
+	handler  OnFileChange
+	onDelete OnFileDelete
 
 	mu      sync.Mutex
 	pending map[string]*time.Timer // debounce timers keyed by path
 
-	stopCh chan struct{}
+	stopCh    chan struct{}
+	Heartbeat *Heartbeat
 }
 
 // New creates a Watcher rooted at root.  Call Start() to begin watching.
-func New(root string, handler OnFileChange) (*Watcher, error) {
+// The optional onDelete callback is invoked when files are removed or renamed.
+func New(root string, handler OnFileChange, opts ...OnFileDelete) (*Watcher, error) {
 	inner, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("fsnotify.NewWatcher: %w", err)
 	}
+	var deleteFn OnFileDelete
+	if len(opts) > 0 {
+		deleteFn = opts[0]
+	}
 	w := &Watcher{
-		root:    root,
-		inner:   inner,
-		handler: handler,
-		pending: make(map[string]*time.Timer),
-		stopCh:  make(chan struct{}),
+		root:      root,
+		inner:     inner,
+		handler:   handler,
+		onDelete:  deleteFn,
+		pending:   make(map[string]*time.Timer),
+		stopCh:    make(chan struct{}),
+		Heartbeat: NewHeartbeat(),
 	}
 	// Recursively add all existing directories.
 	if err := w.addRecursive(root); err != nil {
@@ -104,6 +116,7 @@ func (w *Watcher) Start() {
 				log.Printf("[watcher] Events channel closed — stopping")
 				return
 			}
+			w.Heartbeat.Touch()
 			w.handleEvent(event)
 
 		case err, ok := <-w.inner.Errors:
@@ -135,9 +148,14 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		}
 	}
 
-	// Skip Remove/Rename for now (future: tombstone in Qdrant)
+	// Handle file deletions — remove corresponding points from Qdrant.
 	if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
-		log.Printf("[watcher] Skipping remove/rename for %s (tombstone not yet implemented)", event.Name)
+		if w.onDelete != nil {
+			log.Printf("[watcher] File removed: %s — deleting from index", event.Name)
+			if err := w.onDelete(event.Name); err != nil {
+				log.Printf("[watcher] Delete handler error for %s: %v", event.Name, err)
+			}
+		}
 		return
 	}
 

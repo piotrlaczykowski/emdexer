@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -146,8 +147,9 @@ func cmdStatus() {
 
 	fmt.Println("Emdexer Service Status")
 	fmt.Println("======================")
-	fmt.Printf("  Gateway (%s):  %s\n", gatewayURL, checkHealth(gatewayURL+"/healthz/readiness"))
-	fmt.Printf("  Node    (%s):  %s\n", nodeURL, checkHealth(nodeURL+"/healthz/readiness"))
+	fmt.Printf("  Gateway  (%s):  %s\n", gatewayURL, checkHealth(gatewayURL+"/healthz/readiness"))
+	fmt.Printf("  Node     (%s):  %s\n", nodeURL, checkHealth(nodeURL+"/healthz/readiness"))
+	fmt.Printf("  Worker   (%s):  %s\n", nodeURL, checkWorker(nodeURL+"/healthz/worker"))
 }
 
 func checkHealth(url string) string {
@@ -161,4 +163,29 @@ func checkHealth(url string) string {
 		return "UP"
 	}
 	return fmt.Sprintf("UNHEALTHY (%d)", resp.StatusCode)
+}
+
+func checkWorker(url string) string {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return "DOWN"
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "UNKNOWN"
+	}
+
+	status, _ := result["status"].(string)
+	lastActive, _ := result["last_active"].(string)
+
+	if resp.StatusCode == http.StatusOK {
+		return fmt.Sprintf("ALIVE (last: %s)", lastActive)
+	}
+	if status == "STALE" {
+		return fmt.Sprintf("STALE (last: %s)", lastActive)
+	}
+	return status
 }

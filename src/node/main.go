@@ -1,70 +1,41 @@
 package main
 
 import (
-	"log"
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"mime/multipart"
-	"net/http"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/piotrlaczykowski/emdexer/config"
 	"github.com/piotrlaczykowski/emdexer/embed"
-	"github.com/piotrlaczykowski/emdexer/safenet"
+	"github.com/piotrlaczykowski/emdexer/extract"
 	"github.com/piotrlaczykowski/emdexer/extractor"
+	"github.com/piotrlaczykowski/emdexer/nodereg"
+	"github.com/piotrlaczykowski/emdexer/health"
 	"github.com/piotrlaczykowski/emdexer/indexer"
 	"github.com/piotrlaczykowski/emdexer/queue"
+	"github.com/piotrlaczykowski/emdexer/safenet"
+	"github.com/piotrlaczykowski/emdexer/search"
 	"github.com/piotrlaczykowski/emdexer/vfs"
 	"github.com/piotrlaczykowski/emdexer/watcher"
 
 	"github.com/piotrlaczykowski/emdexer/version"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 const (
 	DefaultEmbedDims = 3072
 	CollectionName   = "emdexer_v1"
-	ProjectNamespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 )
 
 var EmbeddingDims uint64 = DefaultEmbedDims
-
-var (
-	indexingThroughput = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "emdexer_node_indexing_throughput_total",
-		Help: "Total number of files indexed",
-	})
-	embeddingLatency = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name:    "emdexer_node_embedding_latency_ms",
-		Help:    "Latency of embedding in milliseconds",
-		Buckets: []float64{100, 200, 500, 1000, 2000, 5000},
-	})
-	extractionLatency = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name:    "emdexer_node_extraction_latency_ms",
-		Help:    "Latency of content extraction in milliseconds",
-		Buckets: []float64{50, 100, 250, 500, 1000, 2500, 5000, 10000},
-	})
-	errorCount = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "emdexer_node_errors_total",
-		Help: "Total number of errors during indexing",
-	}, []string{"type", "ext"})
-)
 
 type Config struct {
 	QdrantHost     string
@@ -73,6 +44,9 @@ type Config struct {
 	GoogleAPIKey   string
 	Namespace      string
 	NodeType       string
+	GatewayURL     string
+	GatewayAuthKey string
+	NodeID         string
 	SMBHost        string
 	SMBUser        string
 	SMBPass        string
@@ -83,11 +57,6 @@ type Config struct {
 	SFTPPass       string
 	NFSHost        string
 	NFSPath        string
-}
-
-type ExtractedResult struct {
-	Text     string                 `json:"text"`
-	Metadata map[string]interface{} `json:"metadata"`
 }
 
 var globalPointsClient qdrant.PointsClient
@@ -103,31 +72,8 @@ var globalWorkerHeartbeat *watcher.Heartbeat
 // watcher overlap during startup. The Walk goroutine records every path it
 // processes; the watcher callback skips paths already seen until walkComplete
 // is set to 1 (meaning the startup walk finished).
-var walkSeen sync.Map   // map[string]struct{}
+var walkSeen sync.Map       // map[string]struct{}
 var walkComplete atomic.Int32 // 0 = walk in progress, 1 = walk done
-
-func loadEnv(path string) {
-	f, err := os.Open(path)
-	if err != nil {
-		return
-	}
-	defer func() { _ = f.Close() }()
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			val := strings.TrimSpace(parts[1])
-			if os.Getenv(key) == "" {
-				_ = os.Setenv(key, val)
-			}
-		}
-	}
-}
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
@@ -135,7 +81,7 @@ func main() {
 		return
 	}
 	cwd, _ := os.Getwd()
-	loadEnv(filepath.Join(cwd, ".env"))
+	config.LoadEnv(filepath.Join(cwd, ".env"))
 
 	if dimStr := os.Getenv("EMDEX_EMBEDDING_DIMS"); dimStr != "" {
 		if d, err := strconv.ParseUint(dimStr, 10, 64); err == nil && d > 0 {
@@ -151,6 +97,12 @@ func main() {
 		qdrantHost = "localhost:6334"
 	}
 
+	nodeID := os.Getenv("EMDEX_NODE_ID")
+	if nodeID == "" {
+		hostname, _ := os.Hostname()
+		nodeID = fmt.Sprintf("node-%s-%d", hostname, os.Getpid())
+	}
+
 	globalCfg = Config{
 		QdrantHost:     qdrantHost,
 		ExtractousHost: os.Getenv("EMDEX_EXTRACTOUS_URL"),
@@ -158,6 +110,9 @@ func main() {
 		GoogleAPIKey:   apiKey,
 		Namespace:      os.Getenv("EMDEX_NAMESPACE"),
 		NodeType:       os.Getenv("NODE_TYPE"),
+		GatewayURL:     os.Getenv("EMDEX_GATEWAY_URL"),
+		GatewayAuthKey: os.Getenv("EMDEX_GATEWAY_AUTH_KEY"),
+		NodeID:         nodeID,
 		SMBHost:        os.Getenv("SMB_HOST"),
 		SMBUser:        os.Getenv("SMB_USER"),
 		SMBPass:        os.Getenv("SMB_PASS"),
@@ -175,6 +130,9 @@ func main() {
 	}
 	if globalCfg.NodeType == "" {
 		globalCfg.NodeType = "local"
+	}
+	if globalCfg.Namespace == "" {
+		globalCfg.Namespace = "default"
 	}
 
 	globalCB = extractor.NewCircuitBreaker(5, 5*time.Minute)
@@ -203,11 +161,31 @@ func main() {
 	_ = os.MkdirAll(filepath.Dir(queuePath), 0700)
 	globalQueue, err = queue.NewPersistentQueue(queuePath)
 	if err == nil {
-		go startQueueWorker()
+		go queue.StartWorker(globalQueue, globalPointsClient, globalCfg.CollectionName, globalCtx)
 	}
 
 	initVFS()
 	defer func() { _ = globalFS.Close() }()
+
+	// Create extract client and pipeline config after VFS, CB, and embedder are ready.
+	extractClient := &extract.Client{
+		CB:   globalCB,
+		FS:   globalFS,
+		HTTP: safenet.NewSafeClient(60 * time.Second),
+	}
+
+	pipelineCfg := indexer.PipelineConfig{
+		Namespace:      globalCfg.Namespace,
+		ExtractousHost: globalCfg.ExtractousHost,
+		NodeType:       globalCfg.NodeType,
+		Embedder:       globalEmbedder,
+		Extract: func(path string, content []byte, host string) (string, error) {
+			if len(content) > 0 {
+				return extractClient.ExtractFromBytes(path, content, host)
+			}
+			return extractClient.ExtractContent(path, host)
+		},
+	}
 
 	_, err = collectionsClient.Get(globalCtx, &qdrant.GetCollectionInfoRequest{
 		CollectionName: globalCfg.CollectionName,
@@ -232,6 +210,12 @@ func main() {
 		root = filepath.Join(cwd, "test_dir")
 	}
 
+	// Closure that delegates to the extracted search.DeletePointsByPath,
+	// capturing the global context, client, and collection name.
+	deletePoints := func(path string) error {
+		return search.DeletePointsByPath(globalCtx, globalPointsClient, globalCfg.CollectionName, path)
+	}
+
 	if globalCfg.NodeType == "local" {
 		w, _ := watcher.New(root, func(ev watcher.FileEvent) error {
 			// During the startup walk, skip files the walker already indexed
@@ -243,7 +227,7 @@ func main() {
 				}
 			}
 			content, _ := os.ReadFile(ev.Path)
-			points := indexDataToPoints(ev.Path, content)
+			points := indexer.IndexDataToPoints(ev.Path, content, pipelineCfg)
 			if len(points) > 0 {
 				_, err = globalPointsClient.Upsert(globalCtx, &qdrant.UpsertPoints{
 					CollectionName: globalCfg.CollectionName,
@@ -255,7 +239,7 @@ func main() {
 				return err
 			}
 			return nil
-		}, deletePointsByPath)
+		}, deletePoints)
 		if w != nil {
 			globalWorkerHeartbeat = w.Heartbeat
 			go w.Start()
@@ -274,7 +258,7 @@ func main() {
 				cache,
 				60*time.Second,
 				func(path string, content []byte) error {
-					points := indexDataToPoints(path, content)
+					points := indexer.IndexDataToPoints(path, content, pipelineCfg)
 					if len(points) > 0 {
 						_, err := globalPointsClient.Upsert(globalCtx, &qdrant.UpsertPoints{
 							CollectionName: globalCfg.CollectionName,
@@ -287,7 +271,7 @@ func main() {
 					}
 					return nil
 				},
-				deletePointsByPath,
+				deletePoints,
 			)
 			globalWorkerHeartbeat = p.Heartbeat
 			go p.Start()
@@ -313,7 +297,7 @@ func main() {
 			// Record the path so the watcher won't re-index it during startup.
 			walkSeen.Store(path, struct{}{})
 
-			points := indexDataToPoints(path, content)
+			points := indexer.IndexDataToPoints(path, content, pipelineCfg)
 			for _, p := range points {
 				batch = append(batch, p)
 				if len(batch) >= 100 { flush() }
@@ -332,7 +316,22 @@ func main() {
 		log.Println("[node] Startup walk complete — watcher now processing all events")
 	}()
 
-	startHealthServer(conn)
+	// Self-register with the gateway and start periodic heartbeat.
+	nodeCfg := nodereg.NodeConfig{
+		GatewayURL:     globalCfg.GatewayURL,
+		GatewayAuthKey: globalCfg.GatewayAuthKey,
+		NodeID:         globalCfg.NodeID,
+		CollectionName: globalCfg.CollectionName,
+		Namespace:      globalCfg.Namespace,
+		NodeType:       globalCfg.NodeType,
+	}
+	nodereg.Register(nodeCfg)
+	go nodereg.StartHeartbeatLoop(nodeCfg)
+
+	health.StartServer(health.ServerConfig{
+		QdrantConn:      conn,
+		WorkerHeartbeat: globalWorkerHeartbeat,
+	})
 }
 
 func initVFS() {
@@ -348,285 +347,4 @@ func initVFS() {
 		globalFS = &vfs.OSFileSystem{}
 	}
 	if err != nil { panic(err) }
-}
-
-func indexDataToPoints(path string, content []byte) []*qdrant.PointStruct {
-	var text string
-	var err error
-	startExt := time.Now()
-	if len(content) > 0 {
-		text, err = extractFromBytes(path, content, globalCfg.ExtractousHost)
-	} else {
-		text, err = extractContent(path, globalCfg.ExtractousHost)
-	}
-	extractionLatency.Observe(float64(time.Since(startExt).Milliseconds()))
-
-	if err != nil {
-		log.Printf("[node] Extraction failed for %s: %v", path, err)
-		errorCount.WithLabelValues("extraction", globalCfg.NodeType).Inc()
-		text = ""
-	}
-
-	// Zero-vector guard: if extraction produced no usable text, skip indexing
-	// entirely. This prevents polluting Qdrant with zero-vectors from empty
-	// files, stubbed formats (7z, ISO), or failed extractions.
-	// A minimum of 10 characters avoids wasting embedding API credits on
-	// trivially short content that has no semantic value.
-	text = strings.TrimSpace(text)
-	if len(text) < 10 {
-		log.Printf("[node] WARN: Skipping %s — extraction too short (%d chars, min 10)", path, len(text))
-		return nil
-	}
-
-	chunks := smartChunk(text, 512, 50)
-	if len(chunks) == 0 {
-		log.Printf("[node] WARN: Skipping %s — chunking produced no segments", path)
-		return nil
-	}
-
-	var points []*qdrant.PointStruct
-	for i, chunk := range chunks {
-		if strings.TrimSpace(chunk) == "" {
-			continue
-		}
-
-		startEmb := time.Now()
-		vector, embErr := globalEmbedder.Embed(chunk)
-		if embErr != nil {
-			logEmbeddingError(path, i, embErr)
-			errorCount.WithLabelValues("embedding", globalCfg.NodeType).Inc()
-			continue
-		}
-		embeddingLatency.Observe(float64(time.Since(startEmb).Milliseconds()))
-
-		// Reject zero-vectors: if the provider returned an all-zero vector
-		// (e.g., due to an empty response or API issue), do not index it.
-		if isZeroVector(vector) {
-			log.Printf("[node] WARN: Skipping %s (chunk %d) — embedding returned zero-vector", path, i)
-			continue
-		}
-
-		ns := uuid.MustParse(ProjectNamespace)
-		idInput := fmt.Sprintf("%s:%d", path, i)
-		u := uuid.NewSHA1(ns, []byte(idInput))
-
-		payload := map[string]*qdrant.Value{
-			"path":       {Kind: &qdrant.Value_StringValue{StringValue: path}},
-			"chunk":      {Kind: &qdrant.Value_IntegerValue{IntegerValue: int64(i)}},
-			"text":       {Kind: &qdrant.Value_StringValue{StringValue: chunk}},
-			"indexed_at": {Kind: &qdrant.Value_IntegerValue{IntegerValue: time.Now().UnixNano()}},
-		}
-		if globalCfg.Namespace != "" {
-			payload["namespace"] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: globalCfg.Namespace}}
-		}
-
-		points = append(points, &qdrant.PointStruct{
-			Id: &qdrant.PointId{PointIdOptions: &qdrant.PointId_Uuid{Uuid: u.String()}},
-			Vectors: &qdrant.Vectors{VectorsOptions: &qdrant.Vectors_Vector{Vector: &qdrant.Vector{Data: vector}}},
-			Payload: payload,
-		})
-	}
-	if len(points) > 0 {
-		indexingThroughput.Inc()
-	}
-	return points
-}
-
-// isZeroVector returns true if all elements in the vector are zero.
-func isZeroVector(v []float32) bool {
-	for _, f := range v {
-		if f != 0 {
-			return false
-		}
-	}
-	return true
-}
-
-// logEmbeddingError logs embedding failures with actionable instructions to stderr.
-func logEmbeddingError(path string, chunk int, err error) {
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "401") || strings.Contains(msg, "Unauthorized"):
-		fmt.Fprintf(os.Stderr, "[node] ERROR: Embedding auth failed for %s (chunk %d): %v\n"+
-			"  → Check your GOOGLE_API_KEY in .env — it may be invalid or expired.\n"+
-			"  → Generate a new key at https://aistudio.google.com/app/apikey\n", path, chunk, err)
-	case strings.Contains(msg, "429") || strings.Contains(msg, "Rate Limit") || strings.Contains(msg, "RESOURCE_EXHAUSTED"):
-		fmt.Fprintf(os.Stderr, "[node] ERROR: Embedding rate-limited for %s (chunk %d): %v\n"+
-			"  → You've hit the API rate limit. Reduce EMDEX_BATCH_SIZE or add a delay.\n"+
-			"  → Consider switching to EMBED_PROVIDER=ollama for unlimited local embeddings.\n", path, chunk, err)
-	case strings.Contains(msg, "403") || strings.Contains(msg, "Forbidden"):
-		fmt.Fprintf(os.Stderr, "[node] ERROR: Embedding forbidden for %s (chunk %d): %v\n"+
-			"  → Your API key may lack the required permissions. Check the Gemini API console.\n", path, chunk, err)
-	default:
-		log.Printf("[node] Embedding failed for %s (chunk %d): %v", path, chunk, err)
-	}
-}
-
-// deletePointsByPath removes all Qdrant points matching the given file path.
-func deletePointsByPath(path string) error {
-	_, err := globalPointsClient.Delete(globalCtx, &qdrant.DeletePoints{
-		CollectionName: globalCfg.CollectionName,
-		Points: &qdrant.PointsSelector{
-			PointsSelectorOneOf: &qdrant.PointsSelector_Filter{
-				Filter: &qdrant.Filter{
-					Must: []*qdrant.Condition{
-						{
-							ConditionOneOf: &qdrant.Condition_Field{
-								Field: &qdrant.FieldCondition{
-									Key: "path",
-									Match: &qdrant.Match{
-										MatchValue: &qdrant.Match_Keyword{Keyword: path},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	})
-	return err
-}
-
-func extractFromBytes(path string, data []byte, extractousHost string) (string, error) {
-	ext := strings.ToLower(filepath.Ext(path))
-	internalExts := map[string]bool{".txt": true, ".md": true, ".go": true, ".py": true, ".json": true}
-	if internalExts[ext] {
-		return string(data), nil
-	}
-
-	if !globalCB.Allow() { return "", fmt.Errorf("cb open") }
-
-	bodyBuf := &bytes.Buffer{}
-	writer := multipart.NewWriter(bodyBuf)
-	part, _ := writer.CreateFormFile("file", filepath.Base(path))
-	_, _ = part.Write(data)
-	_ = writer.Close()
-	req, _ := http.NewRequest("POST", extractousHost+"/extract", bodyBuf)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	client := safenet.NewSafeClient(60 * time.Second)
-	res, err := client.Do(req)
-	if err != nil {
-		globalCB.RecordFailure()
-		return "", err
-	}
-	defer func() { _ = res.Body.Close() }()
-
-	if res.StatusCode != http.StatusOK {
-		globalCB.RecordFailure()
-		return "", fmt.Errorf("extraction API %d", res.StatusCode)
-	}
-
-	globalCB.RecordSuccess()
-	var result ExtractedResult
-	_ = json.NewDecoder(res.Body).Decode(&result)
-	return result.Text, nil
-}
-
-func extractContent(path, extractousHost string) (string, error) {
-	f, err := globalFS.Open(path)
-	if err != nil { return "", err }
-	defer func() { _ = f.Close() }()
-	data, _ := io.ReadAll(f)
-	return extractFromBytes(path, data, extractousHost)
-}
-
-func startHealthServer(qdrantConn *grpc.ClientConn) {
-	healthClient := grpc_health_v1.NewHealthClient(qdrantConn)
-	startTime := time.Now()
-
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/healthz/liveness", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
-	})
-
-	mux.HandleFunc("/healthz/readiness", func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		resp, err := healthClient.Check(ctx, &grpc_health_v1.HealthCheckRequest{Service: ""})
-		if err != nil || resp.Status != grpc_health_v1.HealthCheckResponse_SERVING {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.NewEncoder(w).Encode(map[string]string{"status": "DOWN"})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
-	})
-
-	mux.HandleFunc("/healthz/worker", func(w http.ResponseWriter, r *http.Request) {
-		if globalWorkerHeartbeat == nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "NO_WORKER"})
-			return
-		}
-		alive := globalWorkerHeartbeat.Alive(5 * time.Minute)
-		lastActive := globalWorkerHeartbeat.LastActive().Format(time.RFC3339)
-		if !alive {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"status":      "STALE",
-				"last_active": lastActive,
-			})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":      "ALIVE",
-			"last_active": lastActive,
-		})
-	})
-
-	mux.HandleFunc("/healthz/startup", func(w http.ResponseWriter, r *http.Request) {
-		if time.Since(startTime) < 5*time.Second {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.NewEncoder(w).Encode(map[string]string{"status": "STARTING"})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "STARTED"})
-	})
-
-	port := os.Getenv("NODE_HEALTH_PORT")
-	if port == "" {
-		port = "8081"
-	}
-	addr := ":" + port
-	server := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  30 * time.Second,
-	}
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Printf("health server error: %v", err)
-	}
-}
-
-func smartChunk(text string, size, overlap int) []string {
-	words := strings.Fields(text)
-	if len(words) == 0 { return nil }
-	var chunks []string
-	step := size - overlap
-	if step <= 0 { step = 1 }
-	for i := 0; i < len(words); i += step {
-		end := i + size
-		if end > len(words) { end = len(words) }
-		chunks = append(chunks, strings.Join(words[i:end], " "))
-		if end == len(words) { break }
-	}
-	return chunks
-}
-
-func startQueueWorker() {
-	ticker := time.NewTicker(30 * time.Second)
-	for range ticker.C {
-		for {
-			item, _ := globalQueue.Dequeue()
-			if item == nil { break }
-			_, err := globalPointsClient.Upsert(globalCtx, &qdrant.UpsertPoints{
-				CollectionName: globalCfg.CollectionName,
-				Points:         item.Points,
-			})
-			if err == nil { _ = globalQueue.Delete(item.ID) } else { break }
-		}
-	}
 }

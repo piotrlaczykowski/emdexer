@@ -11,26 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/piotrlaczykowski/emdexer/ui"
 	"github.com/piotrlaczykowski/emdexer/version"
 )
-
-// ANSI color helpers
-const (
-	colorReset  = "\033[0m"
-	colorBold   = "\033[1m"
-	colorRed    = "\033[31m"
-	colorGreen  = "\033[32m"
-	colorYellow = "\033[33m"
-	colorCyan   = "\033[36m"
-	colorDim    = "\033[2m"
-)
-
-func bold(s string) string   { return colorBold + s + colorReset }
-func green(s string) string  { return colorGreen + s + colorReset }
-func red(s string) string    { return colorRed + s + colorReset }
-func yellow(s string) string { return colorYellow + s + colorReset }
-func cyan(s string) string   { return colorCyan + s + colorReset }
-func dim(s string) string    { return colorDim + s + colorReset }
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1][0] != '-' {
@@ -41,8 +24,10 @@ func main() {
 			cmdStart()
 		case "status":
 			cmdStatus()
+		case "nodes":
+			cmdNodes()
 		default:
-			fmt.Fprintf(os.Stderr, "\n  %s %s: %s\n", "❌", red("Unknown command"), os.Args[1])
+			fmt.Fprintf(os.Stderr, "\n  %s %s: %s\n", "❌", ui.Red("Unknown command"), os.Args[1])
 			printUsage()
 			os.Exit(1)
 		}
@@ -62,31 +47,32 @@ func main() {
 
 func printUsage() {
 	fmt.Println()
-	fmt.Printf("  %s  %s\n", bold("📦 Emdexer CLI"), dim("v"+version.Version))
+	fmt.Printf("  %s  %s\n", ui.Bold("📦 Emdexer CLI"), ui.Dim("v"+version.Version))
 	fmt.Println()
-	fmt.Printf("  %s emdex <command>\n", dim("Usage:"))
+	fmt.Printf("  %s emdex <command>\n", ui.Dim("Usage:"))
 	fmt.Println()
-	fmt.Printf("  %s\n", bold("Commands:"))
-	fmt.Printf("    %s      Initialize a new emdexer project (.env)\n", cyan("init"))
-	fmt.Printf("    %s     Start emdexer services via Docker Compose\n", cyan("start"))
-	fmt.Printf("    %s    Show status of emdexer services\n", cyan("status"))
+	fmt.Printf("  %s\n", ui.Bold("Commands:"))
+	fmt.Printf("    %s      Initialize a new emdexer project (.env)\n", ui.Cyan("init"))
+	fmt.Printf("    %s     Start emdexer services via Docker Compose\n", ui.Cyan("start"))
+	fmt.Printf("    %s    Show status of emdexer services\n", ui.Cyan("status"))
+	fmt.Printf("    %s     List registered nodes and their status\n", ui.Cyan("nodes"))
 	fmt.Println()
-	fmt.Printf("  %s\n", bold("Flags:"))
-	fmt.Printf("    %s  Show version information\n", cyan("--version"))
+	fmt.Printf("  %s\n", ui.Bold("Flags:"))
+	fmt.Printf("    %s  Show version information\n", ui.Cyan("--version"))
 	fmt.Println()
 }
 
 // cmdInit prompts for configuration values and writes a .env file.
 func cmdInit() {
-	fmt.Printf("\n  %s  %s\n\n", "🚀", bold("Emdexer Project Init"))
+	fmt.Printf("\n  %s  %s\n\n", "🚀", ui.Bold("Emdexer Project Init"))
 
 	scanner := bufio.NewScanner(os.Stdin)
 
 	defaults := map[string]string{
-		"GOOGLE_API_KEY":    "",
-		"QDRANT_HOST":       "qdrant-1:6334",
-		"EMDEX_NAMESPACE":   "default",
-		"EMDEX_AUTH_KEY":    "",
+		"GOOGLE_API_KEY":     "",
+		"QDRANT_HOST":        "qdrant-1:6334",
+		"EMDEX_NAMESPACE":    "default",
+		"EMDEX_AUTH_KEY":     "",
 		"EMDEX_GEMINI_MODEL": "gemini-embedding-2-preview",
 	}
 
@@ -103,15 +89,15 @@ func cmdInit() {
 	}
 
 	if _, err := os.Stat(".env"); err == nil {
-		fmt.Printf("  %s %s\n\n", "⚠️", yellow(".env already exists and will be overwritten."))
+		fmt.Printf("  %s %s\n\n", "⚠️", ui.Yellow(".env already exists and will be overwritten."))
 	}
 
 	values := make(map[string]string)
 	for _, p := range prompts {
 		if p.defaultValue != "" {
-			fmt.Printf("  %s %s: ", cyan(p.label), dim("["+p.defaultValue+"]"))
+			fmt.Printf("  %s %s: ", ui.Cyan(p.label), ui.Dim("["+p.defaultValue+"]"))
 		} else {
-			fmt.Printf("  %s: ", cyan(p.label))
+			fmt.Printf("  %s: ", ui.Cyan(p.label))
 		}
 
 		var input string
@@ -131,10 +117,10 @@ func cmdInit() {
 	}
 
 	if err := os.WriteFile(".env", []byte(sb.String()), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "  %s %s: %v\n", "❌", red("Error writing .env"), err)
+		fmt.Fprintf(os.Stderr, "  %s %s: %v\n", "❌", ui.Red("Error writing .env"), err)
 		os.Exit(1)
 	}
-	fmt.Printf("\n  %s %s\n", "✅", green("Wrote .env — run 'emdex start' to launch services."))
+	fmt.Printf("\n  %s %s\n", "✅", ui.Green("Wrote .env — run 'emdex start' to launch services."))
 	fmt.Println()
 }
 
@@ -150,12 +136,12 @@ func cmdStart() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	fmt.Printf("\n  %s %s %s\n\n", "🚀", bold("Starting emdexer services"), dim("("+composeFile+")"))
+	fmt.Printf("\n  %s %s %s\n\n", "🚀", ui.Bold("Starting emdexer services"), ui.Dim("("+composeFile+")"))
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "\n  %s %s: %v\n", "❌", red("Failed to start services"), err)
+		fmt.Fprintf(os.Stderr, "\n  %s %s: %v\n", "❌", ui.Red("Failed to start services"), err)
 		os.Exit(1)
 	}
-	fmt.Printf("\n  %s %s\n\n", "✅", green("All services started. Run 'emdex status' to verify."))
+	fmt.Printf("\n  %s %s\n\n", "✅", ui.Green("All services started. Run 'emdex status' to verify."))
 }
 
 // cmdStatus checks health endpoints of gateway and node, including worker heartbeat.
@@ -169,8 +155,8 @@ func cmdStatus() {
 		nodeURL = "http://localhost:8081"
 	}
 
-	fmt.Printf("\n  %s  %s\n", "📦", bold("Emdexer Service Status"))
-	fmt.Printf("  %s\n\n", dim("────────────────────────────────────"))
+	fmt.Printf("\n  %s  %s\n", "📦", ui.Bold("Emdexer Service Status"))
+	fmt.Printf("  %s\n\n", ui.Dim("────────────────────────────────────"))
 
 	gwStatus, gwOK := checkHealth(gatewayURL + "/healthz/readiness")
 	nodeStatus, nodeOK := checkHealth(nodeURL + "/healthz/readiness")
@@ -180,20 +166,20 @@ func cmdStatus() {
 
 	printStatusLine("Gateway", gatewayURL, gwStatus, gwOK)
 	printStatusLine("Node", nodeURL, nodeStatus, nodeOK)
-	fmt.Printf("  %s  %-10s %s\n", workerStatus.emoji, bold("Worker"), workerStatus.detail)
-	fmt.Printf("  %s  %-10s %s\n", regStatus.emoji, bold("Registry"), regStatus.detail)
+	fmt.Printf("  %s  %-10s %s\n", workerStatus.emoji, ui.Bold("Worker"), workerStatus.detail)
+	fmt.Printf("  %s  %-10s %s\n", regStatus.emoji, ui.Bold("Registry"), regStatus.detail)
 
-	fmt.Printf("\n  %s\n\n", dim("────────────────────────────────────"))
+	fmt.Printf("\n  %s\n\n", ui.Dim("────────────────────────────────────"))
 }
 
 func printStatusLine(name, url, status string, ok bool) {
 	emoji := "✅"
-	coloredStatus := green(status)
+	coloredStatus := ui.Green(status)
 	if !ok {
 		emoji = "❌"
-		coloredStatus = red(status)
+		coloredStatus = ui.Red(status)
 	}
-	fmt.Printf("  %s  %-10s %s  %s\n", emoji, bold(name), coloredStatus, dim(url))
+	fmt.Printf("  %s  %-10s %s  %s\n", emoji, ui.Bold(name), coloredStatus, ui.Dim(url))
 }
 
 type workerResult struct {
@@ -218,13 +204,13 @@ func checkWorker(url string) workerResult {
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
-		return workerResult{"❌", red("DOWN") + "  " + dim("(unreachable)")}
+		return workerResult{"❌", ui.Red("DOWN") + "  " + ui.Dim("(unreachable)")}
 	}
 	defer resp.Body.Close()
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return workerResult{"❓", yellow("UNKNOWN") + "  " + dim("(bad response)")}
+		return workerResult{"❓", ui.Yellow("UNKNOWN") + "  " + ui.Dim("(bad response)")}
 	}
 
 	status, _ := result["status"].(string)
@@ -232,16 +218,16 @@ func checkWorker(url string) workerResult {
 
 	switch {
 	case resp.StatusCode == http.StatusOK && status == "ALIVE":
-		ago := formatTimeAgo(lastActive)
-		return workerResult{"✅", green("ALIVE") + "  " + dim("last heartbeat "+ago)}
+		ago := ui.FormatTimeAgo(lastActive)
+		return workerResult{"✅", ui.Green("ALIVE") + "  " + ui.Dim("last heartbeat "+ago)}
 	case status == "STALE":
-		ago := formatTimeAgo(lastActive)
-		return workerResult{"⚠️", yellow("STALLED") + "  " + dim("no heartbeat for "+ago) + "\n" +
-			"        " + dim("→ Worker may be stuck. Check node logs: journalctl -u emdex-node -f")}
+		ago := ui.FormatTimeAgo(lastActive)
+		return workerResult{"⚠️", ui.Yellow("STALLED") + "  " + ui.Dim("no heartbeat for "+ago) + "\n" +
+			"        " + ui.Dim("→ Worker may be stuck. Check node logs: journalctl -u emdex-node -f")}
 	case status == "NO_WORKER":
-		return workerResult{"⚠️", yellow("NO_WORKER") + "  " + dim("no background indexing worker registered")}
+		return workerResult{"⚠️", ui.Yellow("NO_WORKER") + "  " + ui.Dim("no background indexing worker registered")}
 	default:
-		return workerResult{"❓", yellow(status)}
+		return workerResult{"❓", ui.Yellow(status)}
 	}
 }
 
@@ -249,50 +235,108 @@ func checkWorker(url string) workerResult {
 func checkRegistry(gatewayURL string) workerResult {
 	authKey := os.Getenv("EMDEX_AUTH_KEY")
 	if authKey == "" {
-		return workerResult{"⚠️", yellow("SKIPPED") + "  " + dim("set EMDEX_AUTH_KEY to check registry")}
+		return workerResult{"⚠️", ui.Yellow("SKIPPED") + "  " + ui.Dim("set EMDEX_AUTH_KEY to check registry")}
 	}
 
 	client := &http.Client{Timeout: 3 * time.Second}
 	req, err := http.NewRequest("GET", gatewayURL+"/nodes", nil)
 	if err != nil {
-		return workerResult{"❌", red("ERROR") + "  " + dim(err.Error())}
+		return workerResult{"❌", ui.Red("ERROR") + "  " + ui.Dim(err.Error())}
 	}
 	req.Header.Set("Authorization", "Bearer "+authKey)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return workerResult{"❌", red("DOWN") + "  " + dim("(gateway unreachable)")}
+		return workerResult{"❌", ui.Red("DOWN") + "  " + ui.Dim("(gateway unreachable)")}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return workerResult{"⚠️", yellow("AUTH FAILED") + "  " + dim("check EMDEX_AUTH_KEY")}
+		return workerResult{"⚠️", ui.Yellow("AUTH FAILED") + "  " + ui.Dim("check EMDEX_AUTH_KEY")}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return workerResult{"❌", red(fmt.Sprintf("HTTP %d", resp.StatusCode))}
+		return workerResult{"❌", ui.Red(fmt.Sprintf("HTTP %d", resp.StatusCode))}
 	}
 
 	var nodes []interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&nodes); err != nil {
-		return workerResult{"❌", red("CORRUPT") + "  " + dim("registry response not valid JSON")}
+		return workerResult{"❌", ui.Red("CORRUPT") + "  " + ui.Dim("registry response not valid JSON")}
 	}
 
-	return workerResult{"✅", green(fmt.Sprintf("OK (%d nodes)", len(nodes)))}
+	return workerResult{"✅", ui.Green(fmt.Sprintf("OK (%d nodes)", len(nodes)))}
 }
 
-// formatTimeAgo parses an RFC3339 timestamp and returns a human-readable duration.
-func formatTimeAgo(ts string) string {
-	t, err := time.Parse(time.RFC3339, ts)
+// cmdNodes queries the gateway registry and displays a colorized node table.
+func cmdNodes() {
+	gatewayURL := os.Getenv("EMDEX_GATEWAY_URL")
+	if gatewayURL == "" {
+		gatewayURL = "http://localhost:7700"
+	}
+	authKey := os.Getenv("EMDEX_AUTH_KEY")
+	if authKey == "" {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", "❌", ui.Red("EMDEX_AUTH_KEY required to query nodes"))
+		os.Exit(1)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, _ := http.NewRequest("GET", gatewayURL+"/nodes", nil)
+	req.Header.Set("Authorization", "Bearer "+authKey)
+
+	resp, err := client.Do(req)
 	if err != nil {
-		return ts
+		fmt.Fprintf(os.Stderr, "  %s %s: %v\n", "❌", ui.Red("Cannot reach gateway"), err)
+		os.Exit(1)
 	}
-	d := time.Since(t)
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds ago", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	default:
-		return fmt.Sprintf("%dh%dm ago", int(d.Hours()), int(d.Minutes())%60)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "  %s HTTP %d from gateway\n", "❌", resp.StatusCode)
+		os.Exit(1)
 	}
+
+	var nodes []struct {
+		ID            string   `json:"id"`
+		URL           string   `json:"url"`
+		Namespaces    []string `json:"namespaces"`
+		Protocol      string   `json:"protocol"`
+		HealthStatus  string   `json:"health_status"`
+		LastHeartbeat string   `json:"last_heartbeat"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&nodes); err != nil {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", "❌", ui.Red("Invalid response from gateway"))
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n  %s  %s\n", ui.Bold("📡 Registered Nodes"), ui.Dim(fmt.Sprintf("(%d total)", len(nodes))))
+	fmt.Printf("  %s\n\n", ui.Dim("─────────────────────────────────────────────────────────────────────────"))
+
+	if len(nodes) == 0 {
+		fmt.Printf("  %s\n\n", ui.Dim("No nodes registered. Nodes self-register when EMDEX_GATEWAY_URL is set."))
+		return
+	}
+
+	// Header
+	fmt.Printf("  %-24s  %-10s  %-10s  %-20s  %s\n",
+		ui.Bold("NODE ID"), ui.Bold("STATUS"), ui.Bold("PROTOCOL"), ui.Bold("NAMESPACES"), ui.Bold("LAST HEARTBEAT"))
+	fmt.Printf("  %s\n", ui.Dim("─────────────────────────────────────────────────────────────────────────"))
+
+	for _, n := range nodes {
+		statusFn := ui.Green
+		if n.HealthStatus != "healthy" {
+			statusFn = ui.Red
+		}
+		ago := ui.FormatTimeAgo(n.LastHeartbeat)
+		nsStr := strings.Join(n.Namespaces, ", ")
+		if nsStr == "" {
+			nsStr = ui.Dim("(none)")
+		}
+
+		fmt.Printf("  %-24s  %-10s  %-10s  %-20s  %s\n",
+			ui.Cyan(n.ID),
+			statusFn(n.HealthStatus),
+			n.Protocol,
+			nsStr,
+			ui.Dim(ago))
+	}
+	fmt.Println()
 }

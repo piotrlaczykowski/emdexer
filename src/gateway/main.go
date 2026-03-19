@@ -1,570 +1,53 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/piotrlaczykowski/emdexer/audit"
+	"github.com/piotrlaczykowski/emdexer/auth"
+	"github.com/piotrlaczykowski/emdexer/config"
 	"github.com/piotrlaczykowski/emdexer/embed"
-	"github.com/piotrlaczykowski/emdexer/safenet"
+	"github.com/piotrlaczykowski/emdexer/llm"
+	"github.com/piotrlaczykowski/emdexer/middleware"
+	"github.com/piotrlaczykowski/emdexer/openai"
+	"github.com/piotrlaczykowski/emdexer/rag"
+	"github.com/piotrlaczykowski/emdexer/registry"
+	"github.com/piotrlaczykowski/emdexer/search"
 	"github.com/piotrlaczykowski/emdexer/version"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/qdrant/go-client/qdrant"
-	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
-const Version = "v1.0.5"
-
-// ============================================================
-// Config & .env loader
-// ============================================================
-
-func loadEnv(path string) {
-	f, err := os.Open(path)
-	if err != nil {
-		return
-	}
-	defer func() { _ = f.Close() }()
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			val := strings.TrimSpace(parts[1])
-			if os.Getenv(key) == "" {
-				_ = os.Setenv(key, val)
-			}
-		}
-	}
-}
-
-// Metrics
-var (
-	searchLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "emdexer_gateway_search_latency_ms",
-		Help:    "Latency of Qdrant search in milliseconds",
-		Buckets: []float64{10, 50, 100, 200, 500, 1000, 2000, 5000},
-	}, []string{"collection"})
-
-	httpRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "emdexer_gateway_http_requests_total",
-		Help: "Total number of HTTP requests",
-	}, []string{"path", "code"})
-)
-
-// Audit Log Entry
-type AuditEntry struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Action    string                 `json:"action"`
-	User      string                 `json:"user,omitempty"`
-	Query     string                 `json:"query,omitempty"`
-	Namespace string                 `json:"namespace,omitempty"`
-	Results   int                    `json:"results_count,omitempty"`
-	LatencyMS int64                  `json:"latency_ms"`
-	Status    int                    `json:"status"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
-}
-
-func logAudit(entry AuditEntry) {
-	entry.Timestamp = time.Now()
-	logPath := os.Getenv("EMDEX_AUDIT_LOG_FILE")
-	if logPath == "" {
-		cwd, _ := os.Getwd()
-		logPath = filepath.Join(cwd, "logs", "audit.json")
-	}
-	_ = os.MkdirAll(filepath.Dir(logPath), 0755)
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Printf("Failed to open audit log: %v", err)
-		return
-	}
-	defer func() { _ = f.Close() }()
-
-	b, _ := json.Marshal(entry)
-	_, _ = f.Write(append(b, '\n'))
-}
-
-// ============================================================
-// Node Registry — interface + implementations
-// ============================================================
-
-type NodeInfo struct {
-	ID           string    `json:"id"`
-	URL          string    `json:"url"`
-	Collections  []string  `json:"collections"`
-	RegisteredAt time.Time `json:"registered_at"`
-}
-
-func deepCopyNodeInfo(n NodeInfo) NodeInfo {
-	cols := make([]string, len(n.Collections))
-	copy(cols, n.Collections)
-	return NodeInfo{
-		ID:           n.ID,
-		URL:          n.URL,
-		Collections:  cols,
-		RegisteredAt: n.RegisteredAt,
-	}
-}
-
-// NodeRegistry is the interface that all registry backends must implement.
-type NodeRegistry interface {
-	// Register adds or updates a node in the registry.
-	Register(ctx context.Context, n NodeInfo) error
-	// Deregister removes a node from the registry by ID.
-	Deregister(ctx context.Context, id string) error
-	// List returns all currently registered nodes.
-	List(ctx context.Context) ([]NodeInfo, error)
-}
-
-// ------------------------------------------------------------
-// FileNodeRegistry — local nodes.json backend (default)
-// ------------------------------------------------------------
-
-type FileNodeRegistry struct {
-	mu       sync.RWMutex
-	nodes    map[string]NodeInfo
-	dataFile string
-}
-
-func NewFileNodeRegistry(dataFile string) *FileNodeRegistry {
-	r := &FileNodeRegistry{
-		nodes:    make(map[string]NodeInfo),
-		dataFile: dataFile,
-	}
-	r.load()
-	return r
-}
-
-func (r *FileNodeRegistry) load() {
-	data, err := os.ReadFile(r.dataFile)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Printf("[registry] Failed to read %s: %v", r.dataFile, err)
-		}
-		return
-	}
-	var nodes []NodeInfo
-	if err := json.Unmarshal(data, &nodes); err != nil {
-		log.Printf("[registry] Failed to parse %s: %v", r.dataFile, err)
-		return
-	}
-	for _, n := range nodes {
-		r.nodes[n.ID] = deepCopyNodeInfo(n)
-	}
-}
-
-func (r *FileNodeRegistry) persist() error {
-	nodes := make([]NodeInfo, 0, len(r.nodes))
-	for _, n := range r.nodes {
-		nodes = append(nodes, deepCopyNodeInfo(n))
-	}
-	data, err := json.MarshalIndent(nodes, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal failed: %w", err)
-	}
-	tmp := r.dataFile + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return fmt.Errorf("write tmp failed: %w", err)
-	}
-	if err := os.Rename(tmp, r.dataFile); err != nil {
-		return fmt.Errorf("rename failed: %w", err)
-	}
-	return nil
-}
-
-func (r *FileNodeRegistry) Register(ctx context.Context, n NodeInfo) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	n.RegisteredAt = time.Now()
-	r.nodes[n.ID] = deepCopyNodeInfo(n)
-	if err := r.persist(); err != nil {
-		log.Printf("[registry] persist error: %v", err)
-		return err
-	}
-	return nil
-}
-
-func (r *FileNodeRegistry) Deregister(ctx context.Context, id string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, ok := r.nodes[id]; !ok {
-		return nil
-	}
-	delete(r.nodes, id)
-	if err := r.persist(); err != nil {
-		log.Printf("[registry] persist error: %v", err)
-		return err
-	}
-	return nil
-}
-
-func (r *FileNodeRegistry) List(ctx context.Context) ([]NodeInfo, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := make([]NodeInfo, 0, len(r.nodes))
-	for _, n := range r.nodes {
-		out = append(out, deepCopyNodeInfo(n))
-	}
-	return out, nil
-}
-
-// ------------------------------------------------------------
-// DBNodeRegistry — PostgreSQL backend (HA mode)
-// ------------------------------------------------------------
-
-type DBNodeRegistry struct {
-	db *sql.DB
-}
-
-// NewDBNodeRegistry opens a PostgreSQL connection, runs auto-migration,
-// and returns a ready-to-use DBNodeRegistry.
-func NewDBNodeRegistry(dsn string) (*DBNodeRegistry, error) {
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("[registry] failed to open postgres: %w", err)
-	}
-
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
-
-	if err := db.Ping(); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("[registry] failed to ping postgres: %w", err)
-	}
-
-	r := &DBNodeRegistry{db: db}
-	if err := r.migrate(); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("[registry] migration failed: %w", err)
-	}
-
-	log.Println("[registry] PostgreSQL backend ready")
-	return r, nil
-}
-
-// migrate creates the registered_nodes table if it does not already exist.
-func (r *DBNodeRegistry) migrate() error {
-	const ddl = `
-CREATE TABLE IF NOT EXISTS registered_nodes (
-    id           TEXT        PRIMARY KEY,
-    url          TEXT        NOT NULL,
-    collections  JSONB       NOT NULL DEFAULT '[]',
-    registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-`
-	_, err := r.db.Exec(ddl)
-	return err
-}
-
-func (r *DBNodeRegistry) Register(ctx context.Context, n NodeInfo) error {
-	n.RegisteredAt = time.Now()
-	colsJSON, _ := json.Marshal(n.Collections)
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO registered_nodes (id, url, collections, registered_at)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (id) DO UPDATE
-		  SET url          = EXCLUDED.url,
-		      collections  = EXCLUDED.collections,
-		      registered_at = EXCLUDED.registered_at
-	`, n.ID, n.URL, string(colsJSON), n.RegisteredAt)
-	if err != nil {
-		log.Printf("[registry] Register error: %v", err)
-		return err
-	}
-	return nil
-}
-
-func (r *DBNodeRegistry) Deregister(ctx context.Context, id string) error {
-	if _, err := r.db.ExecContext(ctx, `DELETE FROM registered_nodes WHERE id = $1`, id); err != nil {
-		log.Printf("[registry] Deregister error: %v", err)
-		return err
-	}
-	return nil
-}
-
-func (r *DBNodeRegistry) List(ctx context.Context) ([]NodeInfo, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, url, collections, registered_at FROM registered_nodes ORDER BY registered_at`)
-	if err != nil {
-		log.Printf("[registry] List error: %v", err)
-		return []NodeInfo{}, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	out := []NodeInfo{}
-	for rows.Next() {
-		var n NodeInfo
-		var colsJSON string
-		if err := rows.Scan(&n.ID, &n.URL, &colsJSON, &n.RegisteredAt); err != nil {
-			log.Printf("[registry] scan error: %v", err)
-			continue
-		}
-		if err := json.Unmarshal([]byte(colsJSON), &n.Collections); err != nil {
-			n.Collections = []string{}
-		}
-		out = append(out, n)
-	}
-	if err := rows.Err(); err != nil {
-		log.Printf("[registry] rows error: %v", err)
-		return out, err
-	}
-	return out, nil
-}
-
-// ------------------------------------------------------------
-// Registry factory — picks backend based on env vars
-// ------------------------------------------------------------
-
-// newRegistry returns a DBNodeRegistry if POSTGRES_URL is set,
-// otherwise falls back to FileNodeRegistry.
-//
-// HA enforcement: if EMDEX_HA_MODE=true is set, the gateway MUST use PostgreSQL.
-// Falling back to FileNodeRegistry in HA mode would cause split-brain across
-// multiple gateway replicas (each would maintain its own local nodes.json).
-func newRegistry(dataFile string) NodeRegistry {
-	haMode := strings.EqualFold(os.Getenv("EMDEX_HA_MODE"), "true")
-
-	if dsn := os.Getenv("POSTGRES_URL"); dsn != "" {
-		log.Printf("[registry] POSTGRES_URL detected — using PostgreSQL backend")
-		reg, err := NewDBNodeRegistry(dsn)
-		if err != nil {
-			if haMode {
-				log.Fatalf("[registry] FATAL: HA mode is enabled but PostgreSQL is unreachable: %v\n"+
-					"  → A local nodes.json fallback would cause split-brain across gateway replicas.\n"+
-					"  → Fix the POSTGRES_URL connection or disable HA mode (unset EMDEX_HA_MODE).", err)
-			}
-			log.Printf("[registry] WARNING: PostgreSQL init failed (%v) — falling back to FileNodeRegistry", err)
-		} else {
-			return reg
-		}
-	} else if haMode {
-		log.Fatalf("[registry] FATAL: EMDEX_HA_MODE=true requires POSTGRES_URL to be set.\n" +
-			"  → Set POSTGRES_URL to a shared PostgreSQL instance for multi-replica consistency.\n" +
-			"  → Example: POSTGRES_URL=postgres://user:pass@db:5432/emdexer?sslmode=require")
-	}
-
-	log.Printf("[registry] Using FileNodeRegistry at %s", dataFile)
-	return NewFileNodeRegistry(dataFile)
-}
-
-// ============================================================
-// Qdrant search
-// ============================================================
-
-type SearchResult struct {
-	ID      uint64                 `json:"id"`
-	Score   float32                `json:"score"`
-	Payload map[string]interface{} `json:"payload"`
-}
-
-func searchQdrant(ctx context.Context, pc qdrant.PointsClient, collection string, vector []float32, limit uint64, namespace string) ([]SearchResult, error) {
-	start := time.Now()
-	defer func() {
-		searchLatency.WithLabelValues(collection).Observe(float64(time.Since(start).Milliseconds()))
-	}()
-	var filter *qdrant.Filter
-	if namespace != "" {
-		filter = &qdrant.Filter{
-			Must: []*qdrant.Condition{
-				{
-					ConditionOneOf: &qdrant.Condition_Field{
-						Field: &qdrant.FieldCondition{
-							Key: "namespace",
-							Match: &qdrant.Match{
-								MatchValue: &qdrant.Match_Keyword{
-									Keyword: namespace,
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-	}
-
-	resp, err := pc.Search(ctx, &qdrant.SearchPoints{
-		CollectionName: collection,
-		Vector:         vector,
-		Limit:          limit,
-		Filter:         filter,
-		WithPayload: &qdrant.WithPayloadSelector{
-			SelectorOptions: &qdrant.WithPayloadSelector_Enable{Enable: true},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var results []SearchResult
-	for _, pt := range resp.GetResult() {
-		payload := make(map[string]interface{})
-		for k, v := range pt.Payload {
-			switch val := v.Kind.(type) {
-			case *qdrant.Value_StringValue:
-				payload[k] = val.StringValue
-			case *qdrant.Value_IntegerValue:
-				payload[k] = val.IntegerValue
-			case *qdrant.Value_DoubleValue:
-				payload[k] = val.DoubleValue
-			case *qdrant.Value_BoolValue:
-				payload[k] = val.BoolValue
-			default:
-				payload[k] = fmt.Sprintf("%v", v)
-			}
-		}
-		var id uint64
-		if numID, ok := pt.Id.PointIdOptions.(*qdrant.PointId_Num); ok {
-			id = numID.Num
-		}
-		results = append(results, SearchResult{
-			ID:      id,
-			Score:   pt.Score,
-			Payload: payload,
-		})
-	}
-	return results, nil
-}
-
-// ============================================================
-// Gemini LLM call (streaming)
-// ============================================================
-
-type GeminiPart struct {
-	Text string `json:"text"`
-}
-type GeminiContent struct {
-	Role  string       `json:"role"`
-	Parts []GeminiPart `json:"parts"`
-}
-type GeminiRequest struct {
-	Contents []GeminiContent `json:"contents"`
-}
-type GeminiCandidate struct {
-	Content GeminiContent `json:"content"`
-}
-type GeminiResponse struct {
-	Candidates []GeminiCandidate `json:"candidates"`
-}
-
-func callGemini(prompt, apiKey string) (string, error) {
-	model := "gemini-2.0-flash"
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", model, apiKey)
-
-	reqBody := GeminiRequest{
-		Contents: []GeminiContent{
-			{Role: "user", Parts: []GeminiPart{{Text: prompt}}},
-		},
-	}
-	body, _ := json.Marshal(reqBody)
-
-	client := safenet.NewSafeClient(30 * time.Second)
-	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("gemini API %d: %s", resp.StatusCode, string(b))
-	}
-
-	var gr GeminiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
-		return "", err
-	}
-
-	if len(gr.Candidates) == 0 || len(gr.Candidates[0].Content.Parts) == 0 {
-		return "", fmt.Errorf("no content in Gemini response")
-	}
-
-	return gr.Candidates[0].Content.Parts[0].Text, nil
-}
-
-// ============================================================
-// OpenAI-compatible types
-// ============================================================
-
-type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type ChatRequest struct {
-	Model    string        `json:"model"`
-	Messages []ChatMessage `json:"messages"`
-	Stream   bool          `json:"stream"`
-}
-
-type ChatChoice struct {
-	Index        int         `json:"index"`
-	Message      ChatMessage `json:"message"`
-	FinishReason string      `json:"finish_reason"`
-}
-
-type ChatResponse struct {
-	ID      string       `json:"id"`
-	Object  string       `json:"object"`
-	Created int64        `json:"created"`
-	Model   string       `json:"model"`
-	Choices []ChatChoice `json:"choices"`
-}
-
-type DeltaContent struct {
-	Role    string `json:"role,omitempty"`
-	Content string `json:"content,omitempty"`
-}
-
-type StreamChoice struct {
-	Index        int          `json:"index"`
-	Delta        DeltaContent `json:"delta"`
-	FinishReason *string      `json:"finish_reason"`
-}
-
-type StreamChunk struct {
-	ID      string         `json:"id"`
-	Object  string         `json:"object"`
-	Created int64          `json:"created"`
-	Model   string         `json:"model"`
-	Choices []StreamChoice `json:"choices"`
-}
-
-type contextKey string
-
-const allowedNamespacesKey contextKey = "AllowedNamespaces"
-
 type Server struct {
-	registry     NodeRegistry
+	reg          registry.NodeRegistry
 	qdrantConn   *grpc.ClientConn
 	pointsClient qdrant.PointsClient
 	healthClient grpc_health_v1.HealthClient
 	embedder     embed.EmbedProvider
 	collection   string
 	apiKey       string
-	authKey      string
-	apiKeys      map[string][]string
+	authCfg      *auth.Config
 	port         string
 	startTime    time.Time
+
+	// Namespace topology — refreshed every 30s from registry.
+	topoMu     sync.RWMutex
+	nsTopology map[string][]string // namespace -> []nodeID
+
+	globalSearchTimeout time.Duration
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -575,56 +58,38 @@ func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	}
 }
 
-func (s *Server) instrument(path string, next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(rw, r)
-		httpRequestsTotal.WithLabelValues(path, fmt.Sprintf("%d", rw.status)).Inc()
+// ============================================================
+// Namespace Topology
+// ============================================================
+
+// refreshTopology rebuilds the in-memory namespace->nodeIDs map from the registry.
+func (s *Server) refreshTopology() {
+	nodes, err := s.reg.List(context.Background())
+	if err != nil {
+		log.Printf("[topology] refresh failed: %v", err)
+		return
 	}
-}
-
-type responseWriter struct {
-	http.ResponseWriter
-	status int
-}
-
-func (rw *responseWriter) WriteHeader(code int) {
-	rw.status = code
-	rw.ResponseWriter.WriteHeader(code)
-}
-
-func (s *Server) authenticate(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
+	topo := make(map[string][]string)
+	for _, n := range nodes {
+		for _, ns := range n.Namespaces {
+			topo[ns] = append(topo[ns], n.ID)
 		}
-
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		key := parts[1]
-		if s.apiKeys != nil {
-			allowedNamespaces, ok := s.apiKeys[key]
-			if ok {
-				ctx := context.WithValue(r.Context(), allowedNamespacesKey, allowedNamespaces)
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-		}
-
-		if s.authKey != "" && key == s.authKey {
-			ctx := context.WithValue(r.Context(), allowedNamespacesKey, []string{"*"})
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
-		}
-
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 	}
+	s.topoMu.Lock()
+	s.nsTopology = topo
+	s.topoMu.Unlock()
+	log.Printf("[topology] Refreshed: %d namespaces across %d nodes", len(topo), len(nodes))
+}
+
+// knownNamespaces returns all namespace strings from the topology map.
+func (s *Server) knownNamespaces() []string {
+	s.topoMu.RLock()
+	defer s.topoMu.RUnlock()
+	out := make([]string, 0, len(s.nsTopology))
+	for ns := range s.nsTopology {
+		out = append(out, ns)
+	}
+	return out
 }
 
 func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
@@ -632,7 +97,7 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var node NodeInfo
+	var node registry.NodeInfo
 	if err := json.NewDecoder(r.Body).Decode(&node); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
@@ -640,15 +105,17 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 	if node.ID == "" {
 		node.ID = fmt.Sprintf("node-%d", time.Now().UnixNano())
 	}
-	if err := s.registry.Register(r.Context(), node); err != nil {
+	if err := s.reg.Register(r.Context(), node); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	// Refresh topology immediately so new namespaces are discoverable.
+	go s.refreshTopology()
 	s.writeJSON(w, http.StatusOK, map[string]interface{}{"status": "registered", "id": node.ID})
 }
 
 func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
-	nodes, err := s.registry.List(r.Context())
+	nodes, err := s.reg.List(r.Context())
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -669,7 +136,7 @@ func (s *Server) handleDeregisterNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request: missing node id", http.StatusBadRequest)
 		return
 	}
-	if err := s.registry.Deregister(r.Context(), id); err != nil {
+	if err := s.reg.Deregister(r.Context(), id); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -683,7 +150,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowedNamespaces, ok := r.Context().Value(allowedNamespacesKey).([]string)
+	allowedNamespaces, ok := auth.GetAllowedNamespaces(r)
 	if !ok {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
@@ -694,17 +161,21 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		requestedNamespace = "default"
 	}
 
-	isAllowed := false
-	for _, ns := range allowedNamespaces {
-		if ns == "*" || ns == requestedNamespace {
-			isAllowed = true
-			break
+	// For global search (namespace=* or __global__), resolve to authorized namespaces.
+	// For single namespace, validate against allowedNamespaces as before.
+	isGlobal := requestedNamespace == "*" || requestedNamespace == "__global__"
+	if !isGlobal {
+		isAllowed := false
+		for _, ns := range allowedNamespaces {
+			if ns == "*" || ns == requestedNamespace {
+				isAllowed = true
+				break
+			}
 		}
-	}
-
-	if !isAllowed {
-		http.Error(w, "Forbidden: Namespace not authorized", http.StatusForbidden)
-		return
+		if !isAllowed {
+			http.Error(w, "Forbidden: Namespace not authorized", http.StatusForbidden)
+			return
+		}
 	}
 
 	query := r.URL.Query().Get("q")
@@ -719,21 +190,45 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
+	namespaces := search.ResolveNamespaces(requestedNamespace, allowedNamespaces, s.knownNamespaces())
 
-	results, err := searchQdrant(ctx, s.pointsClient, s.collection, vector, 10, requestedNamespace)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusInternalServerError)
-		return
+	var results []search.Result
+	if len(namespaces) <= 1 {
+		// Single namespace — existing fast path.
+		ns := ""
+		if len(namespaces) == 1 {
+			ns = namespaces[0]
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		results, err = search.SearchQdrant(ctx, s.pointsClient, s.collection, vector, 10, ns)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusInternalServerError)
+			return
+		}
+		// Inject source_namespace for consistent buildContext behavior.
+		for i := range results {
+			results[i].Payload["source_namespace"] = ns
+		}
+	} else {
+		// Multi-namespace fan-out with RRF merge.
+		results, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 10, s.globalSearchTimeout)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
-	s.writeJSON(w, http.StatusOK, map[string]interface{}{
+	resp := map[string]interface{}{
 		"query":   query,
 		"results": results,
-	})
+	}
+	if isGlobal {
+		resp["namespaces_searched"] = namespaces
+	}
+	s.writeJSON(w, http.StatusOK, resp)
 
-	logAudit(AuditEntry{
+	audit.Log(audit.Entry{
 		Action:    "search",
 		Query:     query,
 		Namespace: requestedNamespace,
@@ -749,13 +244,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowedNamespaces, ok := r.Context().Value(allowedNamespacesKey).([]string)
+	allowedNamespaces, ok := auth.GetAllowedNamespaces(r)
 	if !ok {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
-	var req ChatRequest
+	var req openai.ChatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
@@ -769,17 +264,19 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		requestedNamespace = "default"
 	}
 
-	isAllowed := false
-	for _, ns := range allowedNamespaces {
-		if ns == "*" || ns == requestedNamespace {
-			isAllowed = true
-			break
+	isGlobal := requestedNamespace == "*" || requestedNamespace == "__global__"
+	if !isGlobal {
+		isAllowed := false
+		for _, ns := range allowedNamespaces {
+			if ns == "*" || ns == requestedNamespace {
+				isAllowed = true
+				break
+			}
 		}
-	}
-
-	if !isAllowed {
-		http.Error(w, "Forbidden: Namespace not authorized", http.StatusForbidden)
-		return
+		if !isAllowed {
+			http.Error(w, "Forbidden: Namespace not authorized", http.StatusForbidden)
+			return
+		}
 	}
 
 	var question string
@@ -800,68 +297,56 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := searchQdrant(r.Context(), s.pointsClient, s.collection, vector, 5, requestedNamespace)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
-		return
+	namespaces := search.ResolveNamespaces(requestedNamespace, allowedNamespaces, s.knownNamespaces())
+
+	var results []search.Result
+	if len(namespaces) <= 1 {
+		ns := ""
+		if len(namespaces) == 1 {
+			ns = namespaces[0]
+		}
+		results, err = search.SearchQdrant(r.Context(), s.pointsClient, s.collection, vector, 5, ns)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
+			return
+		}
+		for i := range results {
+			results[i].Payload["source_namespace"] = ns
+		}
+	} else {
+		results, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 5, s.globalSearchTimeout)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
+			return
+		}
 	}
 
-	contextStr := buildContext(results)
-	finalPrompt := fmt.Sprintf("Answer the question using the consolidated context.\n\nContext:\n%s\n\nQuestion: %s", contextStr, question)
-	eval, err := callGemini(finalPrompt, s.apiKey)
+	contextStr := rag.BuildContext(results)
+
+	var finalPrompt string
+	if isGlobal {
+		finalPrompt = fmt.Sprintf("Answer the question using the consolidated context below. "+
+			"Each context block is tagged with [Source: namespace/path]. "+
+			"When referencing information, cite the source namespace and file path. "+
+			"If information from multiple namespaces is relevant, synthesize across sources "+
+			"and note which namespace each fact comes from.\n\nContext:\n%s\n\nQuestion: %s", contextStr, question)
+	} else {
+		finalPrompt = fmt.Sprintf("Answer the question using the consolidated context.\n\nContext:\n%s\n\nQuestion: %s", contextStr, question)
+	}
+	eval, err := llm.CallGemini(finalPrompt, s.apiKey)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("LLM error: %v", err), http.StatusBadGateway)
 		return
 	}
 
 	if req.Stream {
-		s.streamResponse(w, req.Model, eval)
+		rag.StreamResponse(w, req.Model, eval)
 	} else {
-		s.writeJSON(w, http.StatusOK, ChatResponse{
+		s.writeJSON(w, http.StatusOK, openai.ChatResponse{
 			ID: "chatcmpl-rag",
-			Choices: []ChatChoice{{Message: ChatMessage{Role: "assistant", Content: eval}}},
+			Choices: []openai.ChatChoice{{Message: openai.ChatMessage{Role: "assistant", Content: eval}}},
 		})
 	}
-}
-
-func buildContext(results []SearchResult) string {
-	var parts []string
-	for _, r := range results {
-		if t, ok := r.Payload["text"].(string); ok {
-			parts = append(parts, t)
-		}
-	}
-	return strings.Join(parts, "\n---\n")
-}
-
-func (s *Server) streamResponse(w http.ResponseWriter, model, answer string) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		return
-	}
-
-	id := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
-	created := time.Now().Unix()
-
-	words := strings.Fields(answer)
-	for _, word := range words {
-		chunk := StreamChunk{
-			ID:      id,
-			Object:  "chat.completion.chunk",
-			Created: created,
-			Model:   model,
-			Choices: []StreamChoice{{Index: 0, Delta: DeltaContent{Content: word + " "}}},
-		}
-		b, _ := json.Marshal(chunk)
-		_, _ = fmt.Fprintf(w, "data: %s\n\n", string(b))
-		flusher.Flush()
-	}
-	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
-	flusher.Flush()
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -898,7 +383,7 @@ func (s *Server) handleStartup(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	cwd, _ := os.Getwd()
-	loadEnv(filepath.Join(cwd, ".env"))
+	config.LoadEnv(filepath.Join(cwd, ".env"))
 
 	apiKey := os.Getenv("GOOGLE_API_KEY")
 	qdrantHost := os.Getenv("QDRANT_HOST")
@@ -935,7 +420,7 @@ func main() {
 		registryFile = filepath.Join(cwd, "nodes.json")
 	}
 
-	registry := newRegistry(registryFile)
+	reg := registry.NewRegistry(registryFile)
 
 	embedder := embed.New(
 		apiKey,
@@ -945,19 +430,36 @@ func main() {
 		os.Getenv("EMDEX_GEMINI_MODEL"),
 	)
 
-	srv := &Server{
-		registry:     registry,
-		qdrantConn:   conn,
-		pointsClient: qdrant.NewPointsClient(conn),
-		healthClient: grpc_health_v1.NewHealthClient(conn),
-		embedder:     embedder,
-		collection:   collection,
-		apiKey:       apiKey,
-		authKey:      authKey,
-		apiKeys:      apiKeys,
-		port:         port,
-		startTime:    time.Now(),
+	globalSearchTimeout := 500 * time.Millisecond
+	if t := os.Getenv("EMDEX_GLOBAL_SEARCH_TIMEOUT"); t != "" {
+		if ms, err := strconv.Atoi(t); err == nil && ms > 0 {
+			globalSearchTimeout = time.Duration(ms) * time.Millisecond
+		}
 	}
+
+	srv := &Server{
+		reg:                 reg,
+		qdrantConn:          conn,
+		pointsClient:        qdrant.NewPointsClient(conn),
+		healthClient:        grpc_health_v1.NewHealthClient(conn),
+		embedder:            embedder,
+		collection:          collection,
+		apiKey:              apiKey,
+		authCfg:             &auth.Config{AuthKey: authKey, APIKeys: apiKeys},
+		port:                port,
+		startTime:           time.Now(),
+		nsTopology:          make(map[string][]string),
+		globalSearchTimeout: globalSearchTimeout,
+	}
+
+	// Initial topology refresh + background ticker.
+	srv.refreshTopology()
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		for range ticker.C {
+			srv.refreshTopology()
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
@@ -965,11 +467,11 @@ func main() {
 	mux.HandleFunc("/healthz/liveness", srv.handleLiveness)
 	mux.HandleFunc("/healthz/readiness", srv.handleReadiness)
 	mux.HandleFunc("/healthz/startup", srv.handleStartup)
-	mux.HandleFunc("/nodes/register", srv.instrument("/nodes/register", srv.authenticate(srv.handleRegisterNode)))
-	mux.HandleFunc("/nodes/deregister/", srv.instrument("/nodes/deregister", srv.authenticate(srv.handleDeregisterNode)))
-	mux.HandleFunc("/nodes", srv.instrument("/nodes", srv.authenticate(srv.handleListNodes)))
-	mux.HandleFunc("/v1/search", srv.instrument("/v1/search", srv.authenticate(srv.handleSearch)))
-	mux.HandleFunc("/v1/chat/completions", srv.instrument("/v1/chat/completions", srv.authenticate(srv.handleChatCompletions)))
+	mux.HandleFunc("/nodes/register", middleware.Instrument("/nodes/register", srv.authCfg.Middleware(srv.handleRegisterNode)))
+	mux.HandleFunc("/nodes/deregister/", middleware.Instrument("/nodes/deregister", srv.authCfg.Middleware(srv.handleDeregisterNode)))
+	mux.HandleFunc("/nodes", middleware.Instrument("/nodes", srv.authCfg.Middleware(srv.handleListNodes)))
+	mux.HandleFunc("/v1/search", middleware.Instrument("/v1/search", srv.authCfg.Middleware(srv.handleSearch)))
+	mux.HandleFunc("/v1/chat/completions", middleware.Instrument("/v1/chat/completions", srv.authCfg.Middleware(srv.handleChatCompletions)))
 
 	addr := ":" + port
 	log.Printf("Gateway starting on %s", addr)

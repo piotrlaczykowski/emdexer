@@ -2,9 +2,9 @@ name: tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [ develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ develop ]
 
 jobs:
   test:
@@ -21,13 +21,12 @@ jobs:
       run: make all
 
     - name: Run Integration Tests
-      run: |
-        go test -v ./tests/integration/...
+      run: cd src/tests/integration && go test -v ./...
 
     - name: Run CLI Tests
       run: |
-        chmod +x ./tests/cli/cli_test.sh
-        ./tests/cli/cli_test.sh
+        chmod +x ./src/tests/cli/cli_test.sh
+        ./src/tests/cli/cli_test.sh
 
     - name: Run E2E Tests (Mocked Gateway)
       env:
@@ -36,4 +35,4 @@ jobs:
       run: |
         # In a real CI, we'd start a containerized gateway/qdrant.
         # For now, we just skip if gateway is down or use a mock.
-        go test -v ./tests/e2e/... || echo "E2E tests failed (expected if live gateway is missing)"
+        cd src/tests/e2e && go test -v ./... || echo "E2E tests failed (expected if live gateway is missing)"

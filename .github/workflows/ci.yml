@@ -23,12 +23,8 @@ jobs:
     - name: Build Emdexer Node
       run: cd src/node && go mod tidy && go build -v ./...
 
-    - name: Run Gateway Tests
-      run: cd src/gateway && go test -v ./...
-      continue-on-error: true # Allow non-critical test failures
-
-    - name: Run Node Tests
-      run: cd src/node && go test -v ./...
+    - name: Run Integration Tests
+      run: cd src/tests/integration && go test -v ./...
       continue-on-error: true
 
   lint:

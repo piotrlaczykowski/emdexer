@@ -97,6 +97,8 @@ services:
       - QDRANT_HOST=qdrant:6334
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_NAMESPACE=default
+      - EMDEX_GATEWAY_URL=http://gateway:7700
+      - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
       - NODE_HEALTH_PORT=8081
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
       - EMDEX_WHISPER_URL=${EMDEX_WHISPER_URL:-http://whisper:8080}

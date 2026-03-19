@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/piotrlaczykowski/emdexer/embed"
+	"github.com/piotrlaczykowski/emdexer/safenet"
 	"github.com/piotrlaczykowski/emdexer/version"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -476,7 +477,8 @@ func callGemini(prompt, apiKey string) (string, error) {
 	}
 	body, _ := json.Marshal(reqBody)
 
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	client := safenet.NewSafeClient(30 * time.Second)
+	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}

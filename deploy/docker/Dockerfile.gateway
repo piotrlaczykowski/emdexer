@@ -15,7 +15,9 @@ COPY src/pkg/ src/pkg/
 COPY src/gateway/ src/gateway/
 
 WORKDIR /app/src/gateway
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app/emdexer-gateway .
+ARG VERSION=dev
+ARG COMMIT=none
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X 'github.com/piotrlaczykowski/emdexer/version.Version=${VERSION:-dev}' -X 'github.com/piotrlaczykowski/emdexer/version.Commit=${COMMIT:-none}'" -o /app/emdexer-gateway .
 
 FROM alpine:3.21
 RUN apk add --no-cache curl

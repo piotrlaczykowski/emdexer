@@ -92,7 +92,7 @@ type EmbedProvider interface {
 }
 
 // GeminiProvider — Google Generative Language API
-const defaultGeminiModel = "models/gemini-embedding-exp-03-07"
+const defaultGeminiModel = "models/text-embedding-004"
 
 type GeminiProvider struct {
 	APIKey string

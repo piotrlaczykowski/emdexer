@@ -22,3 +22,4 @@ test_dir_beta/
 
 # Local agent configuration
 .claude/
+.gitnexus

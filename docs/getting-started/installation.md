@@ -209,9 +209,37 @@ docker compose up -d
 
 ### Multi-Node
 
+The multi-node compose file starts 1 gateway, 1 shared Qdrant, and 2 indexing nodes — one for `docs` and one for `code`. Each node registers itself with the gateway on startup. Once both are healthy, `emdex search --global "your query"` fans out across both namespaces.
+
 ```bash
-docker compose -f docker-compose.multi-node.yml up -d
+# Create source directories (or point to your own)
+mkdir -p docs-data code-data
+
+# Set required env vars
+export GOOGLE_API_KEY=your-gemini-api-key
+export EMDEX_AUTH_KEY=$(openssl rand -hex 32)
+
+# Start everything
+docker compose -f deploy/docker/docker-compose.multi-node.yml up -d
+
+# Verify both nodes are registered
+curl -H "Authorization: Bearer $EMDEX_AUTH_KEY" http://localhost:7700/nodes
+
+# Run a global search across both namespaces
+EMDEX_GATEWAY_URL=http://localhost:7700 \
+EMDEX_AUTH_KEY=$EMDEX_AUTH_KEY \
+emdex search --global "your query here"
 ```
+
+**Custom data paths:** Override the default stub directories by setting environment variables before `docker compose up`:
+
+```bash
+export DOCS_DATA_PATH=/mnt/nas/documents
+export CODE_DATA_PATH=/home/user/projects
+docker compose -f deploy/docker/docker-compose.multi-node.yml up -d
+```
+
+**Adding more nodes:** Copy the `node-code` service block in `docker-compose.multi-node.yml`, change `EMDEX_NAMESPACE`, the port mapping, and the volume mount. No gateway changes are needed — new nodes self-register.
 
 ---
 
@@ -237,6 +265,21 @@ helm install emdex-node-nas deploy/helm/emdexer-node \
   --set secret.smbPass=secure_pass \
   --set secret.smbShare=documents
 ```
+
+### Gateway — Persistent Node Registry
+
+By default the gateway stores its node registry in memory (lost on pod restart). Enable a PVC to persist it across restarts:
+
+```bash
+helm install emdex-gateway deploy/helm/emdexer-gateway \
+  --set secret.googleApiKey=YOUR_API_KEY \
+  --set secret.emdexerAuthKey=YOUR_GATEWAY_AUTH_KEY \
+  --set persistence.enabled=true \
+  --set persistence.size=1Gi \
+  --set persistence.storageClass=standard
+```
+
+This creates a `PersistentVolumeClaim` named `<release>-registry` and sets `EMDEX_REGISTRY_FILE` inside the container to `/var/lib/emdexer/nodes/nodes.json`.
 
 ---
 

@@ -25,7 +25,9 @@ If the token is not a valid JWT, the gateway tries static key matching:
 
 ### Namespace Authorization
 
-Search and chat requests specify a namespace via `?namespace=` or `X-Emdex-Namespace` header. The gateway enforces that the requested namespace is in the caller's authorized list. Use `namespace=*` for global search across all authorized namespaces.
+Search and chat requests specify a namespace via `?namespace=` or `X-Emdex-Namespace` header. The gateway enforces that the requested namespace is in the caller's authorized list.
+
+**Wildcard / global search:** Pass `namespace=*` (or the alias `namespace=__global__`) to search across all namespaces the caller is authorized for. The gateway fans out the query to every registered node namespace in parallel and merges results using Reciprocal Rank Fusion (RRF). Partial failures (individual nodes that time out or error) are reported in the `partial_failures` field — the response still contains results from all healthy nodes.
 
 ---
 
@@ -40,9 +42,9 @@ Returns the most relevant chunks from the indexed documents across all or specif
   - `Authorization: Bearer <your-auth-key>`
 - **Query Parameters:**
   - `q`: Search query string
-  - `namespace`: (Optional) Filter by namespace
+  - `namespace`: Filter by namespace. Use `*` or `__global__` to search all authorized namespaces in parallel.
   - `limit`: (Optional) Max results to return (overrides `EMDEX_SEARCH_LIMIT`)
-- **Response:**
+- **Response (single namespace):**
 ```json
 {
   "query": "What is the onboarding process for new employees?",
@@ -59,6 +61,32 @@ Returns the most relevant chunks from the indexed documents across all or specif
   ]
 }
 ```
+
+- **Response (global search — `namespace=*`):**
+```json
+{
+  "query": "deployment guide",
+  "namespaces_searched": ["docs", "code", "hr"],
+  "results": [
+    {
+      "id": "abc123",
+      "score": 0.95,
+      "payload": {
+        "text": "See INSTALL.md for step-by-step deployment instructions.",
+        "path": "/docs/getting-started/installation.md",
+        "namespace": "docs",
+        "source_namespace": "docs"
+      }
+    }
+  ]
+}
+```
+
+> **`partial_failures`** — If one or more namespaces fail (timeout, node unreachable), the field is included:
+> ```json
+> { "partial_failures": ["code"], "namespaces_searched": ["docs", "hr"], "results": [...] }
+> ```
+> Results from healthy namespaces are still returned. Callers should surface this field to the user when present.
 
 ### 2. Chat (OpenAI Compatible)
 OpenAI-compatible chat completions with integrated Multi-Hop RAG.
@@ -139,19 +167,56 @@ For static API key auth, `auth_type` is `"api-key"` and `subject`/`email`/`group
 
 ### 5. Node Management
 
+Node endpoints do not require the `Authorization` header — they are protected by network policy (should not be exposed externally).
+
 #### List Nodes
 - **Method:** `GET`
 - **Path:** `/nodes`
-- **Response:** Array of registered nodes with namespaces, protocol, health status, and last heartbeat.
+- **Response:**
+```json
+[
+  {
+    "id": "node-docs",
+    "url": "http://node-docs:8081",
+    "namespaces": ["docs"],
+    "protocol": "local",
+    "health_status": "healthy",
+    "last_heartbeat": "2026-03-19T12:34:56Z"
+  },
+  {
+    "id": "node-code",
+    "url": "http://node-code:8082",
+    "namespaces": ["code"],
+    "protocol": "local",
+    "health_status": "healthy",
+    "last_heartbeat": "2026-03-19T12:34:55Z"
+  }
+]
+```
 
-#### Register Node
+#### Register / Heartbeat Node
+Nodes call this on startup and periodically to keep their entry alive in the registry.
+
 - **Method:** `POST`
 - **Path:** `/nodes/register`
-- **Body:** `{"id": "node-1", "url": "http://...", "namespaces": ["hr"], "protocol": "s3", "health_status": "healthy"}`
+- **Body:**
+```json
+{
+  "id": "node-docs",
+  "url": "http://node-docs:8081",
+  "namespaces": ["docs"],
+  "protocol": "local",
+  "health_status": "healthy"
+}
+```
+- **Response:** `200 OK` with `{"status": "registered"}`
+
+The gateway refreshes its namespace topology from the registry every 30 seconds. Namespaces discovered this way become available for `namespace=*` fan-out.
 
 #### Deregister Node
 - **Method:** `DELETE`
 - **Path:** `/nodes/deregister/<id>`
+- **Response:** `200 OK` with `{"status": "deregistered"}`
 
 ### 6. Observability & Health
 

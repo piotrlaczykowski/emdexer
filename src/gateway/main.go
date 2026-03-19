@@ -193,6 +193,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	namespaces := search.ResolveNamespaces(requestedNamespace, allowedNamespaces, s.knownNamespaces())
 
 	var results []search.Result
+	var fanoutFailedNS []string
 	if len(namespaces) <= 1 {
 		// Single namespace — existing fast path.
 		ns := ""
@@ -212,10 +213,16 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// Multi-namespace fan-out with RRF merge.
-		results, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 10, s.globalSearchTimeout)
+		// Partial failures are surfaced in the response so clients can detect degraded results;
+		// a complete failure returns 200 with empty results rather than a 504.
+		results, fanoutFailedNS, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 10, s.globalSearchTimeout)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusInternalServerError)
 			return
+		}
+		if len(fanoutFailedNS) > 0 {
+			log.Printf("[search] fan-out partial failure: %d/%d namespaces errored: %v",
+				len(fanoutFailedNS), len(namespaces), fanoutFailedNS)
 		}
 	}
 
@@ -225,6 +232,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	if isGlobal {
 		resp["namespaces_searched"] = namespaces
+		if len(fanoutFailedNS) > 0 {
+			resp["partial_failures"] = fanoutFailedNS
+		}
 	}
 	s.writeJSON(w, http.StatusOK, resp)
 
@@ -314,10 +324,15 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			results[i].Payload["source_namespace"] = ns
 		}
 	} else {
-		results, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 5, s.globalSearchTimeout)
+		var failedNS []string
+		results, failedNS, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 5, s.globalSearchTimeout)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
 			return
+		}
+		if len(failedNS) > 0 {
+			log.Printf("[chat] fan-out partial failure: %d/%d namespaces errored: %v",
+				len(failedNS), len(namespaces), failedNS)
 		}
 	}
 

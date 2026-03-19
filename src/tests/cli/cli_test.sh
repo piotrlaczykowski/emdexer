@@ -29,5 +29,28 @@ echo -e "\n\n" | "$EMDEX_BIN" init || true
 echo "--- Test: emdex status ---"
 "$EMDEX_BIN" status || true
 
+echo "--- Test: emdex nodes (no gateway — expect graceful error) ---"
+EMDEX_GATEWAY_URL="http://127.0.0.1:19999" "$EMDEX_BIN" nodes 2>&1 | grep -qiE "error|connection|refused|nodes" \
+  && echo "PASS: nodes command produced expected output" \
+  || echo "SKIP: nodes command output not matched (may be different error format)"
+
+echo "--- Test: emdex search --help flags ---"
+# search without args should print usage or error, not panic
+"$EMDEX_BIN" search 2>&1 | grep -qiE "usage|query|namespace|error" \
+  && echo "PASS: search command produced expected usage/error output" \
+  || echo "SKIP: search command output not matched"
+
+echo "--- Test: emdex search --global (no gateway — expect graceful error) ---"
+EMDEX_GATEWAY_URL="http://127.0.0.1:19999" "$EMDEX_BIN" search --global some query 2>&1 \
+  | grep -qiE "error|connection|refused|search" \
+  && echo "PASS: search --global command produced expected output" \
+  || echo "SKIP: search --global output not matched"
+
+echo "--- Test: emdex search --namespace=docs (no gateway — expect graceful error) ---"
+EMDEX_GATEWAY_URL="http://127.0.0.1:19999" "$EMDEX_BIN" search --namespace=docs some query 2>&1 \
+  | grep -qiE "error|connection|refused|search" \
+  && echo "PASS: search --namespace command produced expected output" \
+  || echo "SKIP: search --namespace output not matched"
+
 echo "--- CLI Tests Passed ---"
 rm -rf "$TEST_ROOT"

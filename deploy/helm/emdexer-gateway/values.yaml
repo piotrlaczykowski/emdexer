@@ -36,6 +36,16 @@ config:
   haMode: "false"
   postgresUrl: ""
 
+# Node registry persistence — set enabled=true to keep the registry across pod restarts.
+# The registry file path inside the container is persistence.registryFile.
+# When disabled, the gateway uses an in-memory registry (lost on restart).
+persistence:
+  enabled: false
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  registryFile: /var/lib/emdexer/nodes/nodes.json
+
 secret:
   googleApiKey: ""
 

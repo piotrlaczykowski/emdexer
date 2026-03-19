@@ -32,10 +32,10 @@ Emdexer is an open-source, distributed **Retrieval-Augmented Generation (RAG)** 
 |---|---|
 | **Multi-Hop RAG** | Two-hop retrieval pipeline with LLM-driven query refinement. Both hops enforce namespace isolation — no cross-tenant context bleed. |
 | **Distributed Indexing** | Deploy lightweight `emdex-node` agents on any storage endpoint. Nodes self-register with the central `emdex-gateway`. |
-| **Protocol Agnostic** | Native VFS backends for Local FS, SMB/CIFS, NFS, and SFTP. No `mount` required. S3 support planned. |
+| **Protocol Agnostic** | Native VFS backends for Local FS, SMB/CIFS, NFS, and SFTP. No `mount` required. S3 support is a stub (planned). |
 | **Delta-Only Re-indexing** | Three-stage change detection pipeline (stat → partial XXH3 → full XXH3) avoids redundant embedding API calls. |
 | **OpenAI-Compatible API** | Drop-in replacement for `/v1/chat/completions`. Works with any OpenAI client SDK, Claude Desktop (via MCP), Telegram, Slack, and Teams. |
-| **Format Agnostic** | Handles PDF, DOCX, XLSX, Markdown, HTML, plain text, and more via the [Extractous](https://github.com/yobix-ai/extractous) sidecar. Up to 50 MB per file. |
+| **Format Agnostic** | Handles PDF, DOCX, XLSX, Markdown, HTML, plain text, and more via the [Extractous](https://github.com/yobix-ai/extractous) sidecar. Up to 50 MB per file. Archive traversal for `.zip`/`.tar`/`.gz`; 7z and ISO are stubs (planned). OCR and video transcription are planned (not yet implemented). |
 | **Stable Document Identity** | Content-addressable UUIDv5 ensures consistent file tracking across re-indexes — no duplicate vectors. |
 | **Enterprise Observability** | Prometheus metrics, Grafana dashboards, structured JSON audit logging. |
 | **Air-Gap Ready** | Swap to `EMBED_PROVIDER=ollama` for fully local embeddings and LLM inference. Zero external API calls. |

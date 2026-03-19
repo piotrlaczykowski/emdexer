@@ -140,7 +140,9 @@ Each binary reads only its own environment variables. In a bare-metal deployment
 
 ---
 
-## 4. The VFS Abstraction — Why It Exists
+## 4. The VFS Abstraction — Zero-Mount Architecture
+
+Emdexer's core differentiator is **Zero-Mount**: indexing nodes deploy directly where data lives. No `mount -t cifs`, no FUSE layers, no data copying. Only vector embeddings travel to Qdrant. This eliminates network bottlenecks for bulk reads and removes the operational burden of maintaining mount points across heterogeneous storage.
 
 Emdexer must index files from heterogeneous sources: local disk, Samba shares, SFTP servers, NFS exports, S3 buckets, and eventually USB drives. Rather than writing a separate indexer for each protocol, all storage backends implement the `vfs.FileSystem` interface:
 
@@ -212,7 +214,7 @@ type EmbedProvider interface {
 ```
 
 **`GeminiProvider`** — default, calls Google Generative Language API.
-**`OllamaProvider`** — stub, ready for Phase 15.5 (local model, zero external calls).
+**`OllamaProvider`** — fully implemented (Phase 15.5 complete). Calls a local Ollama instance for zero-external-call, air-gapped deployments.
 
 Switch via `EMBED_PROVIDER=ollama`. Vector dimensions must match the Qdrant collection config; changing providers on an existing collection requires re-indexing.
 
@@ -268,6 +270,8 @@ Gateway:
 
 The Node Registry stores registered nodes in `nodes.json` (path configurable via `EMDEX_REGISTRY_FILE`). Writes use an atomic temp-file swap (`nodes.json.tmp` → `nodes.json`) to prevent corruption on crash.
 
+**HA mode**: When `EMDEX_HA_MODE=true`, the gateway requires a PostgreSQL-backed `DBNodeRegistry` (via `POSTGRES_URL`). If PostgreSQL is unreachable, the gateway **fails fatally** instead of falling back to `FileNodeRegistry`. This prevents split-brain where multiple gateway replicas maintain divergent local registries. Without HA mode, the fallback to `FileNodeRegistry` is permitted for single-replica deployments.
+
 Why not SQLite? For the current node count (< 100), JSON is sufficient and has zero dependencies. SQLite becomes appropriate when node metadata needs querying beyond simple list/register operations.
 
 ---
@@ -282,6 +286,17 @@ Why not SQLite? For the current node count (< 100), JSON is sufficient and has z
 | Node ↔ Qdrant | Internal gRPC | NetworkPolicy required in K8s |
 | Data at rest | Qdrant default | No encryption at rest |
 | Data in transit | HTTP (no TLS) | TLS termination at load balancer / ingress |
+| Outbound HTTP (safenet) | SSRF-protected `SafeClient` | See below |
+
+### SSRF Protection — safenet
+
+All outbound HTTP calls from the embedding providers (`GeminiProvider`, `OllamaProvider`) and the Extractous sidecar use `safenet.NewSafeClient()`. This client validates destination addresses before connecting, rejecting:
+
+- **RFC 1918** private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+- **Loopback** (127.0.0.0/8, ::1)
+- **Link-local** (169.254.0.0/16, fe80::/10)
+
+This prevents SSRF attacks where a malicious file path or Ollama host URL could trick the node into probing internal services. The safenet guard is enforced at the `http.Transport` `DialContext` level — it cannot be bypassed by URL redirection.
 
 ---
 

@@ -57,6 +57,12 @@ type Config struct {
 	SFTPPass       string
 	NFSHost        string
 	NFSPath        string
+	S3Endpoint     string
+	S3AccessKey    string
+	S3SecretKey    string
+	S3Bucket       string
+	S3UseSSL       bool
+	S3Prefix       string
 }
 
 var globalPointsClient qdrant.PointsClient
@@ -123,6 +129,12 @@ func main() {
 		SFTPPass:       os.Getenv("SFTP_PASS"),
 		NFSHost:        os.Getenv("NFS_HOST"),
 		NFSPath:        os.Getenv("NFS_PATH"),
+		S3Endpoint:     os.Getenv("S3_ENDPOINT"),
+		S3AccessKey:    os.Getenv("S3_ACCESS_KEY"),
+		S3SecretKey:    os.Getenv("S3_SECRET_KEY"),
+		S3Bucket:       os.Getenv("S3_BUCKET"),
+		S3UseSSL:       os.Getenv("S3_USE_SSL") == "true",
+		S3Prefix:       os.Getenv("S3_PREFIX"),
 	}
 
 	if globalCfg.ExtractousHost == "" {
@@ -343,6 +355,8 @@ func initVFS() {
 		globalFS, err = vfs.NewSFTPFileSystem(globalCfg.SFTPHost, globalCfg.SFTPPort, globalCfg.SFTPUser, globalCfg.SFTPPass)
 	case "nfs":
 		globalFS, err = vfs.NewNFSFileSystem(globalCfg.NFSHost, globalCfg.NFSPath)
+	case "s3":
+		globalFS, err = vfs.NewS3FileSystem(globalCfg.S3Endpoint, globalCfg.S3AccessKey, globalCfg.S3SecretKey, globalCfg.S3Bucket, globalCfg.S3UseSSL)
 	default:
 		globalFS = &vfs.OSFileSystem{}
 	}

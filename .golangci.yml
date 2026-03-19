@@ -1,0 +1,12 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - typecheck
+    - unused
+    - gosimple
+    - staticcheck

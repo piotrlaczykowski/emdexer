@@ -51,7 +51,7 @@ func loadEnv(path string) {
 			key := strings.TrimSpace(parts[0])
 			val := strings.TrimSpace(parts[1])
 			if os.Getenv(key) == "" {
-				os.Setenv(key, val)
+				_ = os.Setenv(key, val)
 			}
 		}
 	}
@@ -64,12 +64,6 @@ var (
 		Help:    "Latency of Qdrant search in milliseconds",
 		Buckets: []float64{10, 50, 100, 200, 500, 1000, 2000, 5000},
 	}, []string{"collection"})
-
-	embeddingLatency = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name:    "emdexer_gateway_embedding_latency_ms",
-		Help:    "Latency of embedding in milliseconds",
-		Buckets: []float64{100, 200, 500, 1000, 2000, 5000},
-	})
 
 	httpRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "emdexer_gateway_http_requests_total",
@@ -97,7 +91,7 @@ func logAudit(entry AuditEntry) {
 		cwd, _ := os.Getwd()
 		logPath = filepath.Join(cwd, "logs", "audit.json")
 	}
-	os.MkdirAll(filepath.Dir(logPath), 0755)
+	_ = os.MkdirAll(filepath.Dir(logPath), 0755)
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Printf("Failed to open audit log: %v", err)
@@ -106,7 +100,7 @@ func logAudit(entry AuditEntry) {
 	defer f.Close()
 
 	b, _ := json.Marshal(entry)
-	f.Write(append(b, '\n'))
+	_, _ = f.Write(append(b, '\n'))
 }
 
 // ============================================================
@@ -314,7 +308,7 @@ func (r *DBNodeRegistry) List(ctx context.Context) ([]NodeInfo, error) {
 		log.Printf("[registry] List error: %v", err)
 		return []NodeInfo{}, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := []NodeInfo{}
 	for rows.Next() {
@@ -470,11 +464,11 @@ func callGemini(prompt, apiKey string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("Gemini API %d: %s", resp.StatusCode, string(b))
+		return "", fmt.Errorf("gemini API %d: %s", resp.StatusCode, string(b))
 	}
 
 	var gr GeminiResponse
@@ -537,6 +531,10 @@ type StreamChunk struct {
 	Choices []StreamChoice `json:"choices"`
 }
 
+type contextKey string
+
+const allowedNamespacesKey contextKey = "AllowedNamespaces"
+
 type Server struct {
 	registry     NodeRegistry
 	qdrantConn   *grpc.ClientConn
@@ -554,7 +552,9 @@ type Server struct {
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("writeJSON encode error: %v", err)
+	}
 }
 
 func (s *Server) instrument(path string, next http.HandlerFunc) http.HandlerFunc {
@@ -593,14 +593,14 @@ func (s *Server) authenticate(next http.HandlerFunc) http.HandlerFunc {
 		if s.apiKeys != nil {
 			allowedNamespaces, ok := s.apiKeys[key]
 			if ok {
-				ctx := context.WithValue(r.Context(), "AllowedNamespaces", allowedNamespaces)
+				ctx := context.WithValue(r.Context(), allowedNamespacesKey, allowedNamespaces)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 		}
 
 		if s.authKey != "" && key == s.authKey {
-			ctx := context.WithValue(r.Context(), "AllowedNamespaces", []string{"*"})
+			ctx := context.WithValue(r.Context(), allowedNamespacesKey, []string{"*"})
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
@@ -665,7 +665,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowedNamespaces, ok := r.Context().Value("AllowedNamespaces").([]string)
+	allowedNamespaces, ok := r.Context().Value(allowedNamespacesKey).([]string)
 	if !ok {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
@@ -731,7 +731,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowedNamespaces, ok := r.Context().Value("AllowedNamespaces").([]string)
+	allowedNamespaces, ok := r.Context().Value(allowedNamespacesKey).([]string)
 	if !ok {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
@@ -839,10 +839,10 @@ func (s *Server) streamResponse(w http.ResponseWriter, model, answer string) {
 			Choices: []StreamChoice{{Index: 0, Delta: DeltaContent{Content: word + " "}}},
 		}
 		b, _ := json.Marshal(chunk)
-		fmt.Fprintf(w, "data: %s\n\n", string(b))
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", string(b))
 		flusher.Flush()
 	}
-	fmt.Fprintf(w, "data: [DONE]\n\n")
+	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }
 
@@ -901,14 +901,16 @@ func main() {
 	authKey := os.Getenv("EMDEX_AUTH_KEY")
 	var apiKeys map[string][]string
 	if keysJSON := os.Getenv("EMDEX_API_KEYS"); keysJSON != "" {
-		json.Unmarshal([]byte(keysJSON), &apiKeys)
+		if err := json.Unmarshal([]byte(keysJSON), &apiKeys); err != nil {
+			log.Printf("Failed to parse EMDEX_API_KEYS: %v", err)
+		}
 	}
 
-	conn, err := grpc.Dial(qdrantHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(qdrantHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("Failed to connect to Qdrant: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	registryFile := os.Getenv("EMDEX_REGISTRY_FILE")
 	if registryFile == "" {

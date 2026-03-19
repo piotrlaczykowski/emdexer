@@ -1,0 +1,103 @@
+package indexer
+
+import (
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/piotrlaczykowski/emdexer/embed"
+	"github.com/qdrant/go-client/qdrant"
+)
+
+const ProjectNamespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+
+// Extractor is a function that extracts text from file content.
+type Extractor func(path string, content []byte, host string) (string, error)
+
+// PipelineConfig holds injected dependencies for the indexing pipeline.
+type PipelineConfig struct {
+	Namespace      string
+	ExtractousHost string
+	NodeType       string
+	Embedder       embed.EmbedProvider
+	Extract        Extractor
+}
+
+// IndexDataToPoints converts file content into Qdrant points via extraction, chunking, and embedding.
+func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdrant.PointStruct {
+	var text string
+	var err error
+	if len(content) > 0 {
+		text, err = cfg.Extract(path, content, cfg.ExtractousHost)
+	} else {
+		text, err = cfg.Extract(path, nil, cfg.ExtractousHost)
+	}
+
+	if err != nil {
+		log.Printf("[node] Extraction failed for %s: %v", path, err)
+		text = ""
+	}
+
+	text = strings.TrimSpace(text)
+	if len(text) < 10 {
+		log.Printf("[node] WARN: Skipping %s — extraction too short (%d chars, min 10)", path, len(text))
+		return nil
+	}
+
+	chunks := SmartChunk(text, 512, 50)
+	if len(chunks) == 0 {
+		log.Printf("[node] WARN: Skipping %s — chunking produced no segments", path)
+		return nil
+	}
+
+	var points []*qdrant.PointStruct
+	for i, chunk := range chunks {
+		if strings.TrimSpace(chunk) == "" {
+			continue
+		}
+
+		vector, embErr := cfg.Embedder.Embed(chunk)
+		if embErr != nil {
+			LogEmbeddingError(path, i, embErr)
+			continue
+		}
+
+		if IsZeroVector(vector) {
+			log.Printf("[node] WARN: Skipping %s (chunk %d) — embedding returned zero-vector", path, i)
+			continue
+		}
+
+		ns := uuid.MustParse(ProjectNamespace)
+		idInput := fmt.Sprintf("%s:%d", path, i)
+		u := uuid.NewSHA1(ns, []byte(idInput))
+
+		payload := map[string]*qdrant.Value{
+			"path":       {Kind: &qdrant.Value_StringValue{StringValue: path}},
+			"chunk":      {Kind: &qdrant.Value_IntegerValue{IntegerValue: int64(i)}},
+			"text":       {Kind: &qdrant.Value_StringValue{StringValue: chunk}},
+			"indexed_at": {Kind: &qdrant.Value_IntegerValue{IntegerValue: time.Now().UnixNano()}},
+		}
+		if cfg.Namespace != "" {
+			payload["namespace"] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: cfg.Namespace}}
+		}
+
+		points = append(points, &qdrant.PointStruct{
+			Id:      &qdrant.PointId{PointIdOptions: &qdrant.PointId_Uuid{Uuid: u.String()}},
+			Vectors: &qdrant.Vectors{VectorsOptions: &qdrant.Vectors_Vector{Vector: &qdrant.Vector{Data: vector}}},
+			Payload: payload,
+		})
+	}
+	return points
+}
+
+// IsZeroVector returns true if all elements in the vector are zero.
+func IsZeroVector(v []float32) bool {
+	for _, f := range v {
+		if f != 0 {
+			return false
+		}
+	}
+	return true
+}

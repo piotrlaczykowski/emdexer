@@ -2,7 +2,7 @@ import os
 import requests
 from fastmcp import FastMCP
 from prefab_ui.app import PrefabApp
-from prefab_ui.components import DataTable, DataTableColumn, Text, Dashboard, DashboardItem
+from prefab_ui.components import DataTable, Text, Dashboard, DashboardItem
 from prefab_ui.components.charts import BarChart
 
 # Configuration
@@ -62,12 +62,7 @@ def search_files(query: str, namespace: str = "default") -> PrefabApp:
     return PrefabApp(
         children=[
             DataTable(
-                columns=[
-                    DataTableColumn(key="Path", header="Path"),
-                    DataTableColumn(key="Score", header="Score"),
-                    DataTableColumn(key="Preview", header="Preview"),
-                ],
-                rows=table_data
+                data=table_data
             )
         ]
     )

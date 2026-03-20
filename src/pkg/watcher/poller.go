@@ -172,7 +172,10 @@ func (p *Poller) pollPath(path string) {
 	now := time.Now().Unix()
 	log.Printf("[poller] Polling %s...", path)
 
+	var discovered, indexed, skipped int64
+
 	err := p.recursiveWalk(path, func(filePath string, size int64, mtime int64) {
+		discovered++
 		log.Printf("[poller] Walking file: %s", filePath)
 
 		var cachedSize int64
@@ -189,10 +192,12 @@ func (p *Poller) pollPath(path string) {
 		if queryErr == sql.ErrNoRows {
 			log.Printf("[poller] New file: %s", filePath)
 			p.indexFile(filePath, size, mtime, now)
+			indexed++
 			return
 		}
 		if queryErr != nil {
 			log.Printf("[poller] Query/Scan error for %s: %v", filePath, queryErr)
+			skipped++
 			return
 		}
 
@@ -201,8 +206,10 @@ func (p *Poller) pollPath(path string) {
 			if size != cachedSize || mtime != cachedMtime {
 				log.Printf("[poller] Changed file (stat, delta disabled): %s", filePath)
 				p.indexFile(filePath, size, mtime, now)
+				indexed++
 			} else {
 				p.touchLastSeen(filePath, now)
+				skipped++
 			}
 			return
 		}
@@ -238,6 +245,7 @@ func (p *Poller) pollPath(path string) {
 		if statMatch && !cachedPartial.Valid {
 			log.Printf("[poller] Metadata match but no cached partial_hash for %s — warming cache", filePath)
 			p.updateCacheHashes(filePath, size, mtime, now, partialHash, "")
+			skipped++
 			return
 		}
 
@@ -246,6 +254,7 @@ func (p *Poller) pollPath(path string) {
 			if !statMatch {
 				log.Printf("[poller] Stat changed but partial hash match for %s — updating metadata cache (%s)", filePath, indexer.DeltaStatChanged)
 				p.updateCacheHashes(filePath, size, mtime, now, partialHash, "")
+				skipped++
 				return
 			}
 
@@ -253,6 +262,7 @@ func (p *Poller) pollPath(path string) {
 				// Content confirmed unchanged — skip Qdrant, update last_seen only.
 				log.Printf("[poller] Partial hash match: %s — skipping (%s)", filePath, indexer.DeltaUnchanged)
 				p.touchLastSeen(filePath, now)
+				skipped++
 				return
 			}
 
@@ -261,16 +271,19 @@ func (p *Poller) pollPath(path string) {
 			if ferr != nil {
 				log.Printf("[poller] Full hash error for %s: %v — treating as changed", filePath, ferr)
 				p.indexFile(filePath, size, mtime, now)
+				indexed++
 				return
 			}
 			if cachedFull.Valid && cachedFull.String == fullHash {
 				log.Printf("[poller] Full hash match: %s — skipping (%s)", filePath, indexer.DeltaUnchanged)
 				p.touchLastSeen(filePath, now)
+				skipped++
 				return
 			}
 			// Full hash differs — must re-index.
 			log.Printf("[poller] Full hash changed: %s — re-indexing", filePath)
 			p.indexFileWithHashes(filePath, size, mtime, now, partialHash, fullHash)
+			indexed++
 			return
 		}
 
@@ -285,11 +298,14 @@ func (p *Poller) pollPath(path string) {
 			}
 		}
 		p.indexFileWithHashes(filePath, size, mtime, now, partialHash, fullHash)
+		indexed++
 	})
 
 	if err != nil {
-		log.Printf("[poller] Walk error: %v", err)
+		log.Printf("[poller] Walk failed: root=%s err=%v", path, err)
 	}
+	log.Printf("[poller] Poll cycle complete: root=%s discovered=%d indexed=%d skipped=%d",
+		path, discovered, indexed, skipped)
 
 	// Detect deleted files
 	rows, err := p.cache.db.Query("SELECT path, last_seen FROM file_cache")
@@ -331,12 +347,16 @@ func (p *Poller) recursiveWalk(path string, callback func(path string, size int6
 		}
 
 		if entry.IsDir() {
-			p.recursiveWalk(fullPath, callback)
+			if err := p.recursiveWalk(fullPath, callback); err != nil {
+				log.Printf("[poller] Skipping unreadable dir: path=%s err=%v", fullPath, err)
+			}
 		} else {
 			info, err := entry.Info()
-			if err == nil {
-				callback(fullPath, info.Size(), info.ModTime().Unix())
+			if err != nil {
+				log.Printf("[poller] Skipping file (stat failed): path=%s err=%v", fullPath, err)
+				continue
 			}
+			callback(fullPath, info.Size(), info.ModTime().Unix())
 		}
 	}
 	return nil

@@ -189,7 +189,11 @@ func main() {
 		go queue.StartWorker(globalQueue, globalPointsClient, globalCfg.CollectionName, globalCtx)
 	}
 
-	initVFS()
+	root := os.Getenv("NODE_ROOT")
+	if root == "" {
+		root = filepath.Join(cwd, "test_dir")
+	}
+	initVFS(root)
 	defer func() { _ = globalFS.Close() }()
 
 	// Create extract client and pipeline config after VFS, CB, and embedder are ready.
@@ -245,11 +249,6 @@ func main() {
 				},
 			},
 		})
-	}
-
-	root := os.Getenv("NODE_ROOT")
-	if root == "" {
-		root = filepath.Join(cwd, "test_dir")
 	}
 
 	// Closure that delegates to the extracted search.DeletePointsByPath,
@@ -321,6 +320,7 @@ func main() {
 	}
 
 	go func() {
+		log.Printf("[node] Startup walk starting: root=%s vfs=%s", root, globalCfg.NodeType)
 		idx := indexer.NewIndexer(globalFS)
 		var batch []*qdrant.PointStruct
 		flush := func() {
@@ -329,13 +329,21 @@ func main() {
 				CollectionName: globalCfg.CollectionName,
 				Points:         batch,
 			})
-			if err != nil && globalQueue != nil {
-				_ = globalQueue.Enqueue(batch)
+			if err != nil {
+				if globalQueue != nil {
+					if qerr := globalQueue.Enqueue(batch); qerr != nil {
+						log.Printf("[node] Walk flush: Qdrant upsert failed and queue enqueue failed: upsert_err=%v queue_err=%v (batch_size=%d — points lost)", err, qerr, len(batch))
+					} else {
+						log.Printf("[node] Walk flush: Qdrant upsert failed, queued for retry: err=%v (batch_size=%d)", err, len(batch))
+					}
+				} else {
+					log.Printf("[node] Walk flush: Qdrant upsert failed and no queue available: err=%v (batch_size=%d — points lost)", err, len(batch))
+				}
 			}
 			batch = nil
 		}
 
-		_ = idx.Walk(root, func(path string, isDir bool, content []byte) error {
+		stats, walkErr := idx.Walk(root, func(path string, isDir bool, content []byte) error {
 			// Record the path so the watcher won't re-index it during startup.
 			walkSeen.Store(path, struct{}{})
 
@@ -348,6 +356,10 @@ func main() {
 		})
 		flush()
 
+		if walkErr != nil {
+			log.Printf("[node] Startup walk failed: root=%s err=%v — watcher will handle new events", root, walkErr)
+		}
+
 		// Signal that the startup walk is complete. The watcher will now
 		// process all events normally. Clear the seen cache to free memory.
 		walkComplete.Store(1)
@@ -355,7 +367,8 @@ func main() {
 			walkSeen.Delete(key)
 			return true
 		})
-		log.Println("[node] Startup walk complete — watcher now processing all events")
+		log.Printf("[node] Startup walk complete: root=%s indexed=%d skipped=%d dirs_skipped=%d — watcher now live",
+			root, stats.FilesIndexed, stats.FilesSkipped, stats.DirsSkipped)
 	}()
 
 	// Self-register with the gateway and start periodic heartbeat.
@@ -376,19 +389,32 @@ func main() {
 	})
 }
 
-func initVFS() {
+func initVFS(root string) {
 	var err error
 	switch globalCfg.NodeType {
 	case "smb":
 		globalFS, err = vfs.NewSMBFileSystem(globalCfg.SMBHost, globalCfg.SMBUser, globalCfg.SMBPass, globalCfg.SMBShare)
+		if err == nil {
+			log.Printf("[node] SMB VFS initialized: host=%s share=%s", globalCfg.SMBHost, globalCfg.SMBShare)
+		}
 	case "sftp":
 		globalFS, err = vfs.NewSFTPFileSystem(globalCfg.SFTPHost, globalCfg.SFTPPort, globalCfg.SFTPUser, globalCfg.SFTPPass)
+		if err == nil {
+			log.Printf("[node] SFTP VFS initialized: host=%s port=%s user=%s", globalCfg.SFTPHost, globalCfg.SFTPPort, globalCfg.SFTPUser)
+		}
 	case "nfs":
 		globalFS, err = vfs.NewNFSFileSystem(globalCfg.NFSHost, globalCfg.NFSPath)
+		if err == nil {
+			log.Printf("[node] NFS VFS initialized: host=%s path=%s", globalCfg.NFSHost, globalCfg.NFSPath)
+		}
 	case "s3":
 		globalFS, err = vfs.NewS3FileSystem(globalCfg.S3Endpoint, globalCfg.S3AccessKey, globalCfg.S3SecretKey, globalCfg.S3Bucket, globalCfg.S3UseSSL)
+		if err == nil {
+			log.Printf("[node] S3 VFS initialized: endpoint=%s bucket=%s prefix=%q", globalCfg.S3Endpoint, globalCfg.S3Bucket, globalCfg.S3Prefix)
+		}
 	default:
-		globalFS = &vfs.OSFileSystem{}
+		globalFS = &vfs.OSFileSystem{Root: root}
+		log.Printf("[node] Local VFS initialized: root=%s", root)
 	}
 	if err != nil { panic(err) }
 }

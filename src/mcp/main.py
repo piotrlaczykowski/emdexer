@@ -24,7 +24,13 @@ def get_headers():
 
 def is_gui(ctx: Context) -> bool:
     """Return True if the connected client supports PrefabApp GUI rendering."""
+    if ctx is None:
+        return False
     client_id = (ctx.client_id or "").lower()
+    # Only render GUI for known Claude Desktop client IDs.
+    # Unknown/empty client_id → safe default is plain text.
+    if not client_id:
+        return False
     return any(name in client_id for name in GUI_CLIENTS)
 
 # Map file extensions to media type tags.
@@ -55,11 +61,11 @@ def search_files(query: str, namespace: str = "default", ctx: Context = None) ->
         results = data.get("results", [])
     except Exception as e:
         msg = f"Error searching EMDEX: {str(e)}"
-        return PrefabApp(children=[Text(text=msg)]) if is_gui(ctx) else msg
+        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
 
     if not results:
         msg = f"No results found for **{query}** in namespace `{namespace}`."
-        return PrefabApp(children=[Text(text=msg)]) if is_gui(ctx) else msg
+        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
 
     table_data = []
     for r in results:
@@ -110,7 +116,7 @@ def get_file(path: str, ctx: Context = None) -> str | PrefabApp:
     except Exception as e:
         content = f"Error fetching file: {str(e)}"
 
-    return PrefabApp(children=[Text(text=content)]) if is_gui(ctx) else content
+    return PrefabApp(children=[Text(content=content)]) if is_gui(ctx) else content
 
 
 @mcp.tool()
@@ -123,7 +129,7 @@ def system_status(ctx: Context = None) -> str | PrefabApp:
         nodes = resp_nodes.json()
     except Exception as e:
         msg = f"Error fetching status: {str(e)}"
-        return PrefabApp(children=[Text(text=msg)]) if is_gui(ctx) else msg
+        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
 
     if is_gui(ctx):
         storage_data = [
@@ -138,7 +144,7 @@ def system_status(ctx: Context = None) -> str | PrefabApp:
                         DashboardItem(
                             title="Status",
                             children=[
-                                Text(text=f"**Gateway:** {health.get('status', 'Unknown')}\n**Active Nodes:** {len(nodes)}")
+                                Text(content=f"**Gateway:** {health.get('status', 'Unknown')}\n**Active Nodes:** {len(nodes)}")
                             ],
                         ),
                         DashboardItem(

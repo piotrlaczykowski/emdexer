@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # Required for git describe --tags
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
@@ -32,32 +34,74 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to GHCR (Helm)
+        if: inputs.chart_path != '' && github.event_name != 'pull_request'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username ${{ github.actor }} --password-stdin
+
       - name: Calculate tag
         id: tag
         run: |
           EVENT_NAME="${{ github.event_name }}"
           BRANCH_NAME="${{ github.ref_name }}"
-          
+          SHORT_SHA=$(git rev-parse --short HEAD)
+
+          # Get last released version from git tags (strip 'v' prefix)
+          # Falls back to 0.0.0 if no tags exist yet
+          BASE_VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+
+          # Pre-release format: {base}-{stage}-{sha}  (e.g. 1.0.0-beta-abc1234)
+          # Single hyphen separator avoids dot-ambiguity in Helm's SemVer parser
           if [[ "${EVENT_NAME}" == "pull_request" ]]; then
-            SUFFIX="-PR"
+            VERSION_TAG="${BASE_VERSION}-pr-${SHORT_SHA}"
+            ROLLING_TAG=""
           elif [[ "${BRANCH_NAME}" == "main" ]]; then
-            SUFFIX=""
+            # Continuous main builds — versioned release images are handled by release-docker job
+            VERSION_TAG="${SHORT_SHA}"
+            ROLLING_TAG="edge"
           elif [[ "${BRANCH_NAME}" == "develop" ]]; then
-            SUFFIX="-beta"
+            VERSION_TAG="${BASE_VERSION}-beta-${SHORT_SHA}"
+            ROLLING_TAG="latest-beta"
+          elif [[ "${BRANCH_NAME}" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
+            # Extract version from branch name, e.g. release/1.1.0 -> 1.1.0-rc-abc1234
+            RC_VERSION="${BASH_REMATCH[1]}"
+            VERSION_TAG="${RC_VERSION}-rc-${SHORT_SHA}"
+            ROLLING_TAG="latest-rc"
           elif [[ "${BRANCH_NAME}" =~ ^release/ ]]; then
-            SUFFIX="-rc"
+            # release/* without a version in the name — fall back to last tag
+            VERSION_TAG="${BASE_VERSION}-rc-${SHORT_SHA}"
+            ROLLING_TAG="latest-rc"
+          elif [[ "${BRANCH_NAME}" =~ ^hotfix/([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
+            # Extract version from branch name, e.g. hotfix/1.0.1 -> 1.0.1-hotfix-abc1234
+            HOTFIX_VERSION="${BASH_REMATCH[1]}"
+            VERSION_TAG="${HOTFIX_VERSION}-hotfix-${SHORT_SHA}"
+            ROLLING_TAG=""
           elif [[ "${BRANCH_NAME}" =~ ^hotfix/ ]]; then
-            SUFFIX="-hotfix"
+            VERSION_TAG="${BASE_VERSION}-hotfix-${SHORT_SHA}"
+            ROLLING_TAG=""
           else
-            # Sanitize branch name: lowercase, replace non-alphanumeric with '-', trim leading/trailing dashes
-            SANITIZED_BRANCH=$(echo "${BRANCH_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-\+//;s/-\+$//')
-            SUFFIX="-alpha-${SANITIZED_BRANCH}"
+            # feature/*, bugfix/*, refactor/* → alpha (no rolling tag — branches diverge)
+            VERSION_TAG="${BASE_VERSION}-alpha-${SHORT_SHA}"
+            ROLLING_TAG=""
           fi
-          
-          # Version could be short SHA or tag if present
-          VERSION=$(git rev-parse --short HEAD)
-          echo "tag=ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${VERSION}${SUFFIX}" >> $GITHUB_OUTPUT
-          echo "latest_tag=ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:latest${SUFFIX}" >> $GITHUB_OUTPUT
+
+          REGISTRY="ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}"
+
+          # Build newline-delimited tags string for docker/build-push-action
+          TAGS="${REGISTRY}:${VERSION_TAG}"
+          [[ -n "${ROLLING_TAG}" ]] && TAGS="${TAGS}"$'\n'"${REGISTRY}:${ROLLING_TAG}"
+
+          # Write multiline output via heredoc delimiter
+          {
+            echo "tags<<TAGS_EOF"
+            echo "${TAGS}"
+            echo "TAGS_EOF"
+          } >> $GITHUB_OUTPUT
+          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
+
+          echo "--- Image Tags ---"
+          echo "Versioned : ${REGISTRY}:${VERSION_TAG}"
+          [[ -n "${ROLLING_TAG}" ]] && echo "Rolling   : ${REGISTRY}:${ROLLING_TAG}" || echo "Rolling   : (none)"
 
       - name: Build and push
         uses: docker/build-push-action@v7
@@ -65,9 +109,7 @@ jobs:
           context: .
           file: deploy/docker/Dockerfile.${{ inputs.service_name }}
           push: ${{ github.event_name != 'pull_request' }}
-          tags: |
-            ${{ steps.tag.outputs.tag }}
-            ${{ steps.tag.outputs.latest_tag }}
+          tags: ${{ steps.tag.outputs.tags }}
 
       - name: Set up Helm
         if: inputs.chart_path != ''
@@ -82,13 +124,10 @@ jobs:
         if: inputs.chart_path != '' && github.event_name != 'pull_request'
         run: |
           mkdir -p dist/charts
-          # Use short SHA as version for development builds if not on main
-          VERSION=$(git rev-parse --short HEAD)
-          helm package ${{ inputs.chart_path }} --version "0.0.0-${VERSION}" --app-version "${VERSION}" -d dist/charts
+          VERSION_TAG="${{ steps.tag.outputs.version_tag }}"
+          helm package ${{ inputs.chart_path }} --version "${VERSION_TAG}" --app-version "${VERSION_TAG}" -d dist/charts
 
-      - name: Upload Helm Chart Artifact
+      - name: Push Helm Chart to GHCR
         if: inputs.chart_path != '' && github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: helm-chart-${{ inputs.service_name }}
-          path: dist/charts/*.tgz
+        run: |
+          helm push dist/charts/*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts

@@ -1,6 +1,6 @@
 import os
 import requests
-from fastmcp import FastMCP
+from fastmcp import FastMCP, Context
 from prefab_ui.app import PrefabApp
 from prefab_ui.components import DataTable, DataTableColumn, Text, Dashboard, DashboardItem
 from prefab_ui.components.charts import BarChart
@@ -13,18 +13,21 @@ BEARER_TOKEN = os.getenv("EMDEX_BEARER_TOKEN", "") or os.getenv("EMDEX_AUTH_KEY"
 if not BEARER_TOKEN:
     raise RuntimeError("EMDEX_AUTH_KEY or EMDEX_BEARER_TOKEN environment variable is required.")
 
-# Output mode: "gui" (default, PrefabApp for Claude Desktop) or "text" (markdown for OpenClaw/CLI)
-OUTPUT_MODE = os.getenv("EMDEX_OUTPUT_MODE", "gui").lower()
+# GUI_CLIENTS: client_id substrings that support PrefabApp rendering.
+# All other clients (OpenClaw, mcporter, curl, etc.) receive plain markdown.
+GUI_CLIENTS = {"claude-desktop", "claude", "anthropic"}
 
 mcp = FastMCP("emdexer")
 
 def get_headers():
     return {"Authorization": f"Bearer {BEARER_TOKEN}"}
 
-def is_text_mode() -> bool:
-    return OUTPUT_MODE == "text"
+def is_gui(ctx: Context) -> bool:
+    """Return True if the connected client supports PrefabApp GUI rendering."""
+    client_id = (ctx.client_id or "").lower()
+    return any(name in client_id for name in GUI_CLIENTS)
 
-# Map file extensions to media type tags for multi-modal content.
+# Map file extensions to media type tags.
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp"}
 AUDIO_VIDEO_EXTS = {".mp3", ".wav", ".mp4", ".mkv", ".m4a", ".ogg", ".flac", ".webm"}
 
@@ -40,7 +43,7 @@ def media_tag(path: str) -> str:
 
 
 @mcp.tool()
-def search_files(query: str, namespace: str = "default") -> str | PrefabApp:
+def search_files(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
     """Search for files in EMDEX with semantic ranking. Use namespace='*' for global search across all authorized namespaces."""
     url = f"{GATEWAY_URL}/v1/search"
     params = {"q": query, "namespace": namespace}
@@ -52,11 +55,11 @@ def search_files(query: str, namespace: str = "default") -> str | PrefabApp:
         results = data.get("results", [])
     except Exception as e:
         msg = f"Error searching EMDEX: {str(e)}"
-        return msg if is_text_mode() else PrefabApp(children=[Text(text=msg)])
+        return PrefabApp(children=[Text(text=msg)]) if is_gui(ctx) else msg
 
     if not results:
         msg = f"No results found for **{query}** in namespace `{namespace}`."
-        return msg if is_text_mode() else PrefabApp(children=[Text(text=msg)])
+        return PrefabApp(children=[Text(text=msg)]) if is_gui(ctx) else msg
 
     table_data = []
     for r in results:
@@ -70,30 +73,30 @@ def search_files(query: str, namespace: str = "default") -> str | PrefabApp:
             "Preview": tag + preview,
         })
 
-    if is_text_mode():
-        lines = [f"### Search results for **{query}** in `{namespace}`\n"]
-        lines.append(f"{'#'} | Path | Score | Preview")
-        lines.append("---|---|---|---")
-        for i, row in enumerate(table_data, 1):
-            lines.append(f"{i} | `{row['Path']}` | {row['Score']} | {row['Preview']}")
-        return "\n".join(lines)
+    if is_gui(ctx):
+        return PrefabApp(
+            children=[
+                DataTable(
+                    columns=[
+                        DataTableColumn(key="Path", header="Path"),
+                        DataTableColumn(key="Score", header="Score"),
+                        DataTableColumn(key="Preview", header="Preview"),
+                    ],
+                    rows=table_data,
+                )
+            ]
+        )
 
-    return PrefabApp(
-        children=[
-            DataTable(
-                columns=[
-                    DataTableColumn(key="Path", header="Path"),
-                    DataTableColumn(key="Score", header="Score"),
-                    DataTableColumn(key="Preview", header="Preview"),
-                ],
-                rows=table_data,
-            )
-        ]
-    )
+    lines = [f"### Search results for **{query}** in `{namespace}`\n"]
+    lines.append("# | Path | Score | Preview")
+    lines.append("---|---|---|---")
+    for i, row in enumerate(table_data, 1):
+        lines.append(f"{i} | `{row['Path']}` | {row['Score']} | {row['Preview']}")
+    return "\n".join(lines)
 
 
 @mcp.tool()
-def get_file(path: str) -> str | PrefabApp:
+def get_file(path: str, ctx: Context = None) -> str | PrefabApp:
     """Retrieve file content from EMDEX."""
     url = f"{GATEWAY_URL}/v1/search"
     params = {"q": f"file path: {path}", "limit": 1}
@@ -103,20 +106,16 @@ def get_file(path: str) -> str | PrefabApp:
         resp.raise_for_status()
         data = resp.json()
         results = data.get("results", [])
-
-        if results:
-            content = results[0].get("payload", {}).get("text", "No content found.")
-        else:
-            content = f"File `{path}` not found in index."
+        content = results[0].get("payload", {}).get("text", "No content found.") if results else f"File `{path}` not found in index."
     except Exception as e:
         content = f"Error fetching file: {str(e)}"
 
-    return content if is_text_mode() else PrefabApp(children=[Text(text=content)])
+    return PrefabApp(children=[Text(text=content)]) if is_gui(ctx) else content
 
 
 @mcp.tool()
-def system_status() -> str | PrefabApp:
-    """Display EMDEX indexing status and active nodes."""
+def system_status(ctx: Context = None) -> str | PrefabApp:
+    """Display EMDEX gateway health and active nodes."""
     try:
         resp = requests.get(f"{GATEWAY_URL}/health", timeout=5)
         health = resp.json()
@@ -124,49 +123,47 @@ def system_status() -> str | PrefabApp:
         nodes = resp_nodes.json()
     except Exception as e:
         msg = f"Error fetching status: {str(e)}"
-        return msg if is_text_mode() else PrefabApp(children=[Text(text=msg)])
+        return PrefabApp(children=[Text(text=msg)]) if is_gui(ctx) else msg
 
-    if is_text_mode():
-        lines = [
-            f"### EMDEX System Status",
-            f"**Gateway:** {health.get('status', 'Unknown')}",
-            f"**Active Nodes:** {len(nodes)}",
-            "",
-            "| Node ID | Namespaces | Protocol | Health |",
-            "|---|---|---|---|",
+    if is_gui(ctx):
+        storage_data = [
+            {"label": "Documents", "value": 45},
+            {"label": "Images", "value": 20},
+            {"label": "Code", "value": 35},
         ]
-        for n in nodes:
-            lines.append(
-                f"| `{n.get('id', '?')}` | {', '.join(n.get('namespaces', []))} "
-                f"| {n.get('protocol', '?')} | {n.get('health_status', '?')} |"
-            )
-        return "\n".join(lines)
+        return PrefabApp(
+            children=[
+                Dashboard(
+                    children=[
+                        DashboardItem(
+                            title="Status",
+                            children=[
+                                Text(text=f"**Gateway:** {health.get('status', 'Unknown')}\n**Active Nodes:** {len(nodes)}")
+                            ],
+                        ),
+                        DashboardItem(
+                            title="Storage Distribution (%)",
+                            children=[BarChart(data=storage_data)],
+                        ),
+                    ]
+                )
+            ]
+        )
 
-    storage_data = [
-        {"label": "Documents", "value": 45},
-        {"label": "Images", "value": 20},
-        {"label": "Code", "value": 35},
+    lines = [
+        "### EMDEX System Status",
+        f"**Gateway:** {health.get('status', 'Unknown')}",
+        f"**Active Nodes:** {len(nodes)}",
+        "",
+        "| Node ID | Namespaces | Protocol | Health |",
+        "|---|---|---|---|",
     ]
-    return PrefabApp(
-        children=[
-            Dashboard(
-                children=[
-                    DashboardItem(
-                        title="Status",
-                        children=[
-                            Text(
-                                text=f"**Gateway:** {health.get('status', 'Unknown')}\n**Active Nodes:** {len(nodes)}"
-                            )
-                        ],
-                    ),
-                    DashboardItem(
-                        title="Storage Distribution (%)",
-                        children=[BarChart(data=storage_data)],
-                    ),
-                ]
-            )
-        ]
-    )
+    for n in nodes:
+        lines.append(
+            f"| `{n.get('id', '?')}` | {', '.join(n.get('namespaces', []))} "
+            f"| {n.get('protocol', '?')} | {n.get('health_status', '?')} |"
+        )
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":

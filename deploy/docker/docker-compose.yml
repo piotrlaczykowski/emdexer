@@ -1,0 +1,149 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.13.0
+    # No host port mappings — Qdrant is internal only.
+    # Access via the emdexer-net Docker network (qdrant:6333/6334).
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    networks:
+      - emdexer-net
+    restart: always
+
+  extractous:
+    build: ./extractous-sidecar
+    # No host port mappings — Extractous is internal only.
+    # Access via the emdexer-net Docker network (extractous:8000).
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    networks:
+      - emdexer-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  whisper:
+    image: ghcr.io/ggml-org/whisper.cpp:main
+    # OpenAI-compatible /v1/audio/transcriptions endpoint.
+    # No host port mappings — internal only via emdexer-net (whisper:8080).
+    command: ["/app/build/bin/whisper-server", "-m", "/models/ggml-${EMDEX_WHISPER_MODEL:-base}.bin", "--host", "0.0.0.0", "--port", "8080"]
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+    volumes:
+      - whisper-models:/models
+    networks:
+      - emdexer-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  gateway:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.gateway
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    ports:
+      - "7700:7700"
+    environment:
+      - QDRANT_HOST=qdrant:6334
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+    volumes:
+      - ../../logs:/app/logs
+    networks:
+      - emdexer-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  node:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.node
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    ports:
+      - "8081:8081"
+    volumes:
+      - ../../test_dir:/app/test_dir
+    environment:
+      - QDRANT_HOST=qdrant:6334
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - EMDEX_NAMESPACE=default
+      - EMDEX_GATEWAY_URL=http://gateway:7700
+      - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
+      - NODE_HEALTH_PORT=8081
+      - EMDEX_EXTRACTOUS_URL=http://extractous:8000
+      - EMDEX_WHISPER_URL=${EMDEX_WHISPER_URL:-http://whisper:8080}
+      - EMDEX_WHISPER_MODEL=${EMDEX_WHISPER_MODEL:-base}
+      - EMDEX_ENABLE_OCR=${EMDEX_ENABLE_OCR:-true}
+      - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
+      - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+    networks:
+      - emdexer-net
+    depends_on:
+      extractous:
+        condition: service_healthy
+      whisper:
+        condition: service_healthy
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mcp:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.mcp
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    ports:
+      - "8002:8002"
+    environment:
+      - GATEWAY_URL=http://gateway:7700
+      - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+    networks:
+      - emdexer-net
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: always
+
+networks:
+  emdexer-net:
+    driver: bridge
+
+volumes:
+  whisper-models:

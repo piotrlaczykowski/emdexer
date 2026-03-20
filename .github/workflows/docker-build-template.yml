@@ -1,0 +1,94 @@
+name: Docker Build Template
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+      image_name:
+        required: true
+        type: string
+      chart_path:
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Calculate tag
+        id: tag
+        run: |
+          EVENT_NAME="${{ github.event_name }}"
+          BRANCH_NAME="${{ github.ref_name }}"
+          
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            SUFFIX="-PR"
+          elif [[ "${BRANCH_NAME}" == "main" ]]; then
+            SUFFIX=""
+          elif [[ "${BRANCH_NAME}" == "develop" ]]; then
+            SUFFIX="-beta"
+          elif [[ "${BRANCH_NAME}" =~ ^release/ ]]; then
+            SUFFIX="-rc"
+          elif [[ "${BRANCH_NAME}" =~ ^hotfix/ ]]; then
+            SUFFIX="-hotfix"
+          else
+            # Sanitize branch name: lowercase, replace non-alphanumeric with '-', trim leading/trailing dashes
+            SANITIZED_BRANCH=$(echo "${BRANCH_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-\+//;s/-\+$//')
+            SUFFIX="-alpha-${SANITIZED_BRANCH}"
+          fi
+          
+          # Version could be short SHA or tag if present
+          VERSION=$(git rev-parse --short HEAD)
+          echo "tag=ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${VERSION}${SUFFIX}" >> $GITHUB_OUTPUT
+          echo "latest_tag=ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:latest${SUFFIX}" >> $GITHUB_OUTPUT
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/Dockerfile.${{ inputs.service_name }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ steps.tag.outputs.tag }}
+            ${{ steps.tag.outputs.latest_tag }}
+
+      - name: Set up Helm
+        if: inputs.chart_path != ''
+        uses: azure/setup-helm@v4
+
+      - name: Lint Helm Chart
+        if: inputs.chart_path != ''
+        run: |
+          helm lint ${{ inputs.chart_path }}
+
+      - name: Package Helm Chart
+        if: inputs.chart_path != '' && github.event_name != 'pull_request'
+        run: |
+          mkdir -p dist/charts
+          # Use short SHA as version for development builds if not on main
+          VERSION=$(git rev-parse --short HEAD)
+          helm package ${{ inputs.chart_path }} --version "0.0.0-${VERSION}" --app-version "${VERSION}" -d dist/charts
+
+      - name: Upload Helm Chart Artifact
+        if: inputs.chart_path != '' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart-${{ inputs.service_name }}
+          path: dist/charts/*.tgz

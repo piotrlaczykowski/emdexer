@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "emdexer-gateway.fullname" . }}
+  labels:
+    {{- include "emdexer-gateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "emdexer-gateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "emdexer-gateway.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 7700
+              protocol: TCP
+          env:
+            - name: QDRANT_HOST
+              value: {{ .Values.config.qdrantHost | quote }}
+            - name: QDRANT_COLLECTION
+              value: {{ .Values.config.qdrantCollection | quote }}
+            - name: EMDEX_AUTH_KEY
+              value: {{ .Values.config.authKey | quote }}
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "emdexer-gateway.fullname" . }}-secret
+                  key: google-api-key
+            {{- if .Values.config.oidcIssuer }}
+            - name: OIDC_ISSUER
+              value: {{ .Values.config.oidcIssuer | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.config.oidcClientId | quote }}
+            - name: OIDC_GROUPS_CLAIM
+              value: {{ .Values.config.oidcGroupsClaim | quote }}
+            {{- end }}
+            {{- if .Values.config.groupAcl }}
+            - name: EMDEX_GROUP_ACL
+              value: {{ .Values.config.groupAcl | quote }}
+            {{- end }}
+            - name: EMDEX_GLOBAL_SEARCH_TIMEOUT
+              value: {{ .Values.config.globalSearchTimeout | default "500" | quote }}
+            {{- if eq .Values.config.haMode "true" }}
+            - name: EMDEX_HA_MODE
+              value: "true"
+            - name: POSTGRES_URL
+              value: {{ .Values.config.postgresUrl | quote }}
+            {{- end }}
+            {{- if .Values.persistence.enabled }}
+            - name: EMDEX_REGISTRY_FILE
+              value: {{ .Values.persistence.registryFile | quote }}
+            {{- end }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: registry-storage
+              mountPath: {{ .Values.persistence.registryFile | dir | quote }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz/liveness
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /healthz/readiness
+              port: http
+          startupProbe:
+            httpGet:
+              path: /healthz/startup
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: registry-storage
+          persistentVolumeClaim:
+            claimName: {{ include "emdexer-gateway.fullname" . }}-registry
+      {{- end }}

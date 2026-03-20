@@ -1,0 +1,55 @@
+replicaCount: 1
+
+image:
+  repository: laczyk/emdexer-gateway
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 7700
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: emdexer.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+
+config:
+  qdrantHost: "qdrant:6334"
+  qdrantCollection: "emdexer_v1"
+  authKey: ""
+  # OIDC / JWT (optional — set issuer to enable)
+  oidcIssuer: ""
+  oidcClientId: ""
+  oidcGroupsClaim: "groups"
+  # Group-to-namespace ACL (JSON string)
+  groupAcl: ""
+  # Global search timeout (ms)
+  globalSearchTimeout: "500"
+  # HA mode
+  haMode: "false"
+  postgresUrl: ""
+
+# Node registry persistence — set enabled=true to keep the registry across pod restarts.
+# The registry file path inside the container is persistence.registryFile.
+# When disabled, the gateway uses an in-memory registry (lost on restart).
+persistence:
+  enabled: false
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  registryFile: /var/lib/emdexer/nodes/nodes.json
+
+secret:
+  googleApiKey: ""
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,45 @@
+replicaCount: 1
+
+image:
+  repository: laczyk/emdexer-node
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+config:
+  qdrantHost: "qdrant:6334"
+  namespace: "default"
+  mountPath: "/data"
+  extractousHost: "http://extractous:8000"
+  # Whisper sidecar (audio/video transcription)
+  whisperUrl: "http://whisper:8080"
+  whisperModel: "base"
+  enableOcr: "true"
+  deltaEnabled: "1"
+  fullHash: "0"
+  # VFS backend: local | smb | sftp | nfs | s3
+  nodeType: "local"
+  # Gateway registration (optional)
+  gatewayUrl: ""
+  gatewayAuthKey: ""
+  # S3 config (when nodeType=s3)
+  s3Endpoint: ""
+  s3AccessKey: ""
+  s3SecretKey: ""
+  s3Bucket: ""
+  s3UseSsl: "true"
+  s3Prefix: ""
+
+secret:
+  googleApiKey: ""
+
+persistence:
+  enabled: false
+  accessMode: ReadOnlyMany
+  size: 10Gi
+  storageClass: ""
+  existingClaim: ""
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

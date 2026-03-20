@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "emdexer-node.fullname" . }}
+  labels:
+    {{- include "emdexer-node.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "emdexer-node.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "emdexer-node.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: QDRANT_HOST
+              value: {{ .Values.config.qdrantHost | quote }}
+            - name: EMDEX_NAMESPACE
+              value: {{ .Values.config.namespace | quote }}
+            - name: EMDEX_EXTRACTOUS_URL
+              value: {{ .Values.config.extractousHost | quote }}
+            - name: EMDEX_WHISPER_URL
+              value: {{ .Values.config.whisperUrl | quote }}
+            - name: EMDEX_WHISPER_MODEL
+              value: {{ .Values.config.whisperModel | default "base" | quote }}
+            - name: EMDEX_ENABLE_OCR
+              value: {{ .Values.config.enableOcr | default "true" | quote }}
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "emdexer-node.fullname" . }}-secret
+                  key: google-api-key
+            - name: EMDEX_DELTA_ENABLED
+              value: {{ .Values.config.deltaEnabled | default "1" | quote }}
+            - name: EMDEX_FULL_HASH
+              value: {{ .Values.config.fullHash | default "0" | quote }}
+            - name: NODE_TYPE
+              value: {{ .Values.config.nodeType | default "local" | quote }}
+            {{- if .Values.config.gatewayUrl }}
+            - name: EMDEX_GATEWAY_URL
+              value: {{ .Values.config.gatewayUrl | quote }}
+            - name: EMDEX_GATEWAY_AUTH_KEY
+              value: {{ .Values.config.gatewayAuthKey | quote }}
+            {{- end }}
+            {{- if eq .Values.config.nodeType "s3" }}
+            - name: S3_ENDPOINT
+              value: {{ .Values.config.s3Endpoint | quote }}
+            - name: S3_ACCESS_KEY
+              value: {{ .Values.config.s3AccessKey | quote }}
+            - name: S3_SECRET_KEY
+              value: {{ .Values.config.s3SecretKey | quote }}
+            - name: S3_BUCKET
+              value: {{ .Values.config.s3Bucket | quote }}
+            - name: S3_USE_SSL
+              value: {{ .Values.config.s3UseSsl | default "true" | quote }}
+            - name: S3_PREFIX
+              value: {{ .Values.config.s3Prefix | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /opt/emdexer/test_dir
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz/liveness
+              port: 8081
+          readinessProbe:
+            httpGet:
+              path: /healthz/readiness
+              port: 8081
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "emdexer-node.fullname" .) }}
+          {{- else }}
+          hostPath:
+            path: {{ .Values.config.mountPath }}
+          {{- end }}

@@ -1,0 +1,32 @@
+# Binaries
+bin/
+emdex
+emdex-gateway
+emdex-node
+src/gateway/gateway
+src/node/node
+
+# Environment
+.env
+
+
+# Logs and Data
+logs/
+data/
+qdrant_storage/
+emdex_cache.db
+postgres-data/
+storage/
+
+# Test artifacts
+test_dir/
+test_dir_alpha/
+test_dir_beta/
+*.bin
+*.tar.gz
+
+# Local agent configuration
+.claude/
+.gitnexus
+AGENTS.md
+CLAUDE.md

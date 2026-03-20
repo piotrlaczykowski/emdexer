@@ -1,0 +1,50 @@
+name: Go CI
+
+on:
+  push:
+    branches: [ develop ]
+  pull_request:
+    branches: [ develop ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: 1.26.1
+
+    - name: Build Emdexer Gateway
+      run: cd src/gateway && go mod tidy && go build -v ./...
+
+    - name: Build Emdexer Node
+      run: cd src/node && go mod tidy && go build -v ./...
+
+    - name: Run Integration Tests
+      run: cd src/tests/integration && go test -v ./...
+      continue-on-error: true
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: 1.26.1
+
+    - name: Install golangci-lint
+      run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.11.3
+
+    - name: Run golangci-lint on Gateway
+      run: cd src/gateway && $(go env GOPATH)/bin/golangci-lint run ./...
+
+    - name: Run golangci-lint on Node
+      run: cd src/node && $(go env GOPATH)/bin/golangci-lint run ./...

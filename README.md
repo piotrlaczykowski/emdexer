@@ -155,6 +155,22 @@ See the full [Installation Guide](docs/getting-started/installation.md) for conf
 *   📊 **RRF (Reciprocal Rank Fusion)**: When searching across multiple namespaces (`namespace=*`), the gateway fans out queries in parallel and merges results using RRF. This ensures the most relevant facts float to the top, regardless of which node they originated from.
 *   🔄 **3-Stage Delta Sync**: XXH3 hash-based change detection at file, chunk, and embedding level — redundant embedding calls are skipped automatically.
 *   🏗️ **HA-Ready**: 3-node Qdrant cluster (Raft consensus) with multi-replica Gateway behind Nginx. Statically linked Go binaries with no runtime dependencies.
+*   🪶 **Tiny Footprint**: Gateway and Node each run in ~8MB RSS. No JVM, no Python runtime — pure Go.
+
+---
+
+## 📊 Performance
+
+Measured on a commodity Linux VM (4 vCPU, 8GB RAM):
+
+| Metric | Value |
+|---|---|
+| Search latency (single namespace) | ~500ms |
+| Gateway memory (idle) | ~8 MB RSS |
+| Node memory (idle) | ~7 MB RSS |
+| Qdrant memory (idle, small collection) | ~27 MB RSS |
+
+> Indexing throughput depends on embedding API latency (Gemini/Ollama) and file extraction complexity. Local Ollama benchmarks coming soon.
 
 ---
 

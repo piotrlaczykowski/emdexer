@@ -24,6 +24,9 @@ permissions:
   pull-requests: write
 
 jobs:
+  # ================================================================
+  # DETECT CHANGES - Identify which services have been modified
+  # ================================================================
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -48,9 +51,21 @@ jobs:
               - 'src/mcp/**'
               - 'deploy/docker/Dockerfile.mcp'
 
+      - name: Debug - Show detected changes
+        run: |
+          echo "--- Changed services ---"
+          echo "gateway : ${{ steps.filter.outputs.gateway }}"
+          echo "node    : ${{ steps.filter.outputs.node }}"
+          echo "mcp     : ${{ steps.filter.outputs.mcp }}"
+
+  # ================================================================
+  # BUILD SERVICES - Per-service Docker builds with versioned tags
+  # alpha (feature/*) | beta (develop) | rc (release/*) | hotfix
+  # Skipped on main push — release-docker handles versioned images
+  # ================================================================
   build-gateway:
     needs: changes
-    if: needs.changes.outputs.gateway == 'true'
+    if: needs.changes.outputs.gateway == 'true' && github.ref != 'refs/heads/main'
     uses: ./.github/workflows/docker-build-template.yml
     with:
       service_name: gateway
@@ -59,7 +74,7 @@ jobs:
 
   build-node:
     needs: changes
-    if: needs.changes.outputs.node == 'true'
+    if: needs.changes.outputs.node == 'true' && github.ref != 'refs/heads/main'
     uses: ./.github/workflows/docker-build-template.yml
     with:
       service_name: node
@@ -68,12 +83,19 @@ jobs:
 
   build-mcp:
     needs: changes
-    if: needs.changes.outputs.mcp == 'true'
+    if: needs.changes.outputs.mcp == 'true' && github.ref != 'refs/heads/main'
     uses: ./.github/workflows/docker-build-template.yml
     with:
       service_name: mcp
       image_name: emdexer-mcp
 
+  # ================================================================
+  # RELEASE - Managed by release-please on main
+  # Reads conventional commits to determine semver bump:
+  #   fix:     → patch  (1.0.0 → 1.0.1)
+  #   feat:    → minor  (1.0.0 → 1.1.0)
+  #   feat!:   → major  (1.0.0 → 2.0.0)
+  # ================================================================
   release-please:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -88,6 +110,62 @@ jobs:
           release-type: go
           target-branch: main
 
+  # ================================================================
+  # RELEASE DOCKER - Build versioned Docker images on release
+  # Tagged: {version} (e.g. 1.0.0) + latest
+  # ================================================================
+  release-docker:
+    needs: release-please
+    if: github.ref == 'refs/heads/main' && needs.release-please.outputs.release_created
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: gateway
+            image_name: emdexer-gateway
+            dockerfile: deploy/docker/Dockerfile.gateway
+          - service: node
+            image_name: emdexer-node
+            dockerfile: deploy/docker/Dockerfile.node
+          - service: mcp
+            image_name: emdexer-mcp
+            dockerfile: deploy/docker/Dockerfile.mcp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve version
+        id: version
+        run: |
+          TAG_NAME="${{ needs.release-please.outputs.tag_name }}"
+          VERSION="${TAG_NAME#v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Released version: ${VERSION}"
+
+      - name: Build and push release image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.image_name }}:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.image_name }}:latest
+
+  # ================================================================
+  # RELEASE BINARIES - Cross-compiled Go binaries attached to GitHub Release
+  # ================================================================
   release-binaries:
     needs: release-please
     if: github.ref == 'refs/heads/main' && needs.release-please.outputs.release_created
@@ -110,7 +188,7 @@ jobs:
           VERSION=${{ needs.release-please.outputs.tag_name }}
           COMMIT=$(git rev-parse --short HEAD)
           GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} make all VERSION=$VERSION COMMIT=$COMMIT LICENSE_TYPE=Community
-          
+
           mkdir -p dist
           mv bin/emdex dist/emdex-${{ matrix.goos }}-${{ matrix.goarch }}
           mv bin/emdex-gateway dist/emdex-gateway-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -124,10 +202,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ================================================================
+  # RELEASE HELM - Package and push Helm charts to GHCR as OCI artifacts
+  # Install: helm install oci://ghcr.io/{owner}/charts/emdexer-gateway --version 1.0.0
+  # ================================================================
   release-helm:
     needs: [release-please, release-binaries]
     if: github.ref == 'refs/heads/main' && needs.release-please.outputs.release_created
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -135,20 +220,18 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
-      - name: Package Charts
+      - name: Log in to GHCR (Helm)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username ${{ github.actor }} --password-stdin
+
+      - name: Package and push Charts
         run: |
           mkdir -p dist/charts
           VERSION=${{ needs.release-please.outputs.tag_name }}
-          # Strip 'v' prefix for Helm if present
           CHART_VERSION=${VERSION#v}
-          
+
           helm package deploy/helm/emdexer-gateway --version $CHART_VERSION --app-version $VERSION -d dist/charts
           helm package deploy/helm/emdexer-node --version $CHART_VERSION --app-version $VERSION -d dist/charts
 
-      - name: Upload Charts
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
-          files: dist/charts/*.tgz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          helm push dist/charts/emdexer-gateway-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+          helm push dist/charts/emdexer-node-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts

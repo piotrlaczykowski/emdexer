@@ -23,8 +23,8 @@ jobs:
           echo "Source branch: $SOURCE_BRANCH"
 
           if [[ "$TARGET_BRANCH" == "master" || "$TARGET_BRANCH" == "main" ]]; then
-            if [[ ! "$SOURCE_BRANCH" =~ ^(release/|hotfix/) ]]; then
-              echo "⛔ ILLEGAL MERGE: Master only accepts merges from release/* or hotfix/*."
+            if [[ ! "$SOURCE_BRANCH" =~ ^(release/|hotfix/|release-please--) ]]; then
+              echo "⛔ ILLEGAL MERGE: Master only accepts merges from release/*, hotfix/*, or release-please branches."
               exit 1
             fi
           fi

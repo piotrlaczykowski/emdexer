@@ -14,7 +14,7 @@
 
 ## ❓ Why Emdexer?
 
-Most RAG (Retrieval-Augmented Generation) systems assume your data is already centralized or easily accessible via a single mount point. In reality, your data is scattered: documents on a Synology NAS, archives in an S3 bucket, and code on your local NVMe. 
+Most RAG (Retrieval-Augmented Generation) systems assume your data is already centralized or easily accessible via a single mount point. In reality, your data is scattered: documents on a NAS, archives in an S3 bucket, and code on your local NVMe. 
 
 **Emdexer stops the "data migration" madness.** Instead of bringing your data to the AI, Emdexer brings the indexing agent to your data. 
 

@@ -6,40 +6,56 @@
 
 ## 1. High-Level Overview
 
-```
-┌─────────────────────────────────────────────────────┐
-│                   Consumers                         │
-│  (OpenClaw MCP  |  Telegram Bot  |  OpenAI client)  │
-└────────────────────┬────────────────────────────────┘
-                     │  OIDC JWT or Bearer Token
-                     ▼
-          ┌──────────────────────┐
-          │   emdex-gateway      │   :7700
-          │  ─────────────────   │
-          │  /v1/search          │
-          │  /v1/chat/completions│──► Gemini LLM (generateContent)
-          │  /v1/whoami          │
-          │  /nodes/register     │◄── Node heartbeat (EMDEX_GATEWAY_URL)
-          │  /metrics            │
-          └──────────┬───────────┘
-                     │  Qdrant gRPC  :6334
-                     ▼
-          ┌──────────────────────┐
-          │      Qdrant          │   Vector DB — single source of truth
-          │  (collection per ns) │
-          └──────────────────────┘
-                     ▲
-        ┌────────────┼──────────────────┐
-        │            │                  │
-   ┌────┴───┐  ┌─────┴────┐  ┌─────────┴──┐  ┌────────┐
-   │ Local  │  │ SMB/NFS  │  │    SFTP    │  │   S3   │
-   │  Node  │  │   Node   │  │    Node    │  │  Node  │
-   └────────┘  └──────────┘  └────────────┘  └────────┘
- emdex-node
- :8081 health
-     │
-     ├─► Extractous Sidecar (:8000)
-     └─► Whisper.cpp Sidecar (:8080)
+```mermaid
+graph TD
+    subgraph "Consumers (Layer 3)"
+        MCP[OpenClaw MCP]
+        BOT[Telegram Bot]
+        CLI[OpenAI Client]
+    end
+
+    subgraph "Emdex Gateway (Layer 2)"
+        GW[emdex-gateway :7700]
+        AUTH[Auth Middleware: OIDC/Static]
+        SEARCH[Fan-Out Search Orchestrator]
+        LLM[Gemini RAG Engine]
+        REG[Node Registry: nodes.json/Postgres]
+    end
+
+    subgraph "Knowledge Base (Layer 1)"
+        QD[Qdrant Vector DB :6334]
+    end
+
+    subgraph "Zero-Mount Nodes (Layer 0)"
+        LOCAL[Local Node]
+        SMB[SMB Node]
+        S3[S3 Node]
+        SFTP[SFTP Node]
+    end
+
+    subgraph "Sidecars (Worker)"
+        EXT[Extractous :8000]
+        WHIS[Whisper.cpp :8080]
+    end
+
+    %% Flow: Consumption
+    MCP & BOT & CLI -->|OIDC JWT / API Key| GW
+    GW --> AUTH
+    AUTH --> SEARCH
+    SEARCH -->|Parallel Search| QD
+    SEARCH -->|RAG Re-ranking| LLM
+    LLM -->|Final Response| GW
+
+    %% Flow: Indexing
+    LOCAL & SMB & S3 & SFTP -->|1. Register| REG
+    LOCAL & SMB & S3 & SFTP -->|2. Stream Content| EXT & WHIS
+    EXT & WHIS -->|3. Extracted Text| LOCAL & SMB & S3 & SFTP
+    LOCAL & SMB & S3 & SFTP -->|4. Upsert Vectors| QD
+
+    style GW fill:#f9f,stroke:#333,stroke-width:2px
+    style QD fill:#ccf,stroke:#333,stroke-width:2px
+    style LOCAL,SMB,S3,SFTP fill:#dfd,stroke:#333,stroke-width:1px
+    style EXT,WHIS fill:#ffd,stroke:#333,stroke-width:1px
 ```
 
 ---

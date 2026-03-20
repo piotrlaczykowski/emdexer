@@ -37,6 +37,16 @@ Most RAG (Retrieval-Augmented Generation) systems assume your data is already ce
 
 ---
 
+### 🏠 The "LAN Brain"
+
+Emdexer unifies your entire home or office network into a single, searchable knowledge base. Deploy lightweight nodes on your **MacBook**, **Windows PC**, **Linux Server**, and **NAS**—all without OS-level mounts or complex networking.
+
+- **Search across all your computers** simultaneously with a single query.
+- **Zero-Mount Discovery**: Nodes self-announce to the gateway via your local network.
+- **No data leaves the LAN**: Extraction and vectorization happen locally; only embeddings travel to your secure database.
+
+---
+
 ### 🛰️ Zero-Mount Distributed Flow
 
 Emdexer breaks the "central mount" bottleneck. Nodes deploy directly alongside your data, streaming only vector embeddings to the central database.

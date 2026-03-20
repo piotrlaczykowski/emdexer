@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,11 +97,11 @@ func (a *ArchiveFileSystem) IndexArchive(path string) ([]ArchiveEntry, error) {
 
 	switch {
 	case ext == ".zip":
-		return a.readZip(buf)
+		return a.readZip(buf, path)
 	case ext == ".tar":
-		return a.readTar(buf)
+		return a.readTar(buf, path)
 	case ext == ".gz" || strings.HasSuffix(path, ".tar.gz"):
-		return a.readTarGz(buf)
+		return a.readTarGz(buf, path)
 	case ext == ".7z":
 		return a.read7z(buf)
 	case ext == ".iso":
@@ -110,7 +111,7 @@ func (a *ArchiveFileSystem) IndexArchive(path string) ([]ArchiveEntry, error) {
 	return nil, fmt.Errorf("unsupported archive type: %s", ext)
 }
 
-func (a *ArchiveFileSystem) readZip(buf []byte) ([]ArchiveEntry, error) {
+func (a *ArchiveFileSystem) readZip(buf []byte, archivePath string) ([]ArchiveEntry, error) {
 	reader, err := zip.NewReader(bytes.NewReader(buf), int64(len(buf)))
 	if err != nil {
 		return nil, err
@@ -120,10 +121,12 @@ func (a *ArchiveFileSystem) readZip(buf []byte) ([]ArchiveEntry, error) {
 	for _, f := range reader.File {
 		cleanPath, err := sanitizeArchivePath(f.Name)
 		if err != nil {
+			log.Printf("[vfs] Skipping archive entry (path traversal): archive=%s entry=%s err=%v", archivePath, f.Name, err)
 			continue
 		}
 		rc, err := f.Open()
 		if err != nil {
+			log.Printf("[vfs] Skipping archive entry (open failed): archive=%s entry=%s err=%v", archivePath, f.Name, err)
 			continue
 		}
 		// Limit archive entry size
@@ -142,7 +145,7 @@ func (a *ArchiveFileSystem) readZip(buf []byte) ([]ArchiveEntry, error) {
 	return entries, nil
 }
 
-func (a *ArchiveFileSystem) readTar(buf []byte) ([]ArchiveEntry, error) {
+func (a *ArchiveFileSystem) readTar(buf []byte, archivePath string) ([]ArchiveEntry, error) {
 	tr := tar.NewReader(bytes.NewReader(buf))
 	var entries []ArchiveEntry
 	for {
@@ -157,6 +160,7 @@ func (a *ArchiveFileSystem) readTar(buf []byte) ([]ArchiveEntry, error) {
 		var content []byte
 		cleanPath, err := sanitizeArchivePath(header.Name)
 		if err != nil {
+			log.Printf("[vfs] Skipping archive entry (path traversal): archive=%s entry=%s err=%v", archivePath, header.Name, err)
 			continue
 		}
 		if header.Typeflag == tar.TypeReg {
@@ -176,7 +180,7 @@ func (a *ArchiveFileSystem) readTar(buf []byte) ([]ArchiveEntry, error) {
 	return entries, nil
 }
 
-func (a *ArchiveFileSystem) readTarGz(buf []byte) ([]ArchiveEntry, error) {
+func (a *ArchiveFileSystem) readTarGz(buf []byte, archivePath string) ([]ArchiveEntry, error) {
 	gr, err := gzip.NewReader(bytes.NewReader(buf))
 	if err != nil {
 		return nil, err
@@ -193,7 +197,7 @@ func (a *ArchiveFileSystem) readTarGz(buf []byte) ([]ArchiveEntry, error) {
 		return nil, fmt.Errorf("decompressed archive exceeds maximum size limit of %d MB", maxSize/(1024*1024))
 	}
 
-	return a.readTar(uncompressed)
+	return a.readTar(uncompressed, archivePath)
 }
 
 func (a *ArchiveFileSystem) read7z(buf []byte) ([]ArchiveEntry, error) {

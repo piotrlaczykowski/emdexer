@@ -41,9 +41,16 @@ Returns the most relevant chunks from the indexed documents across all or specif
 - **Headers:**
   - `Authorization: Bearer <your-auth-key>`
 - **Query Parameters:**
-  - `q`: Search query string
-  - `namespace`: Filter by namespace. Use `*` or `__global__` to search all authorized namespaces in parallel.
+  - `q`: Search query string (Required)
+  - `namespace`: Filter by namespace. Use `*` or `__global__` to search all authorized namespaces in parallel. (Required)
   - `limit`: (Optional) Max results to return (overrides `EMDEX_SEARCH_LIMIT`)
+
+#### Example Request
+```bash
+curl -H "Authorization: Bearer my-secret-token" \
+     "http://localhost:7700/v1/search?q=budget&namespace=finance&limit=3"
+```
+
 - **Response (single namespace):**
 ```json
 {
@@ -95,7 +102,21 @@ OpenAI-compatible chat completions with integrated Multi-Hop RAG.
 - **Path:** `/v1/chat/completions`
 - **Headers:**
   - `Authorization: Bearer <your-auth-key>`
+  - `X-Emdex-Namespace: <namespace>` (Required)
   - `Content-Type: application/json`
+
+#### Example Request
+```bash
+curl -X POST "http://localhost:7700/v1/chat/completions" \
+     -H "Authorization: Bearer my-secret-token" \
+     -H "X-Emdex-Namespace: docs" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "model": "emdexer-v1",
+       "messages": [{"role": "user", "content": "How do I install emdexer?"}]
+     }'
+```
+
 - **Request Body:**
 ```json
 {
@@ -108,6 +129,16 @@ OpenAI-compatible chat completions with integrated Multi-Hop RAG.
 }
 ```
 > **Note**: Default search and RAG limits are globally configurable via `EMDEX_SEARCH_LIMIT` and `EMDEX_CHAT_LIMIT`. The `max_context` field in chat requests can override the global chat limit for specific calls.
+
+#### Error Codes
+| Code | Meaning | Description |
+|------|---------|-------------|
+| 400 | Bad Request | Missing `X-Emdex-Namespace` or invalid JSON body. |
+| 401 | Unauthorized | Missing or invalid `Authorization` header. |
+| 403 | Forbidden | Token is valid but user lacks access to the requested namespace. |
+| 404 | Not Found | Requested endpoint does not exist. |
+| 500 | Internal Server Error | Gateway or backend (Qdrant/Gemini) failure. |
+
 - **Response:**
 ```json
 {

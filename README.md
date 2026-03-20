@@ -14,7 +14,7 @@
 
 ## ❓ Why Emdexer?
 
-Most RAG (Retrieval-Augmented Generation) systems assume your data is already centralized or easily accessible via a single mount point. In reality, your data is scattered: documents on a Synology NAS, archives in an S3 bucket, and code on your local NVMe. 
+Most RAG (Retrieval-Augmented Generation) systems assume your data is already centralized or easily accessible via a single mount point. In reality, your data is scattered: documents on a NAS, archives in an S3 bucket, and code on your local NVMe. 
 
 **Emdexer stops the "data migration" madness.** Instead of bringing your data to the AI, Emdexer brings the indexing agent to your data. 
 
@@ -34,6 +34,16 @@ Most RAG (Retrieval-Augmented Generation) systems assume your data is already ce
 | OIDC/JWT identity with group-based namespace isolation (ACLs). | 3-stage XXH3 change detection avoids redundant embedding calls. | Drop-in replacement for `/v1/chat/completions`. |
 | 📁 **Format Mastery** | 🌍 **Global Search** | ☁️ **Air-Gap Ready** |
 | PDF, Office, Media (Whisper), and OCR. Multi-modal extraction. | Parallel fan-out search across all namespaces with RRF merging. | Fully local embeddings and LLM via Ollama integration. |
+
+---
+
+### 🏠 The "LAN Brain"
+
+Emdexer unifies your entire home or office network into a single, searchable knowledge base. Deploy lightweight nodes on your **MacBook**, **Windows PC**, **Linux Server**, and **NAS**—all without OS-level mounts or complex networking.
+
+- **Search across all your computers** simultaneously with a single query.
+- **Zero-Mount Discovery**: Nodes self-announce to the gateway via your local network.
+- **No data leaves the LAN**: Extraction and vectorization happen locally; only embeddings travel to your secure database.
 
 ---
 

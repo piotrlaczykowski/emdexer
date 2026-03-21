@@ -134,8 +134,6 @@ services:
     environment:
       - GATEWAY_URL=http://gateway:7700
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
-      # Output mode: "gui" (PrefabApp for Claude Desktop) or "text" (markdown for OpenClaw/CLI)
-      - EMDEX_OUTPUT_MODE=${EMDEX_OUTPUT_MODE:-gui}
     networks:
       - emdexer-net
     depends_on:

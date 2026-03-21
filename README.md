@@ -161,7 +161,7 @@ See the full [Installation Guide](docs/getting-started/installation.md) for conf
 
 ## 📊 Performance
 
-Measured on a commodity Linux VM (4 vCPU, 8GB RAM):
+Approximate figures — full benchmark suite coming soon:
 
 | Metric | Value |
 |---|---|

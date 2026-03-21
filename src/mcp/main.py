@@ -3,7 +3,6 @@ import requests
 from fastmcp import FastMCP, Context
 from prefab_ui.app import PrefabApp
 from prefab_ui.components import DataTable, DataTableColumn, Text, Dashboard, DashboardItem
-from prefab_ui.components.charts import BarChart
 
 # Configuration
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://gateway:7700")
@@ -94,10 +93,10 @@ def search_files(query: str, namespace: str = "default", ctx: Context = None) ->
         )
 
     lines = [f"### Search results for **{query}** in `{namespace}`\n"]
-    lines.append("# | Path | Score | Preview")
-    lines.append("---|---|---|---")
+    lines.append("| # | Path | Score | Preview |")
+    lines.append("|---|---|---|---|")
     for i, row in enumerate(table_data, 1):
-        lines.append(f"{i} | `{row['Path']}` | {row['Score']} | {row['Preview']}")
+        lines.append(f"| {i} | `{row['Path']}` | {row['Score']} | {row['Preview']} |")
     return "\n".join(lines)
 
 
@@ -132,11 +131,6 @@ def system_status(ctx: Context = None) -> str | PrefabApp:
         return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
 
     if is_gui(ctx):
-        storage_data = [
-            {"label": "Documents", "value": 45},
-            {"label": "Images", "value": 20},
-            {"label": "Code", "value": 35},
-        ]
         return PrefabApp(
             children=[
                 Dashboard(
@@ -146,10 +140,6 @@ def system_status(ctx: Context = None) -> str | PrefabApp:
                             children=[
                                 Text(content=f"**Gateway:** {health.get('status', 'Unknown')}\n**Active Nodes:** {len(nodes)}")
                             ],
-                        ),
-                        DashboardItem(
-                            title="Storage Distribution (%)",
-                            children=[BarChart(data=storage_data)],
                         ),
                     ]
                 )

@@ -17,13 +17,13 @@ git clone https://github.com/piotrlaczykowski/emdexer.git
 cd emdexer
 
 # Build all binaries
-make build
+make all
 
 # Run tests
 make test
 
 # Build Docker images locally
-make docker-build
+docker compose -f deploy/docker/docker-compose.yml build
 ```
 
 ### Running with Docker Compose (dev mode)
@@ -80,7 +80,7 @@ Look for issues labeled [`good first issue`](https://github.com/piotrlaczykowski
 
 1. Fork the repo and create your branch from `develop`
 2. Write tests for your changes
-3. Ensure `make test` and `make lint` pass
+3. Ensure `make test` and `make vet` pass
 4. Open a PR against `develop` with a clear description
 5. Reference any related issues
 

@@ -48,7 +48,8 @@ jobs:
 
           # Get last released version from git tags (strip 'v' prefix)
           # Falls back to 0.0.0 if no tags exist yet
-          BASE_VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+          # Note: pipe to sed swallows git describe exit code, so assign first then strip.
+          _RAW_TAG=$(git describe --tags --abbrev=0 2>/dev/null) && BASE_VERSION="${_RAW_TAG#v}" || BASE_VERSION="0.0.0"
 
           # Pre-release format: {base}-{stage}-{sha}  (e.g. 1.0.0-beta-abc1234)
           # Single hyphen separator avoids dot-ambiguity in Helm's SemVer parser

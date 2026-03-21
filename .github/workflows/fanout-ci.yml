@@ -111,6 +111,30 @@ jobs:
           target-branch: main
 
   # ================================================================
+  # SYNC DEVELOP - Merge main back to develop after every release
+  # Ensures develop always has a reachable release tag for git describe
+  # ================================================================
+  sync-develop:
+    needs: release-please
+    if: github.ref == 'refs/heads/main' && needs.release-please.outputs.release_created
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Merge main → develop
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout develop
+          git merge --no-ff main -m "chore: sync main → develop after ${{ needs.release-please.outputs.tag_name }} release"
+          git push origin develop
+
+  # ================================================================
   # RELEASE DOCKER - Build versioned Docker images on release
   # Tagged: {version} (e.g. 1.0.0) + latest
   # ================================================================

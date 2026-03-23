@@ -25,6 +25,7 @@ config:
   graphMigration: "auto"
   # Extractor plugins (Phase 25)
   pluginEnabled: "true"
+  # pluginSidecarUrl: "http://plugin-sidecar:8003/extract"
   pluginDir: "/app/plugins"
   # pluginTimeout: "10s"
   # S3 config (when nodeType=s3)

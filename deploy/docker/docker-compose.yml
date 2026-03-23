@@ -89,6 +89,26 @@ services:
       timeout: 5s
       retries: 5
 
+  plugin-sidecar:
+    build: ./plugin-sidecar
+    # No host port mappings — plugin-sidecar is internal only.
+    # Access via the emdexer-net Docker network (plugin-sidecar:8003).
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    volumes:
+      - ../../plugins:/plugins:ro
+    networks:
+      - emdexer-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   node:
     build:
       context: ../../
@@ -117,14 +137,15 @@ services:
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
       - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
-      - EMDEX_PLUGIN_DIR=${EMDEX_PLUGIN_DIR:-/app/plugins}
-      - EMDEX_PLUGIN_TIMEOUT=${EMDEX_PLUGIN_TIMEOUT:-10s}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     networks:
       - emdexer-net
     depends_on:
       extractous:
         condition: service_healthy
       whisper:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: always
     healthcheck:

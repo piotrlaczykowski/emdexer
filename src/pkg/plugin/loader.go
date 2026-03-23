@@ -2,11 +2,16 @@ package plugin
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"mime/multipart"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,6 +48,8 @@ func init() {
 	}
 }
 
+// ─── subprocess runner ───────────────────────────────────────────────────────
+
 // pythonPlugin wraps a single .py script as an ExtractorPlugin.
 type pythonPlugin struct {
 	name       string
@@ -51,7 +58,7 @@ type pythonPlugin struct {
 	timeout    time.Duration
 }
 
-func (p *pythonPlugin) Name() string       { return p.name }
+func (p *pythonPlugin) Name() string         { return p.name }
 func (p *pythonPlugin) Extensions() []string { return p.extensions }
 
 // Extract runs the Python script as a subprocess, passes file content via stdin
@@ -108,15 +115,119 @@ func (p *pythonPlugin) Extract(ctx context.Context, filename string, data []byte
 	return resp.Text, resp.Relations, nil
 }
 
-// LoadPlugins scans dir for *.py files, parses their # name: / # extensions:
-// metadata, and returns a slice of ready-to-use ExtractorPlugin values.
+// ─── HTTP sidecar client ─────────────────────────────────────────────────────
+
+// sidecarPlugin calls the plugin-sidecar HTTP service for a specific plugin.
+type sidecarPlugin struct {
+	name       string
+	extensions []string
+	extractURL string // full URL, e.g. http://plugin-sidecar:8003/extract
+	httpClient *http.Client
+}
+
+func (s *sidecarPlugin) Name() string         { return s.name }
+func (s *sidecarPlugin) Extensions() []string { return s.extensions }
+
+// Extract uploads the file to the plugin sidecar via multipart POST and
+// returns the JSON response {"text":..., "relations":[...]}.
+func (s *sidecarPlugin) Extract(ctx context.Context, filename string, data []byte) (string, []Relation, error) {
+	start := time.Now()
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("file", filename)
+	if err != nil {
+		return "", nil, fmt.Errorf("sidecar plugin %s: create form file: %w", s.name, err)
+	}
+	if _, err = fw.Write(data); err != nil {
+		return "", nil, fmt.Errorf("sidecar plugin %s: write form file: %w", s.name, err)
+	}
+	mw.Close()
+
+	reqURL := s.extractURL + "?plugin=" + url.QueryEscape(s.name)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, &body)
+	if err != nil {
+		return "", nil, fmt.Errorf("sidecar plugin %s: build request: %w", s.name, err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	resp, httpErr := s.httpClient.Do(req)
+
+	ext := strings.ToLower(filepath.Ext(filename))
+	status := "ok"
+	if httpErr != nil {
+		status = "error"
+	} else if resp.StatusCode >= 400 {
+		status = "error"
+	}
+	pluginCallsTotal.WithLabelValues(s.name, ext, status).Inc()
+	pluginDurationMs.WithLabelValues(s.name).Observe(float64(time.Since(start).Milliseconds()))
+
+	if httpErr != nil {
+		return "", nil, fmt.Errorf("sidecar plugin %s: HTTP request: %w", s.name, httpErr)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return "", nil, fmt.Errorf("sidecar plugin %s: server error %d: %s", s.name, resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+
+	var result struct {
+		Text      string     `json:"text"`
+		Relations []Relation `json:"relations"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", nil, fmt.Errorf("sidecar plugin %s: decode response: %w", s.name, err)
+	}
+
+	return result.Text, result.Relations, nil
+}
+
+// loadFromSidecar queries GET {base}/plugins to discover registered plugins
+// and returns one sidecarPlugin per entry.
 //
-// Returns nil, nil (no error) when:
-//   - Python is not available on PATH
-//   - dir does not exist
-//
-// If two plugins claim the same extension, last-loaded wins and a warning is logged.
-func LoadPlugins(dir string) ([]ExtractorPlugin, error) {
+// extractURL is the full /extract endpoint URL, e.g. http://plugin-sidecar:8003/extract.
+// The base URL is derived by stripping the "/extract" suffix.
+func loadFromSidecar(extractURL string) ([]ExtractorPlugin, error) {
+	baseURL := strings.TrimSuffix(extractURL, "/extract")
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	resp, err := client.Get(baseURL + "/plugins")
+	if err != nil {
+		return nil, fmt.Errorf("plugin sidecar: GET /plugins: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("plugin sidecar: GET /plugins returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var list []struct {
+		Name       string   `json:"name"`
+		Extensions []string `json:"extensions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		return nil, fmt.Errorf("plugin sidecar: decode /plugins: %w", err)
+	}
+
+	plugins := make([]ExtractorPlugin, 0, len(list))
+	for _, entry := range list {
+		plugins = append(plugins, &sidecarPlugin{
+			name:       entry.Name,
+			extensions: entry.Extensions,
+			extractURL: extractURL,
+			httpClient: client,
+		})
+		log.Printf("[plugin] sidecar: registered %s for %v", entry.Name, entry.Extensions)
+	}
+	return plugins, nil
+}
+
+// loadFromDir scans dir for *.py files, parses their metadata, and returns
+// pythonPlugin instances. Called when no sidecar URL is configured.
+func loadFromDir(dir string) ([]ExtractorPlugin, error) {
 	if pythonCmd == "" {
 		log.Printf("[plugin] Python not found on PATH — skipping plugin loading from %s", dir)
 		return nil, nil
@@ -179,6 +290,23 @@ func LoadPlugins(dir string) ([]ExtractorPlugin, error) {
 	}
 
 	return plugins, nil
+}
+
+// LoadPlugins returns a ready-to-use set of ExtractorPlugin values.
+//
+//   - If EMDEX_PLUGIN_SIDECAR_URL is set, plugins are discovered from the
+//     plugin-sidecar HTTP service at that URL (production path).
+//   - Otherwise the dir is scanned for *.py files and plugins are run as
+//     subprocesses (dev/testing path; requires Python on PATH).
+//
+// Returns nil, nil (no error) when no sidecar is configured and Python is
+// unavailable, or when dir does not exist.
+func LoadPlugins(dir string) ([]ExtractorPlugin, error) {
+	if url := os.Getenv("EMDEX_PLUGIN_SIDECAR_URL"); url != "" {
+		log.Printf("[plugin] Using sidecar at %s", url)
+		return loadFromSidecar(url)
+	}
+	return loadFromDir(dir)
 }
 
 // parsePluginMeta scans the first 30 lines of a Python plugin source for

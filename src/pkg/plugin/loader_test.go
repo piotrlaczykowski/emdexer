@@ -2,6 +2,9 @@ package plugin
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -143,6 +146,83 @@ if __name__ == '__main__':
 	}
 	if !names["Plugin A"] || !names["Plugin B"] {
 		t.Errorf("unexpected plugin names: %v", names)
+	}
+}
+
+// TestPluginClient_Sidecar verifies that loadFromSidecar discovers plugins from
+// GET /plugins and that the returned sidecarPlugin sends multipart POST /extract
+// requests and correctly parses the JSON response.
+func TestPluginClient_Sidecar(t *testing.T) {
+	// Fake sidecar server.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/plugins":
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]map[string]any{
+				{"name": "CSV Extractor", "extensions": []string{".csv"}},
+			})
+		case "/extract":
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"text":      "col1,col2",
+				"relations": []any{},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	// Point loadFromSidecar at the test server.
+	plugins, err := loadFromSidecar(srv.URL + "/extract")
+	if err != nil {
+		t.Fatalf("loadFromSidecar error: %v", err)
+	}
+	if len(plugins) != 1 {
+		t.Fatalf("expected 1 plugin from sidecar, got %d", len(plugins))
+	}
+	p := plugins[0]
+	if p.Name() != "CSV Extractor" {
+		t.Errorf("Name() = %q, want %q", p.Name(), "CSV Extractor")
+	}
+	if len(p.Extensions()) != 1 || p.Extensions()[0] != ".csv" {
+		t.Errorf("Extensions() = %v, want [.csv]", p.Extensions())
+	}
+
+	// Verify Extract calls /extract and parses the response.
+	text, rels, err := p.Extract(context.Background(), "data.csv", []byte("col1,col2\n1,2"))
+	if err != nil {
+		t.Fatalf("Extract error: %v", err)
+	}
+	if text != "col1,col2" {
+		t.Errorf("text = %q, want %q", text, "col1,col2")
+	}
+	if len(rels) != 0 {
+		t.Errorf("relations = %v, want empty", rels)
+	}
+}
+
+// TestPluginClient_FallbackToSubprocess verifies that when EMDEX_PLUGIN_SIDECAR_URL
+// is not set, LoadPlugins falls back to the subprocess path (loadFromDir).
+func TestPluginClient_FallbackToSubprocess(t *testing.T) {
+	// Ensure no sidecar URL is set.
+	t.Setenv("EMDEX_PLUGIN_SIDECAR_URL", "")
+
+	// With Python unavailable the subprocess path should return 0 plugins gracefully.
+	original := pythonCmd
+	pythonCmd = ""
+	defer func() { pythonCmd = original }()
+
+	dir := t.TempDir()
+	writePlugin(t, dir, "test_plugin.py", validPluginSrc)
+
+	plugins, err := LoadPlugins(dir)
+	if err != nil {
+		t.Fatalf("LoadPlugins error: %v", err)
+	}
+	// Subprocess path with no Python → 0 plugins, no error.
+	if len(plugins) != 0 {
+		t.Fatalf("expected 0 plugins (no Python, no sidecar), got %d", len(plugins))
 	}
 }
 

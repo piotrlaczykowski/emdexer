@@ -9,6 +9,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"github.com/piotrlaczykowski/emdexer/audit"
 	"github.com/piotrlaczykowski/emdexer/search"
 )
@@ -48,13 +50,13 @@ type HopAssessment struct {
 type SearchFn func(ctx context.Context, query string, vector []float32, limit uint64, namespace string) ([]search.Result, error)
 
 // EmbedFn is the embedding function signature used by the agentic loop.
-type EmbedFn func(text string) ([]float32, error)
+type EmbedFn func(ctx context.Context, text string) ([]float32, error)
 
 // AuditFn is the audit function signature used by the agentic loop.
 type AuditFn func(entry audit.Entry)
 
 // AssessFn is the LLM call used for hop assessment. Returns raw JSON matching HopAssessment.
-type AssessFn func(prompt, apiKey string) (string, error)
+type AssessFn func(ctx context.Context, prompt, apiKey string) (string, error)
 
 // RunAgenticLoop performs multi-hop retrieval starting from hop1Results.
 // It iteratively asks the LLM whether the accumulated context is sufficient,
@@ -74,32 +76,49 @@ func RunAgenticLoop(
 	const maxResultsPerHop = 5
 	const maxAccumulated = 20
 
+	ctx, loopSpan := otel.Tracer("emdexer").Start(ctx, "emdex.agentic.loop")
+	loopSpan.SetAttributes(
+		attribute.String("agentic.namespace", namespace),
+		attribute.Int("agentic.max_hops", cfg.MaxHops),
+	)
+	defer loopSpan.End()
+
 	accumulated := make([]search.Result, len(hop1Results))
 	copy(accumulated, hop1Results)
 	totalHops := 1
 
 	for hop := 2; hop <= cfg.MaxHops; hop++ {
+		hopCtx, hopSpan := otel.Tracer("emdexer").Start(ctx, "emdex.agentic.hop")
+		hopSpan.SetAttributes(attribute.Int("agentic.hop", hop))
+
 		contextStr := BuildContext(accumulated)
 		prompt := buildAssessmentPrompt(question, contextStr)
 
-		rawJSON, err := assessFn(prompt, apiKey)
+		rawJSON, err := assessFn(hopCtx, prompt, apiKey)
 		if err != nil {
 			log.Printf("[agentic] hop %d assessment error: %v — falling back to accumulated results", hop, err)
+			hopSpan.End()
 			break
 		}
 
 		var assessment HopAssessment
 		if err := json.Unmarshal([]byte(rawJSON), &assessment); err != nil {
 			log.Printf("[agentic] hop %d JSON parse error: %v — falling back to accumulated results", hop, err)
+			hopSpan.End()
 			break
 		}
 
 		agenticConfidenceScore.WithLabelValues(namespace).Observe(assessment.Confidence)
+		hopSpan.SetAttributes(
+			attribute.Float64("agentic.confidence", assessment.Confidence),
+			attribute.Bool("agentic.answer_ready", assessment.AnswerReady),
+		)
 
 		if assessment.AnswerReady || assessment.Confidence >= cfg.ConfidenceThreshold {
 			agenticEarlyStopTotal.WithLabelValues(namespace).Inc()
 			log.Printf("[agentic] early stop at hop %d, confidence=%.2f, answer_ready=%v",
 				hop, assessment.Confidence, assessment.AnswerReady)
+			hopSpan.End()
 			break
 		}
 
@@ -108,12 +127,12 @@ func RunAgenticLoop(
 			if followUpQuery == "" {
 				continue
 			}
-			vec, err := embedFn(followUpQuery)
+			vec, err := embedFn(hopCtx, followUpQuery)
 			if err != nil {
 				log.Printf("[agentic] hop %d embed error for follow-up %q: %v", hop, followUpQuery, err)
 				continue
 			}
-			r, err := searchFn(ctx, followUpQuery, vec, uint64(maxResultsPerHop), namespace)
+			r, err := searchFn(hopCtx, followUpQuery, vec, uint64(maxResultsPerHop), namespace)
 			if err != nil {
 				log.Printf("[agentic] hop %d search error for follow-up %q: %v", hop, followUpQuery, err)
 				continue
@@ -127,16 +146,17 @@ func RunAgenticLoop(
 			Namespace: namespace,
 			Results:   len(hopResults),
 			Metadata: map[string]interface{}{
-				"hop":              hop,
-				"confidence":       assessment.Confidence,
-				"follow_up_count":  len(assessment.FollowUpQueries),
-				"reasoning":        assessment.Reasoning,
+				"hop":             hop,
+				"confidence":      assessment.Confidence,
+				"follow_up_count": len(assessment.FollowUpQueries),
+				"reasoning":       assessment.Reasoning,
 			},
 		})
 
 		accumulated = mergeAgenticResults(accumulated, hopResults, maxAccumulated)
 		totalHops = hop
 		agenticHopsTotal.WithLabelValues(namespace).Inc()
+		hopSpan.End()
 	}
 
 	return accumulated, totalHops, nil

@@ -9,6 +9,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/qdrant/go-client/qdrant"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 var vectorSearchDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -63,6 +65,10 @@ type Result struct {
 }
 
 func SearchQdrant(ctx context.Context, pc qdrant.PointsClient, collection string, vector []float32, limit uint64, namespace string) ([]Result, error) {
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.search.vector")
+	span.SetAttributes(attribute.String("search.collection", collection), attribute.String("search.namespace", namespace))
+	defer span.End()
+
 	start := time.Now()
 	defer func() {
 		vectorSearchDuration.WithLabelValues(collection, namespace).Observe(float64(time.Since(start).Milliseconds()))
@@ -134,6 +140,10 @@ func SearchQdrant(ctx context.Context, pc qdrant.PointsClient, collection string
 // Both namespace and text filters are applied so results never cross tenant boundaries.
 // Scroll order is arbitrary; callers use rank position (not score) for RRF fusion.
 func BM25SearchQdrant(ctx context.Context, pc qdrant.PointsClient, collection string, query string, limit uint64, namespace string) ([]Result, error) {
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.search.bm25")
+	span.SetAttributes(attribute.String("search.collection", collection), attribute.String("search.namespace", namespace))
+	defer span.End()
+
 	start := time.Now()
 	defer func() {
 		bm25SearchDuration.WithLabelValues(collection, namespace).Observe(float64(time.Since(start).Milliseconds()))
@@ -223,6 +233,10 @@ func BM25SearchQdrant(ctx context.Context, pc qdrant.PointsClient, collection st
 // falls back to the vector-only results so search continues to work without
 // operator intervention.
 func HybridSearch(ctx context.Context, pc qdrant.PointsClient, collection string, query string, vector []float32, limit uint64, namespace string) ([]Result, error) {
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.search.hybrid")
+	span.SetAttributes(attribute.String("search.collection", collection), attribute.String("search.namespace", namespace))
+	defer span.End()
+
 	type leg struct {
 		results []Result
 		err     error

@@ -105,7 +105,7 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 			continue
 		}
 
-		vector, embErr := cfg.Embedder.Embed(chunk)
+		vector, embErr := cfg.Embedder.Embed(context.Background(), chunk)
 		if embErr != nil {
 			LogEmbeddingError(path, i, embErr)
 			continue

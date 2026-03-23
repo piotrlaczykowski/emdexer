@@ -25,7 +25,7 @@ func makeResults(ids ...uint64) []search.Result {
 
 func noopAudit(_ audit.Entry) {}
 
-func fixedEmbed(_ string) ([]float32, error) {
+func fixedEmbed(_ context.Context, _ string) ([]float32, error) {
 	return []float32{0.1, 0.2, 0.3}, nil
 }
 
@@ -42,7 +42,7 @@ func TestEarlyStop(t *testing.T) {
 	hop1 := makeResults(1, 2, 3)
 
 	assessCallCount := 0
-	assessFn := func(_, _ string) (string, error) {
+	assessFn := func(_ context.Context, _, _ string) (string, error) {
 		assessCallCount++
 		return `{"confidence":0.9,"answer_ready":true,"follow_up_queries":[],"reasoning":"sufficient"}`, nil
 	}
@@ -79,7 +79,7 @@ func TestMaxHops(t *testing.T) {
 	cfg := AgenticConfig{Enabled: true, MaxHops: 3, ConfidenceThreshold: 0.7}
 	hop1 := makeResults(1, 2)
 
-	assessFn := func(_, _ string) (string, error) {
+	assessFn := func(_ context.Context, _, _ string) (string, error) {
 		return `{"confidence":0.3,"answer_ready":false,"follow_up_queries":["more info"],"reasoning":"not enough"}`, nil
 	}
 
@@ -100,7 +100,7 @@ func TestNamespaceIsolation(t *testing.T) {
 	hop1 := makeResults(1)
 	const wantNS = "isolated-ns"
 
-	assessFn := func(_, _ string) (string, error) {
+	assessFn := func(_ context.Context, _, _ string) (string, error) {
 		return `{"confidence":0.3,"answer_ready":false,"follow_up_queries":["follow-up query"],"reasoning":"need more"}`, nil
 	}
 
@@ -126,7 +126,7 @@ func TestFallbackOnError(t *testing.T) {
 	cfg := AgenticConfig{Enabled: true, MaxHops: 3, ConfidenceThreshold: 0.7}
 	hop1 := makeResults(1, 2, 3)
 
-	assessFn := func(_, _ string) (string, error) {
+	assessFn := func(_ context.Context, _, _ string) (string, error) {
 		return "", errors.New("LLM unavailable")
 	}
 

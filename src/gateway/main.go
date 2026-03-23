@@ -26,7 +26,10 @@ import (
 	"github.com/piotrlaczykowski/emdexer/rag"
 	"github.com/piotrlaczykowski/emdexer/registry"
 	"github.com/piotrlaczykowski/emdexer/search"
+	"github.com/piotrlaczykowski/emdexer/telemetry"
 	"github.com/piotrlaczykowski/emdexer/version"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -204,6 +207,9 @@ func (s *Server) graphExpandResults(ctx context.Context, results []search.Result
 		return results
 	}
 
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.graph.expand")
+	defer span.End()
+
 	sourceFiles := uniquePaths(results)
 	neighborSet := make(map[string]bool)
 	for _, file := range sourceFiles {
@@ -238,6 +244,12 @@ func (s *Server) graphExpandResults(ctx context.Context, results []search.Result
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	// Extract W3C Trace Context from incoming headers and create root span.
+	ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.search")
+	defer span.End()
+	r = r.WithContext(ctx)
+
 	start := time.Now()
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -278,7 +290,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vector, err := s.embedder.Embed(query)
+	vector, err := s.embedder.Embed(r.Context(), query)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("embedding error: %v", err), http.StatusInternalServerError)
 		return
@@ -366,6 +378,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	// Extract W3C Trace Context from incoming headers and create root span.
+	ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.chat")
+	defer span.End()
+	r = r.WithContext(ctx)
+
 	start := time.Now()
 
 	if r.Method != http.MethodPost {
@@ -425,7 +443,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vector, err := s.embedder.Embed(question)
+	vector, err := s.embedder.Embed(r.Context(), question)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("embedding error: %v", err), http.StatusBadGateway)
 		audit.Log(audit.Entry{
@@ -546,7 +564,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	} else {
 		finalPrompt = fmt.Sprintf("Answer the question using the consolidated context.\n\nContext:\n%s\n\nQuestion: %s", contextStr, question)
 	}
-	eval, err := llm.CallGemini(finalPrompt, s.apiKey)
+	eval, err := llm.CallGemini(r.Context(), finalPrompt, s.apiKey)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("LLM error: %v", err), http.StatusBadGateway)
 		audit.Log(audit.Entry{
@@ -643,6 +661,19 @@ func (s *Server) handleWhoami(w http.ResponseWriter, r *http.Request) {
 func main() {
 	cwd, _ := os.Getwd()
 	config.LoadEnv(filepath.Join(cwd, ".env"))
+
+	// OpenTelemetry — no-op when EMDEX_OTEL_ENDPOINT is unset.
+	otelServiceName := os.Getenv("EMDEX_OTEL_SERVICE_NAME")
+	if otelServiceName == "" {
+		otelServiceName = "emdex-gateway"
+	}
+	otelShutdown, err := telemetry.InitTracer(otelServiceName, os.Getenv("EMDEX_OTEL_ENDPOINT"))
+	if err != nil {
+		log.Printf("[gateway] WARN: OpenTelemetry init failed: %v — tracing disabled", err)
+		otelShutdown = func() {}
+	} else if ep := os.Getenv("EMDEX_OTEL_ENDPOINT"); ep != "" {
+		log.Printf("[gateway] OpenTelemetry tracing enabled: endpoint=%s service=%s", ep, otelServiceName)
+	}
 
 	apiKey := os.Getenv("GOOGLE_API_KEY")
 	qdrantHost := os.Getenv("QDRANT_HOST")
@@ -841,5 +872,6 @@ func main() {
 	}
 
 	audit.Shutdown()
+	otelShutdown()
 	log.Printf("[gateway] Shutdown complete")
 }

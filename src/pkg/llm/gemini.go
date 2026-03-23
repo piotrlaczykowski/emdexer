@@ -2,6 +2,7 @@ package llm
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"github.com/piotrlaczykowski/emdexer/safenet"
 )
 
@@ -56,8 +59,12 @@ type GeminiResponse struct {
 	Candidates []GeminiCandidate `json:"candidates"`
 }
 
-func CallGemini(prompt, apiKey string) (string, error) {
+func CallGemini(ctx context.Context, prompt, apiKey string) (string, error) {
 	model := llmModel()
+
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.llm.generate")
+	span.SetAttributes(attribute.String("llm.model", model))
+	defer span.End()
 
 	start := time.Now()
 	result, err := callGemini(prompt, apiKey, model)
@@ -70,8 +77,13 @@ func CallGemini(prompt, apiKey string) (string, error) {
 
 // CallGeminiStructured calls Gemini with JSON mode enabled (responseMimeType: application/json).
 // The response is guaranteed to be valid JSON. The caller is responsible for unmarshalling.
-func CallGeminiStructured(prompt, apiKey string) (string, error) {
+func CallGeminiStructured(ctx context.Context, prompt, apiKey string) (string, error) {
 	model := llmModel()
+
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.llm.structured")
+	span.SetAttributes(attribute.String("llm.model", model))
+	defer span.End()
+
 	start := time.Now()
 	result, err := callGeminiWithConfig(prompt, apiKey, model, &GeminiGenerationConfig{
 		ResponseMIMEType: "application/json",

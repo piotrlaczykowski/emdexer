@@ -7,10 +7,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/piotrlaczykowski/emdexer/audit"
@@ -274,14 +276,21 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writeJSON(w, http.StatusOK, resp)
 
-	audit.Log(audit.Entry{
+	auditEntry := audit.Entry{
 		Action:    "search",
 		Query:     query,
 		Namespace: requestedNamespace,
 		Results:   len(results),
 		LatencyMS: time.Since(start).Milliseconds(),
 		Status:    http.StatusOK,
-	})
+	}
+	if claims, ok := auth.GetUserClaims(r); ok {
+		auditEntry.User = claims.Subject
+	}
+	if isGlobal {
+		auditEntry.Metadata = map[string]interface{}{"namespaces_searched": namespaces}
+	}
+	audit.Log(auditEntry)
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -296,6 +305,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
+	}
+
+	var user string
+	if claims, ok := auth.GetUserClaims(r); ok {
+		user = claims.Subject
 	}
 
 	var req openai.ChatRequest
@@ -344,6 +358,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("embedding error: %v", err), http.StatusBadGateway)
 		audit.Log(audit.Entry{
 			Action:    "chat",
+			User:      user,
 			Query:     question,
 			Namespace: requestedNamespace,
 			LatencyMS: time.Since(start).Milliseconds(),
@@ -369,6 +384,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
 			audit.Log(audit.Entry{
 				Action:    "chat",
+				User:      user,
 				Query:     question,
 				Namespace: requestedNamespace,
 				LatencyMS: time.Since(start).Milliseconds(),
@@ -390,6 +406,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
 			audit.Log(audit.Entry{
 				Action:    "chat",
+				User:      user,
 				Query:     question,
 				Namespace: requestedNamespace,
 				LatencyMS: time.Since(start).Milliseconds(),
@@ -420,6 +437,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("LLM error: %v", err), http.StatusBadGateway)
 		audit.Log(audit.Entry{
 			Action:    "chat",
+			User:      user,
 			Query:     question,
 			Namespace: requestedNamespace,
 			Results:   len(results),
@@ -438,14 +456,19 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	audit.Log(audit.Entry{
+	chatEntry := audit.Entry{
 		Action:    "chat",
+		User:      user,
 		Query:     question,
 		Namespace: requestedNamespace,
 		Results:   len(results),
 		LatencyMS: time.Since(start).Milliseconds(),
 		Status:    http.StatusOK,
-	})
+	}
+	if isGlobal {
+		chatEntry.Metadata = map[string]interface{}{"namespaces_searched": namespaces}
+	}
+	audit.Log(chatEntry)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -636,7 +659,24 @@ func main() {
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("gateway server error: %v", err)
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("gateway server error: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	<-quit
+	log.Printf("[gateway] Shutting down...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("[gateway] HTTP shutdown error: %v", err)
 	}
+
+	audit.Shutdown()
+	log.Printf("[gateway] Shutdown complete")
 }

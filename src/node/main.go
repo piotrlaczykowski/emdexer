@@ -16,6 +16,7 @@ import (
 	"github.com/piotrlaczykowski/emdexer/extract"
 	"github.com/piotrlaczykowski/emdexer/extractor"
 	"github.com/piotrlaczykowski/emdexer/nodereg"
+	"github.com/piotrlaczykowski/emdexer/registry"
 	"github.com/piotrlaczykowski/emdexer/health"
 	"github.com/piotrlaczykowski/emdexer/indexer"
 	"github.com/piotrlaczykowski/emdexer/queue"
@@ -250,6 +251,9 @@ func main() {
 			},
 		})
 	}
+
+	// Ensure full-text payload indexes exist for hybrid (BM25 + vector) search.
+	registry.EnsureTextIndexes(globalCtx, globalPointsClient, globalCfg.CollectionName)
 
 	// Closure that delegates to the extracted search.DeletePointsByPath,
 	// capturing the global context, client, and collection name.

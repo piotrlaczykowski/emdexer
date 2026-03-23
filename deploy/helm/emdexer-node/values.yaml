@@ -10,10 +10,22 @@ config:
   namespace: "default"
   mountPath: "/data"
   extractousHost: "http://extractous:8000"
-  # Whisper sidecar (audio/video transcription)
+  # Multi-Modal Hardening (Phase 26)
+  # Track 1 — Whisper (audio/video transcription)
+  whisperEnabled: "false"
   whisperUrl: "http://whisper:8080"
   whisperModel: "base"
+  whisperMinChars: "50"
+  whisperLanguage: ""
   enableOcr: "true"
+  # Track 2 — Gemini Vision (image captioning)
+  visionEnabled: "false"
+  visionMaxSizeMB: "10"
+  # Track 3 — FFmpeg (video frame extraction)
+  frameEnabled: "false"
+  ffmpegUrl: ""
+  frameIntervalSec: "30"
+  maxFrames: "10"
   deltaEnabled: "1"
   fullHash: "0"
   # VFS backend: local | smb | sftp | nfs | s3

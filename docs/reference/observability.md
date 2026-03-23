@@ -20,6 +20,19 @@ The gateway and node expose a Prometheus `/metrics` endpoint on their respective
 | `emdexer_gateway_rrf_top_vector_hits_total` | `collection`, `namespace` | Results from vector leg only |
 | `emdexer_gateway_rrf_top_bm25_hits_total` | `collection`, `namespace` | Results from BM25 leg only |
 
+### Node Metrics
+
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `emdexer_node_whisper_retries_total` | — | HTTP 503 retry count against the Whisper sidecar |
+| `emdexer_node_whisper_skipped_short_total` | — | Transcripts discarded for being below `EMDEX_WHISPER_MIN_CHARS` |
+| `emdexer_node_audio_skipped_total` | — | Audio files skipped because `EMDEX_WHISPER_ENABLED=false` |
+| `emdexer_node_vision_calls_total` | `status` (`ok`/`error`/`skipped_size`) | Gemini Vision API call outcomes |
+| `emdexer_node_vision_duration_ms` | — | Gemini Vision API latency histogram (ms) |
+| `emdexer_node_frames_extracted_total` | — | Total frames extracted across all videos |
+| `emdexer_node_frames_duration_ms` | — | FFmpeg sidecar call latency histogram (ms) |
+| `emdexer_node_video_skipped_total` | — | Videos skipped because no extractor was enabled |
+
 ---
 
 ## Audit Logs

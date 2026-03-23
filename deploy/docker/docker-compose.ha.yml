@@ -320,9 +320,21 @@ services:
       - EMDEX_NAMESPACE=default
       - NODE_HEALTH_PORT=8081
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
+      # ── Audio/Video transcription (Track 1) ──────────────────
+      # - EMDEX_WHISPER_ENABLED=true
       - EMDEX_WHISPER_URL=${EMDEX_WHISPER_URL:-http://whisper:8080}
       - EMDEX_WHISPER_MODEL=${EMDEX_WHISPER_MODEL:-base}
+      # - EMDEX_WHISPER_MIN_CHARS=50
+      # - EMDEX_WHISPER_LANGUAGE=
       - EMDEX_ENABLE_OCR=${EMDEX_ENABLE_OCR:-true}
+      # ── Gemini Vision image captioning (Track 2) ─────────────
+      # - EMDEX_VISION_ENABLED=true
+      # - EMDEX_VISION_MAX_SIZE_MB=10
+      # ── FFmpeg video frame extraction (Track 3) ──────────────
+      # - EMDEX_FRAME_ENABLED=true
+      # - EMDEX_FFMPEG_URL=http://ffmpeg-sidecar:8004
+      # - EMDEX_FRAME_INTERVAL_SEC=30
+      # - EMDEX_MAX_FRAMES=10
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
@@ -368,9 +380,21 @@ services:
       - SMB_PASS=${SMB_PASS}
       - NODE_HEALTH_PORT=8082
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
+      # ── Audio/Video transcription (Track 1) ──────────────────
+      # - EMDEX_WHISPER_ENABLED=true
       - EMDEX_WHISPER_URL=${EMDEX_WHISPER_URL:-http://whisper:8080}
       - EMDEX_WHISPER_MODEL=${EMDEX_WHISPER_MODEL:-base}
+      # - EMDEX_WHISPER_MIN_CHARS=50
+      # - EMDEX_WHISPER_LANGUAGE=
       - EMDEX_ENABLE_OCR=${EMDEX_ENABLE_OCR:-true}
+      # ── Gemini Vision image captioning (Track 2) ─────────────
+      # - EMDEX_VISION_ENABLED=true
+      # - EMDEX_VISION_MAX_SIZE_MB=10
+      # ── FFmpeg video frame extraction (Track 3) ──────────────
+      # - EMDEX_FRAME_ENABLED=true
+      # - EMDEX_FFMPEG_URL=http://ffmpeg-sidecar:8004
+      # - EMDEX_FRAME_INTERVAL_SEC=30
+      # - EMDEX_MAX_FRAMES=10
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
@@ -415,9 +439,21 @@ services:
       - SFTP_PASS=${SFTP_PASS}
       - NODE_HEALTH_PORT=8083
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
+      # ── Audio/Video transcription (Track 1) ──────────────────
+      # - EMDEX_WHISPER_ENABLED=true
       - EMDEX_WHISPER_URL=${EMDEX_WHISPER_URL:-http://whisper:8080}
       - EMDEX_WHISPER_MODEL=${EMDEX_WHISPER_MODEL:-base}
+      # - EMDEX_WHISPER_MIN_CHARS=50
+      # - EMDEX_WHISPER_LANGUAGE=
       - EMDEX_ENABLE_OCR=${EMDEX_ENABLE_OCR:-true}
+      # ── Gemini Vision image captioning (Track 2) ─────────────
+      # - EMDEX_VISION_ENABLED=true
+      # - EMDEX_VISION_MAX_SIZE_MB=10
+      # ── FFmpeg video frame extraction (Track 3) ──────────────
+      # - EMDEX_FRAME_ENABLED=true
+      # - EMDEX_FFMPEG_URL=http://ffmpeg-sidecar:8004
+      # - EMDEX_FRAME_INTERVAL_SEC=30
+      # - EMDEX_MAX_FRAMES=10
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}

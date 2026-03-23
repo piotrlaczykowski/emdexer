@@ -21,6 +21,12 @@ config:
   # Gateway registration (optional)
   gatewayUrl: ""
   gatewayAuthKey: ""
+  # Graph-RAG migration (Phase 24)
+  graphMigration: "auto"
+  # Extractor plugins (Phase 25)
+  pluginEnabled: "true"
+  pluginDir: "/app/plugins"
+  # pluginTimeout: "10s"
   # S3 config (when nodeType=s3)
   s3Endpoint: ""
   s3AccessKey: ""

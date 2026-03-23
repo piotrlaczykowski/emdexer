@@ -134,6 +134,9 @@ services:
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_POLL_INTERVAL=${EMDEX_POLL_INTERVAL:-60s}
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
+      - EMDEX_PLUGIN_DIR=${EMDEX_PLUGIN_DIR:-/app/plugins}
+      - EMDEX_PLUGIN_TIMEOUT=${EMDEX_PLUGIN_TIMEOUT:-10s}
     volumes:
       # Replace ./docs-data with your actual documents directory
       - ${DOCS_DATA_PATH:-./docs-data}:/app/data:ro
@@ -183,6 +186,9 @@ services:
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_POLL_INTERVAL=${EMDEX_POLL_INTERVAL:-60s}
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
+      - EMDEX_PLUGIN_DIR=${EMDEX_PLUGIN_DIR:-/app/plugins}
+      - EMDEX_PLUGIN_TIMEOUT=${EMDEX_PLUGIN_TIMEOUT:-10s}
     volumes:
       # Replace ./code-data with your actual source directory
       - ${CODE_DATA_PATH:-./code-data}:/app/data:ro

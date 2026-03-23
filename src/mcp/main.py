@@ -188,6 +188,68 @@ def get_file_relations(path: str, namespace: str = "default", depth: int = 1, ct
 
 
 @mcp.tool()
+def list_plugins(ctx: Context = None) -> str | PrefabApp:
+    """List all active extractor plugins registered on the node, including the file extensions they handle."""
+    plugin_dir = os.getenv("EMDEX_PLUGIN_DIR", "./plugins")
+    plugin_enabled = os.getenv("EMDEX_PLUGIN_ENABLED", "true").lower()
+
+    if plugin_enabled == "false":
+        msg = "Plugin system is disabled (EMDEX_PLUGIN_ENABLED=false)."
+        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
+
+    if not os.path.isdir(plugin_dir):
+        msg = f"Plugin directory not found: `{plugin_dir}`"
+        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
+
+    plugins = []
+    for fname in sorted(os.listdir(plugin_dir)):
+        if not fname.endswith(".py"):
+            continue
+        fpath = os.path.join(plugin_dir, fname)
+        name, exts = "", []
+        try:
+            with open(fpath, encoding="utf-8", errors="replace") as f:
+                for i, line in enumerate(f):
+                    if i >= 30:
+                        break
+                    line = line.strip()
+                    if not line.startswith("#"):
+                        continue
+                    if line.startswith("# name:"):
+                        name = line[len("# name:"):].strip()
+                    elif line.startswith("# extensions:"):
+                        exts = [e.strip() for e in line[len("# extensions:"):].split(",") if e.strip()]
+        except OSError:
+            continue
+        if name and exts:
+            plugins.append({"file": fname, "name": name, "extensions": ", ".join(exts)})
+
+    if not plugins:
+        msg = f"No valid plugins found in `{plugin_dir}`."
+        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
+
+    if is_gui(ctx):
+        return PrefabApp(
+            children=[
+                DataTable(
+                    columns=[
+                        DataTableColumn(key="name", label="Plugin"),
+                        DataTableColumn(key="extensions", label="Extensions"),
+                        DataTableColumn(key="file", label="File"),
+                    ],
+                    data=plugins,
+                )
+            ]
+        )
+
+    lines = ["### Active Extractor Plugins", "", "| Plugin | Extensions | File |", "|--------|-----------|------|"]
+    for p in plugins:
+        lines.append(f"| {p['name']} | `{p['extensions']}` | `{p['file']}` |")
+    lines.append(f"\nPlugin directory: `{plugin_dir}`")
+    return "\n".join(lines)
+
+
+@mcp.tool()
 def system_status(ctx: Context = None) -> str | PrefabApp:
     """Display EMDEX gateway health and active nodes."""
     try:

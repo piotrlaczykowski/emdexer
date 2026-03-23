@@ -1,0 +1,79 @@
+groups:
+  - name: emdexer_search
+    interval: 1m
+    rules:
+
+      # ────────────────────────────────────────────────────────────────────────
+      # HighBM25Latency
+      # Fires when the average BM25 latency exceeds 2× the average vector
+      # latency over the same collection+namespace in the last 5 minutes.
+      # This usually means the Qdrant full-text index is missing and Qdrant
+      # is performing a slow full-collection scan for text matches.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: HighBM25Latency
+        expr: |
+          (
+            rate(emdexer_gateway_search_bm25_duration_ms_sum[5m])
+            /
+            rate(emdexer_gateway_search_bm25_duration_ms_count[5m])
+          )
+          >
+          2 * (
+            rate(emdexer_gateway_search_vector_duration_ms_sum[5m])
+            /
+            rate(emdexer_gateway_search_vector_duration_ms_count[5m])
+          )
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "BM25 search is more than 2× slower than vector search"
+          description: >
+            Collection {{ $labels.collection }} namespace {{ $labels.namespace }}:
+            BM25 avg latency {{ $value | humanizeDuration }} exceeds 2× vector latency.
+            Likely cause: missing full-text index on the 'text' field.
+            Fix: restart the emdex-node to trigger EnsureTextIndexes(), or create
+            the index manually via the Qdrant REST API.
+
+      # ────────────────────────────────────────────────────────────────────────
+      # BM25IndexFailure
+      # Fires when BM25 returns 0 results more than 50 times in 5 minutes.
+      # A sudden spike indicates the full-text index may have been dropped,
+      # the 'text' payload field is missing, or a namespace mismatch.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: BM25IndexFailure
+        expr: |
+          increase(emdexer_gateway_bm25_zero_results_total[5m]) > 50
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "BM25 returning 0 results — possible index issue"
+          description: >
+            Collection {{ $labels.collection }} namespace {{ $labels.namespace }}:
+            BM25 returned 0 results {{ $value | humanize }} times in the last 5 minutes.
+            Possible causes:
+            - Full-text index missing on the 'text' field
+            - Documents indexed without a 'text' payload field
+            - All queries contain only stop-words
+            Check gateway logs for: [search] BM25 returned 0 results
+
+      # ────────────────────────────────────────────────────────────────────────
+      # HybridFallbackActive
+      # Fires immediately when any hybrid search falls back to vector-only
+      # due to a BM25 error. This means BM25 is failing, not just empty —
+      # Qdrant returned an error (e.g., index not found, connection issue).
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: HybridFallbackActive
+        expr: |
+          increase(emdexer_gateway_bm25_fallback_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hybrid search falling back to vector-only"
+          description: >
+            Collection {{ $labels.collection }} namespace {{ $labels.namespace }}:
+            BM25 leg is returning errors — hybrid search has fallen back to
+            vector-only results. Search is degraded but still functional.
+            Check gateway logs for: [search] BM25 failed for collection

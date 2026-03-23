@@ -37,6 +37,34 @@ This guide covers common issues encountered when deploying, configuring, or usin
 2. **Sidecar URL:** Verify `EMDEX_WHISPER_URL` is correct (e.g., `http://whisper:8080`).
 3. **Model Size:** If using a `large` model on low-resource hardware, switch to `base` or `small` via `EMDEX_WHISPER_MODEL`.
 
+### Extractous Sidecar Not Reachable
+
+**Symptoms:**
+- Node logs: `cb open` — the circuit breaker has opened after 5 consecutive extraction failures.
+- Node logs: `extraction failed for <file>: ...` — individual file extraction errors.
+- PDFs, DOCX, XLSX, and images are indexed with empty text.
+
+**Fixes:**
+1. **Check sidecar health:**
+   ```bash
+   docker compose exec node wget -qO- http://extractous:8000/health
+   # Expected: {"status":"ok"}
+   ```
+2. **Check sidecar logs:**
+   ```bash
+   docker compose logs extractous --tail=50
+   ```
+3. **Verify env var** — `EMDEX_EXTRACTOUS_URL` must point to the sidecar (default: `http://localhost:8000/extract`). Check it is NOT set to the old variable name `EXTRACTOUS_HOST`.
+4. **Circuit breaker recovery** — If the sidecar was temporarily down, the circuit resets automatically after 5 minutes. Restart the node to force immediate retry.
+5. **Rebuild the sidecar** if Python dependencies changed:
+   ```bash
+   docker compose build extractous --no-cache && docker compose up -d extractous
+   ```
+
+See [INFRASTRUCTURE.md](../INFRASTRUCTURE.md#extractous-sidecar) for the full sidecar reference.
+
+---
+
 ### OCR Not Working
 **Symptoms:**
 - Images are indexed but their content is missing or shows only metadata.
@@ -44,7 +72,7 @@ This guide covers common issues encountered when deploying, configuring, or usin
 
 **Fixes:**
 1. **Enable Flag:** Ensure `EMDEX_ENABLE_OCR=true` is set on the node.
-2. **Extractous Health:** Check if the Extractous sidecar is healthy (`EMDEX_EXTRACTOUS_URL`).
+2. **Extractous Health:** See "Extractous Sidecar Not Reachable" above.
 3. **Tesseract Data:** Ensure the Extractous container has the necessary Tesseract language data installed for the documents you are indexing.
 
 ---

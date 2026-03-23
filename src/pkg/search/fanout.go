@@ -6,8 +6,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/qdrant/go-client/qdrant"
 )
+
+var fanoutPartialFailures = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_fanout_partial_failures_total",
+	Help: "Number of namespace legs that failed during a fan-out search",
+}, []string{"namespace"})
 
 // FanOutSearch runs parallel Qdrant searches across multiple namespaces and merges via RRF.
 // It returns partial results even when some namespaces fail (partial failures preferred over 504).
@@ -38,6 +45,7 @@ func FanOutSearch(ctx context.Context, pc qdrant.PointsClient, collection string
 			if nsErr != nil {
 				log.Printf("[search] namespace %q fan-out error: %v", ns, nsErr)
 				failedNS = append(failedNS, ns)
+				fanoutPartialFailures.WithLabelValues(ns).Inc()
 				return
 			}
 			perNS[ns] = nsResults
@@ -74,6 +82,7 @@ func FanOutHybridSearch(ctx context.Context, pc qdrant.PointsClient, collection 
 			if nsErr != nil {
 				log.Printf("[search] namespace %q hybrid fan-out error: %v", ns, nsErr)
 				failedNS = append(failedNS, ns)
+				fanoutPartialFailures.WithLabelValues(ns).Inc()
 				return
 			}
 			perNS[ns] = nsResults

@@ -7,10 +7,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/piotrlaczykowski/emdexer/audit"
@@ -24,12 +26,29 @@ import (
 	"github.com/piotrlaczykowski/emdexer/registry"
 	"github.com/piotrlaczykowski/emdexer/search"
 	"github.com/piotrlaczykowski/emdexer/version"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
+
+var searchEmptyResults = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_search_empty_results_total",
+	Help: "Number of search requests that returned zero results",
+}, []string{"namespace", "mode"})
+
+var topologyNamespacesKnown = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "emdexer_gateway_topology_namespaces_known",
+	Help: "Number of namespaces currently known from the node registry",
+})
+
+var topologyNodesKnown = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "emdexer_gateway_topology_nodes_known",
+	Help: "Number of nodes currently known from the node registry",
+})
 
 type Server struct {
 	reg          registry.NodeRegistry
@@ -79,6 +98,8 @@ func (s *Server) refreshTopology() {
 	s.topoMu.Lock()
 	s.nsTopology = topo
 	s.topoMu.Unlock()
+	topologyNamespacesKnown.Set(float64(len(topo)))
+	topologyNodesKnown.Set(float64(len(nodes)))
 	log.Printf("[topology] Refreshed: %d namespaces across %d nodes", len(topo), len(nodes))
 }
 
@@ -235,6 +256,14 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if len(results) == 0 {
+		mode := "vector"
+		if s.bm25Enabled {
+			mode = "hybrid"
+		}
+		searchEmptyResults.WithLabelValues(requestedNamespace, mode).Inc()
+	}
+
 	resp := map[string]interface{}{
 		"query":   query,
 		"results": results,
@@ -247,17 +276,26 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writeJSON(w, http.StatusOK, resp)
 
-	audit.Log(audit.Entry{
+	auditEntry := audit.Entry{
 		Action:    "search",
 		Query:     query,
 		Namespace: requestedNamespace,
 		Results:   len(results),
 		LatencyMS: time.Since(start).Milliseconds(),
 		Status:    http.StatusOK,
-	})
+	}
+	if claims, ok := auth.GetUserClaims(r); ok {
+		auditEntry.User = claims.Subject
+	}
+	if isGlobal {
+		auditEntry.Metadata = map[string]interface{}{"namespaces_searched": namespaces}
+	}
+	audit.Log(auditEntry)
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -267,6 +305,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
+	}
+
+	var user string
+	if claims, ok := auth.GetUserClaims(r); ok {
+		user = claims.Subject
 	}
 
 	var req openai.ChatRequest
@@ -313,6 +356,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	vector, err := s.embedder.Embed(question)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("embedding error: %v", err), http.StatusBadGateway)
+		audit.Log(audit.Entry{
+			Action:    "chat",
+			User:      user,
+			Query:     question,
+			Namespace: requestedNamespace,
+			LatencyMS: time.Since(start).Milliseconds(),
+			Status:    http.StatusBadGateway,
+		})
 		return
 	}
 
@@ -331,6 +382,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
+			audit.Log(audit.Entry{
+				Action:    "chat",
+				User:      user,
+				Query:     question,
+				Namespace: requestedNamespace,
+				LatencyMS: time.Since(start).Milliseconds(),
+				Status:    http.StatusBadGateway,
+			})
 			return
 		}
 		for i := range results {
@@ -345,6 +404,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
+			audit.Log(audit.Entry{
+				Action:    "chat",
+				User:      user,
+				Query:     question,
+				Namespace: requestedNamespace,
+				LatencyMS: time.Since(start).Milliseconds(),
+				Status:    http.StatusBadGateway,
+			})
 			return
 		}
 		if len(failedNS) > 0 {
@@ -368,6 +435,15 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	eval, err := llm.CallGemini(finalPrompt, s.apiKey)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("LLM error: %v", err), http.StatusBadGateway)
+		audit.Log(audit.Entry{
+			Action:    "chat",
+			User:      user,
+			Query:     question,
+			Namespace: requestedNamespace,
+			Results:   len(results),
+			LatencyMS: time.Since(start).Milliseconds(),
+			Status:    http.StatusBadGateway,
+		})
 		return
 	}
 
@@ -379,6 +455,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			Choices: []openai.ChatChoice{{Message: openai.ChatMessage{Role: "assistant", Content: eval}}},
 		})
 	}
+
+	chatEntry := audit.Entry{
+		Action:    "chat",
+		User:      user,
+		Query:     question,
+		Namespace: requestedNamespace,
+		Results:   len(results),
+		LatencyMS: time.Since(start).Milliseconds(),
+		Status:    http.StatusOK,
+	}
+	if isGlobal {
+		chatEntry.Metadata = map[string]interface{}{"namespaces_searched": namespaces}
+	}
+	audit.Log(chatEntry)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -569,7 +659,24 @@ func main() {
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("gateway server error: %v", err)
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("gateway server error: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	<-quit
+	log.Printf("[gateway] Shutting down...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("[gateway] HTTP shutdown error: %v", err)
 	}
+
+	audit.Shutdown()
+	log.Printf("[gateway] Shutdown complete")
 }

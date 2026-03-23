@@ -11,17 +11,45 @@ import (
 	"github.com/qdrant/go-client/qdrant"
 )
 
-var searchLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
-	Name:    "emdexer_gateway_search_latency_ms",
-	Help:    "Latency of Qdrant search in milliseconds",
+var vectorSearchDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "emdexer_gateway_search_vector_duration_ms",
+	Help:    "Latency of Qdrant vector search in milliseconds",
 	Buckets: []float64{10, 50, 100, 200, 500, 1000, 2000, 5000},
-}, []string{"collection"})
+}, []string{"collection", "namespace"})
 
-var bm25Latency = promauto.NewHistogramVec(prometheus.HistogramOpts{
-	Name:    "emdexer_gateway_bm25_latency_ms",
+var bm25SearchDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "emdexer_gateway_search_bm25_duration_ms",
 	Help:    "Latency of BM25 keyword scroll search in milliseconds",
 	Buckets: []float64{10, 50, 100, 200, 500, 1000, 2000, 5000},
-}, []string{"collection"})
+}, []string{"collection", "namespace"})
+
+var hybridTotalDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "emdexer_gateway_search_hybrid_total_ms",
+	Help:    "End-to-end latency of HybridSearch (both legs + RRF merge) in milliseconds",
+	Buckets: []float64{10, 50, 100, 200, 500, 1000, 2000, 5000},
+}, []string{"collection", "namespace"})
+
+// RRF hit-distribution counters: how many of the returned top-N results came
+// from the vector leg only, the BM25 leg only, or both legs (overlap).
+var rrfVectorHits = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_rrf_top_vector_hits_total",
+	Help: "Number of returned results sourced exclusively from the vector leg",
+}, []string{"collection", "namespace"})
+
+var rrfBM25Hits = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_rrf_top_bm25_hits_total",
+	Help: "Number of returned results sourced exclusively from the BM25 leg",
+}, []string{"collection", "namespace"})
+
+var rrfBothLegsHits = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_rrf_top_both_legs_hits_total",
+	Help: "Number of returned results that appeared in both vector and BM25 legs (overlap)",
+}, []string{"collection", "namespace"})
+
+var bm25Fallbacks = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_bm25_fallback_total",
+	Help: "Number of times HybridSearch fell back to vector-only due to a BM25 failure",
+}, []string{"collection", "namespace"})
 
 type Result struct {
 	ID      uint64                 `json:"id"`
@@ -32,7 +60,7 @@ type Result struct {
 func SearchQdrant(ctx context.Context, pc qdrant.PointsClient, collection string, vector []float32, limit uint64, namespace string) ([]Result, error) {
 	start := time.Now()
 	defer func() {
-		searchLatency.WithLabelValues(collection).Observe(float64(time.Since(start).Milliseconds()))
+		vectorSearchDuration.WithLabelValues(collection, namespace).Observe(float64(time.Since(start).Milliseconds()))
 	}()
 	var filter *qdrant.Filter
 	if namespace != "" {
@@ -103,7 +131,7 @@ func SearchQdrant(ctx context.Context, pc qdrant.PointsClient, collection string
 func BM25SearchQdrant(ctx context.Context, pc qdrant.PointsClient, collection string, query string, limit uint64, namespace string) ([]Result, error) {
 	start := time.Now()
 	defer func() {
-		bm25Latency.WithLabelValues(collection).Observe(float64(time.Since(start).Milliseconds()))
+		bm25SearchDuration.WithLabelValues(collection, namespace).Observe(float64(time.Since(start).Milliseconds()))
 	}()
 
 	must := []*qdrant.Condition{
@@ -187,6 +215,7 @@ func HybridSearch(ctx context.Context, pc qdrant.PointsClient, collection string
 		err     error
 	}
 
+	start := time.Now()
 	vectorCh := make(chan leg, 1)
 	bm25Ch := make(chan leg, 1)
 
@@ -208,8 +237,46 @@ func HybridSearch(ctx context.Context, pc qdrant.PointsClient, collection string
 
 	if bRes.err != nil {
 		log.Printf("[search] BM25 failed for collection %q — falling back to vector-only: %v", collection, bRes.err)
+		bm25Fallbacks.WithLabelValues(collection, namespace).Inc()
+		hybridTotalDuration.WithLabelValues(collection, namespace).Observe(float64(time.Since(start).Milliseconds()))
 		return vRes.results, nil
 	}
 
-	return MergeRRFHybrid(vRes.results, bRes.results, int(limit)), nil
+	merged := MergeRRFHybrid(vRes.results, bRes.results, int(limit))
+	hybridTotalDuration.WithLabelValues(collection, namespace).Observe(float64(time.Since(start).Milliseconds()))
+
+	// Track which top-N results came from each leg to monitor RRF balance.
+	vectorKeys := resultKeySet(vRes.results)
+	bm25Keys := resultKeySet(bRes.results)
+	var vectorHits, bm25Hits, bothHits int
+	for _, r := range merged {
+		path, _ := r.Payload["path"].(string)
+		chunk := fmt.Sprintf("%v", r.Payload["chunk"])
+		key := path + ":" + chunk
+		inV, inB := vectorKeys[key], bm25Keys[key]
+		switch {
+		case inV && inB:
+			bothHits++
+		case inV:
+			vectorHits++
+		default:
+			bm25Hits++
+		}
+	}
+	rrfVectorHits.WithLabelValues(collection, namespace).Add(float64(vectorHits))
+	rrfBM25Hits.WithLabelValues(collection, namespace).Add(float64(bm25Hits))
+	rrfBothLegsHits.WithLabelValues(collection, namespace).Add(float64(bothHits))
+
+	return merged, nil
+}
+
+// resultKeySet builds a set of path:chunk keys from a result slice for O(1) leg-membership checks.
+func resultKeySet(results []Result) map[string]bool {
+	keys := make(map[string]bool, len(results))
+	for _, r := range results {
+		path, _ := r.Payload["path"].(string)
+		chunk := fmt.Sprintf("%v", r.Payload["chunk"])
+		keys[path+":"+chunk] = true
+	}
+	return keys
 }

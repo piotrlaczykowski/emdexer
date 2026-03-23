@@ -96,6 +96,24 @@ spec:
             - name: POSTGRES_URL
               value: {{ .Values.config.postgresUrl | quote }}
             {{- end }}
+            {{- if .Values.config.pgReplicaUrl }}
+            - name: EMDEX_PG_REPLICA_URL
+              value: {{ .Values.config.pgReplicaUrl | quote }}
+            {{- end }}
+            {{- if eq (.Values.config.qdrantTls | default "false") "true" }}
+            - name: EMDEX_QDRANT_TLS
+              value: "true"
+            {{- if .Values.config.qdrantTlsCa }}
+            - name: EMDEX_QDRANT_TLS_CA
+              value: {{ .Values.config.qdrantTlsCa | quote }}
+            {{- end }}
+            {{- if .Values.config.qdrantTlsCert }}
+            - name: EMDEX_QDRANT_TLS_CERT
+              value: {{ .Values.config.qdrantTlsCert | quote }}
+            - name: EMDEX_QDRANT_TLS_KEY
+              value: {{ .Values.config.qdrantTlsKey | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: EMDEX_REGISTRY_FILE
               value: {{ .Values.persistence.registryFile | quote }}

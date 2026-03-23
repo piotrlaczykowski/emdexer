@@ -74,6 +74,20 @@ spec:
             - name: EMDEX_GATEWAY_AUTH_KEY
               value: {{ .Values.config.gatewayAuthKey | quote }}
             {{- end }}
+            {{- if eq (.Values.config.qdrantTls | default "false") "true" }}
+            - name: EMDEX_QDRANT_TLS
+              value: "true"
+            {{- if .Values.config.qdrantTlsCa }}
+            - name: EMDEX_QDRANT_TLS_CA
+              value: {{ .Values.config.qdrantTlsCa | quote }}
+            {{- end }}
+            {{- if .Values.config.qdrantTlsCert }}
+            - name: EMDEX_QDRANT_TLS_CERT
+              value: {{ .Values.config.qdrantTlsCert | quote }}
+            - name: EMDEX_QDRANT_TLS_KEY
+              value: {{ .Values.config.qdrantTlsKey | quote }}
+            {{- end }}
+            {{- end }}
             - name: EMDEX_GRAPH_MIGRATION
               value: {{ .Values.config.graphMigration | default "auto" | quote }}
             - name: EMDEX_PLUGIN_ENABLED

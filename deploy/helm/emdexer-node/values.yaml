@@ -10,6 +10,11 @@ config:
   namespace: "default"
   mountPath: "/data"
   extractousHost: "http://extractous:8000"
+  # Qdrant mTLS (Phase 28) — default is plaintext gRPC (unchanged)
+  qdrantTls: "false"
+  # qdrantTlsCa: "/certs/ca.pem"
+  # qdrantTlsCert: "/certs/client.pem"
+  # qdrantTlsKey: "/certs/client.key"
   # Multi-Modal Hardening (Phase 26)
   # Track 1 — Whisper (audio/video transcription)
   whisperEnabled: "false"

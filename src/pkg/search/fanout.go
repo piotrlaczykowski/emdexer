@@ -48,6 +48,42 @@ func FanOutSearch(ctx context.Context, pc qdrant.PointsClient, collection string
 	return MergeRRF(perNS, int(limit)), failedNS, nil
 }
 
+// FanOutHybridSearch runs parallel HybridSearch calls across multiple namespaces
+// and merges the per-namespace results via RRF. Partial failures are tolerated and
+// reported so callers can surface degraded-search warnings to clients.
+func FanOutHybridSearch(ctx context.Context, pc qdrant.PointsClient, collection string, query string, vector []float32, namespaces []string, limit uint64, timeout time.Duration) (results []Result, failedNS []string, err error) {
+	if timeout == 0 {
+		timeout = 500 * time.Millisecond
+	}
+
+	tctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var mu sync.Mutex
+	perNS := make(map[string][]Result)
+
+	var wg sync.WaitGroup
+	for _, ns := range namespaces {
+		ns := ns
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			nsResults, nsErr := HybridSearch(tctx, pc, collection, query, vector, limit, ns)
+			mu.Lock()
+			defer mu.Unlock()
+			if nsErr != nil {
+				log.Printf("[search] namespace %q hybrid fan-out error: %v", ns, nsErr)
+				failedNS = append(failedNS, ns)
+				return
+			}
+			perNS[ns] = nsResults
+		}()
+	}
+	wg.Wait()
+
+	return MergeRRF(perNS, int(limit)), failedNS, nil
+}
+
 // ResolveNamespaces returns the list of namespaces to search.
 // For "*" or "__global__", it intersects known namespaces with the user's allowed list.
 func ResolveNamespaces(requested string, allowed []string, known []string) []string {

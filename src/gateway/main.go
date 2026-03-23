@@ -48,6 +48,7 @@ type Server struct {
 	nsTopology map[string][]string // namespace -> []nodeID
 
 	globalSearchTimeout time.Duration
+	bm25Enabled         bool
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -195,14 +196,18 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var results []search.Result
 	var fanoutFailedNS []string
 	if len(namespaces) <= 1 {
-		// Single namespace — existing fast path.
+		// Single namespace — fast path (hybrid or vector-only).
 		ns := ""
 		if len(namespaces) == 1 {
 			ns = namespaces[0]
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		results, err = search.SearchQdrant(ctx, s.pointsClient, s.collection, vector, 10, ns)
+		if s.bm25Enabled {
+			results, err = search.HybridSearch(ctx, s.pointsClient, s.collection, query, vector, 10, ns)
+		} else {
+			results, err = search.SearchQdrant(ctx, s.pointsClient, s.collection, vector, 10, ns)
+		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusInternalServerError)
 			return
@@ -215,7 +220,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		// Multi-namespace fan-out with RRF merge.
 		// Partial failures are surfaced in the response so clients can detect degraded results;
 		// a complete failure returns 200 with empty results rather than a 504.
-		results, fanoutFailedNS, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 10, s.globalSearchTimeout)
+		if s.bm25Enabled {
+			results, fanoutFailedNS, err = search.FanOutHybridSearch(r.Context(), s.pointsClient, s.collection, query, vector, namespaces, 10, s.globalSearchTimeout)
+		} else {
+			results, fanoutFailedNS, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 10, s.globalSearchTimeout)
+		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusInternalServerError)
 			return
@@ -315,7 +324,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if len(namespaces) == 1 {
 			ns = namespaces[0]
 		}
-		results, err = search.SearchQdrant(r.Context(), s.pointsClient, s.collection, vector, 5, ns)
+		if s.bm25Enabled {
+			results, err = search.HybridSearch(r.Context(), s.pointsClient, s.collection, question, vector, 5, ns)
+		} else {
+			results, err = search.SearchQdrant(r.Context(), s.pointsClient, s.collection, vector, 5, ns)
+		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
 			return
@@ -325,7 +338,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		var failedNS []string
-		results, failedNS, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 5, s.globalSearchTimeout)
+		if s.bm25Enabled {
+			results, failedNS, err = search.FanOutHybridSearch(r.Context(), s.pointsClient, s.collection, question, vector, namespaces, 5, s.globalSearchTimeout)
+		} else {
+			results, failedNS, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 5, s.globalSearchTimeout)
+		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
 			return
@@ -501,6 +518,10 @@ func main() {
 		}
 	}
 
+	// BM25 hybrid search is enabled by default; set EMDEX_BM25_ENABLED=false to use vector-only.
+	bm25Enabled := os.Getenv("EMDEX_BM25_ENABLED") != "false"
+	log.Printf("[gateway] hybrid search (BM25+vector): enabled=%v", bm25Enabled)
+
 	srv := &Server{
 		reg:                 reg,
 		qdrantConn:          conn,
@@ -514,6 +535,7 @@ func main() {
 		startTime:           time.Now(),
 		nsTopology:          make(map[string][]string),
 		globalSearchTimeout: globalSearchTimeout,
+		bm25Enabled:         bm25Enabled,
 	}
 
 	// Initial topology refresh + background ticker.

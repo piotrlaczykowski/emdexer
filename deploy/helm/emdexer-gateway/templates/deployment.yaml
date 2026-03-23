@@ -48,6 +48,8 @@ spec:
             {{- end }}
             - name: EMDEX_GLOBAL_SEARCH_TIMEOUT
               value: {{ .Values.config.globalSearchTimeout | default "500" | quote }}
+            - name: EMDEX_BM25_ENABLED
+              value: {{ .Values.config.bm25Enabled | default "true" | quote }}
             {{- if eq .Values.config.haMode "true" }}
             - name: EMDEX_HA_MODE
               value: "true"

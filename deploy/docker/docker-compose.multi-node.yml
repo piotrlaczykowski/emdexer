@@ -85,6 +85,7 @@ services:
       - EMDEX_SEARCH_LIMIT=${EMDEX_SEARCH_LIMIT:-10}
       - EMDEX_CHAT_LIMIT=${EMDEX_CHAT_LIMIT:-5}
       - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
+      - EMDEX_BM25_ENABLED=${EMDEX_BM25_ENABLED:-true}
     volumes:
       - gateway-registry:/var/lib/emdexer/nodes
     networks:

@@ -19,7 +19,7 @@ ARG VERSION=dev
 ARG COMMIT=none
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -X 'github.com/piotrlaczykowski/emdexer/version.Version=${VERSION:-dev}' -X 'github.com/piotrlaczykowski/emdexer/version.Commit=${COMMIT:-none}'" -o /app/emdexer-gateway .
 
-FROM alpine:3.21
+FROM alpine:3.23
 RUN apk add --no-cache curl
 WORKDIR /app
 RUN addgroup -S emdexer && adduser -S emdexer -G emdexer

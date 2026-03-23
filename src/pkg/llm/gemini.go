@@ -6,12 +6,22 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/piotrlaczykowski/emdexer/safenet"
 )
+
+const defaultLLMModel = "gemini-3-flash-preview"
+
+func llmModel() string {
+	if m := os.Getenv("EMDEX_LLM_MODEL"); m != "" {
+		return m
+	}
+	return defaultLLMModel
+}
 
 var llmDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Name:    "emdexer_gateway_llm_duration_ms",
@@ -47,7 +57,7 @@ type GeminiResponse struct {
 }
 
 func CallGemini(prompt, apiKey string) (string, error) {
-	model := "gemini-2.0-flash"
+	model := llmModel()
 
 	start := time.Now()
 	result, err := callGemini(prompt, apiKey, model)
@@ -61,7 +71,7 @@ func CallGemini(prompt, apiKey string) (string, error) {
 // CallGeminiStructured calls Gemini with JSON mode enabled (responseMimeType: application/json).
 // The response is guaranteed to be valid JSON. The caller is responsible for unmarshalling.
 func CallGeminiStructured(prompt, apiKey string) (string, error) {
-	model := "gemini-2.0-flash"
+	model := llmModel()
 	start := time.Now()
 	result, err := callGeminiWithConfig(prompt, apiKey, model, &GeminiGenerationConfig{
 		ResponseMIMEType: "application/json",

@@ -32,6 +32,9 @@ config:
   groupAcl: ""
   # Global search timeout (ms)
   globalSearchTimeout: "500"
+  # Hybrid search — BM25 keyword + vector merged via RRF (Phase 21).
+  # Set to "false" to fall back to pure vector search.
+  bm25Enabled: "true"
   # HA mode
   haMode: "false"
   postgresUrl: ""

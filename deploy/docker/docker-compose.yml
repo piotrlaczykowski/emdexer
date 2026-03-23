@@ -69,6 +69,7 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMDEX_BM25_ENABLED=${EMDEX_BM25_ENABLED:-true}
     volumes:
       - ../../logs:/app/logs
     networks:

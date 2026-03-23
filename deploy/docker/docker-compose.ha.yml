@@ -180,6 +180,7 @@ services:
       - EMDEX_HA_MODE=true
       - EMDEX_GLOBAL_SEARCH_TIMEOUT=${EMDEX_GLOBAL_SEARCH_TIMEOUT:-500}
       - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
+      - EMDEX_BM25_ENABLED=${EMDEX_BM25_ENABLED:-true}
     volumes:
       - ../../logs:/app/logs
     networks:
@@ -215,6 +216,7 @@ services:
       - EMDEX_HA_MODE=true
       - EMDEX_GLOBAL_SEARCH_TIMEOUT=${EMDEX_GLOBAL_SEARCH_TIMEOUT:-500}
       - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
+      - EMDEX_BM25_ENABLED=${EMDEX_BM25_ENABLED:-true}
     volumes:
       - ../../logs:/app/logs
     networks:

@@ -36,7 +36,10 @@ async def extract_frames(
     """Extract JPEG frames from a video at the given interval, capped at max_frames."""
 
     data = await file.read()
-    suffix = Path(file.filename or "video.mp4").suffix or ".mp4"
+    # Whitelist suffix to prevent user-controlled filename data reaching subprocess.
+    _ALLOWED_SUFFIXES = {".mp4", ".mkv", ".avi", ".mov", ".webm"}
+    _raw = Path(file.filename or "").suffix.lower()
+    suffix = _raw if _raw in _ALLOWED_SUFFIXES else ".mp4"
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_path = os.path.join(tmpdir, f"input{suffix}")

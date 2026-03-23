@@ -78,6 +78,18 @@ spec:
             - name: EMDEX_GRAPH_DEPTH
               value: {{ .Values.config.graphDepth | quote }}
             {{- end }}
+            {{- if .Values.config.otelEndpoint }}
+            - name: EMDEX_OTEL_ENDPOINT
+              value: {{ .Values.config.otelEndpoint | quote }}
+            {{- end }}
+            {{- if .Values.config.otelServiceName }}
+            - name: EMDEX_OTEL_SERVICE_NAME
+              value: {{ .Values.config.otelServiceName | quote }}
+            {{- end }}
+            {{- if .Values.config.otelSamplingRatio }}
+            - name: EMDEX_OTEL_SAMPLING_RATIO
+              value: {{ .Values.config.otelSamplingRatio | quote }}
+            {{- end }}
             {{- if eq .Values.config.haMode "true" }}
             - name: EMDEX_HA_MODE
               value: "true"

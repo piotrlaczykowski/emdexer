@@ -63,12 +63,14 @@ Graph expansion is applied **twice**:
 |----------|---------|-------------|
 | `EMDEX_GRAPH_ENABLED` | `true` | Set to `false` to disable graph expansion. |
 | `EMDEX_GRAPH_DEPTH` | `1` | BFS hop depth `[1–3]`. Depth 1 = direct imports/links. |
+| `EMDEX_GRAPH_MIGRATION` | `auto` | Migration mode: `auto`, `skip`, or `force` (node only). |
 
 Add to your `.env`:
 
 ```bash
 EMDEX_GRAPH_ENABLED=true
 EMDEX_GRAPH_DEPTH=1
+EMDEX_GRAPH_MIGRATION=auto
 ```
 
 ---
@@ -92,19 +94,36 @@ Two alert rules are defined in `deploy/monitoring/prometheus/alerts-search.yml`:
 | `GraphExpansionNoNeighbors` | Expansions triggered but avg neighbours == 0 for 10 min | info |
 | `GraphCacheMissRate` | Cache hit rate < 50% for 5 min | info |
 
-`GraphExpansionNoNeighbors` typically fires when the collection was indexed before Phase 24 was deployed and no `relations` fields exist yet — trigger a full re-index to resolve it.
+`GraphExpansionNoNeighbors` typically fires when the collection was indexed before Phase 24 was deployed and no `relations` fields exist yet. The node will detect this automatically on startup and trigger a full re-index (see below).
 
 ---
 
-## Re-indexing existing collections
+## Automatic migration from pre-Phase-24 collections
 
 Phase 24 adds a new `relations` payload field to chunk-0 points. Existing points in Qdrant do **not** have this field; graph expansion silently returns 0 neighbours for them.
 
-To populate relations on an existing collection, restart the node (or trigger a re-index):
+On every node startup, the node samples up to 50 chunk-0 points from its namespace. If fewer than 20% of them carry a non-empty `relations` field, a full re-index is triggered automatically:
+
+- **Poller-based nodes** (SMB, SFTP, NFS, S3): the metadata cache (`emdex_cache.db`) is deleted so the first poll treats every file as new and re-indexes it with relation extraction.
+- **Local nodes**: the startup walk re-processes all files unconditionally.
+
+Control this behaviour with `EMDEX_GRAPH_MIGRATION`:
+
+| Value | Behaviour |
+|-------|-----------|
+| `auto` (default) | Detect and trigger re-index if `relations` coverage < 20% |
+| `skip` | Never auto-migrate; manual re-index only |
+| `force` | Always trigger a full re-index on startup |
+
+A Prometheus counter `emdexer_node_graph_migration_triggered_total` increments each time an automatic migration is started.
+
+### Manual re-index (override)
+
+To force a re-index without restarting (e.g. after `EMDEX_GRAPH_MIGRATION=skip`):
 
 ```bash
-# Delete the delta cache so all files are re-processed
-rm -f .emdexer_delta.db
+# Delete the metadata cache so all files are re-processed on next poll
+rm -f "${EMDEX_CACHE_DIR:-cache}/emdex_cache.db"
 
 # Restart the node
 systemctl restart emdex-node

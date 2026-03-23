@@ -115,6 +115,7 @@ services:
       - EMDEX_ENABLE_OCR=${EMDEX_ENABLE_OCR:-true}
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
     networks:
       - emdexer-net
     depends_on:

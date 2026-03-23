@@ -422,6 +422,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Agentic multi-hop RAG — only for single-namespace requests (not global fan-out).
+	agenticHops := 0
 	if s.agenticCfg.Enabled && len(namespaces) <= 1 {
 		ns := ""
 		if len(namespaces) == 1 {
@@ -433,12 +434,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			return search.SearchQdrant(ctx, s.pointsClient, s.collection, vec, limit, searchNS)
 		}
-		agResults, _, agErr := rag.RunAgenticLoop(
+		agResults, totalHops, agErr := rag.RunAgenticLoop(
 			r.Context(), s.agenticCfg, searchFn, s.embedder.Embed, audit.Log, llm.CallGeminiStructured,
 			question, ns, results, s.apiKey,
 		)
 		if agErr == nil {
 			results = agResults
+			agenticHops = totalHops
 		}
 	}
 
@@ -487,8 +489,15 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		LatencyMS: time.Since(start).Milliseconds(),
 		Status:    http.StatusOK,
 	}
+	chatMeta := map[string]interface{}{}
 	if isGlobal {
-		chatEntry.Metadata = map[string]interface{}{"namespaces_searched": namespaces}
+		chatMeta["namespaces_searched"] = namespaces
+	}
+	if agenticHops > 0 {
+		chatMeta["agentic_hops"] = agenticHops
+	}
+	if len(chatMeta) > 0 {
+		chatEntry.Metadata = chatMeta
 	}
 	audit.Log(chatEntry)
 }

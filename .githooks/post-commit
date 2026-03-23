@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Re-index GitNexus in the background after every commit.
+# Runs async (nohup) so it never blocks the commit itself.
+# Logs to /tmp/gitnexus-analyze.log — check there if you suspect issues.
+
+if [ ! -d ".gitnexus" ]; then
+  exit 0
+fi
+
+EMBEDDINGS=""
+if node -e "const m=require('./.gitnexus/meta.json'); process.exit(m.stats?.embeddings > 0 ? 0 : 1)" 2>/dev/null; then
+  EMBEDDINGS="--embeddings"
+fi
+
+nohup npx gitnexus analyze $EMBEDDINGS >/tmp/gitnexus-analyze.log 2>&1 &

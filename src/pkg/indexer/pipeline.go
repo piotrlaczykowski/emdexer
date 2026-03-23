@@ -1,13 +1,16 @@
 package indexer
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/piotrlaczykowski/emdexer/embed"
+	"github.com/piotrlaczykowski/emdexer/plugin"
 	"github.com/qdrant/go-client/qdrant"
 )
 
@@ -23,21 +26,52 @@ type PipelineConfig struct {
 	NodeType       string
 	Embedder       embed.EmbedProvider
 	Extract        Extractor
+	// Plugins is the list of loaded extractor plugins (may be nil).
+	// A plugin whose Extensions() list includes a file's extension takes
+	// priority over the default Extractous/Whisper extraction path.
+	Plugins []plugin.ExtractorPlugin
 }
 
 // IndexDataToPoints converts file content into Qdrant points via extraction, chunking, and embedding.
 func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdrant.PointStruct {
 	var text string
 	var err error
-	if len(content) > 0 {
-		text, err = cfg.Extract(path, content, cfg.ExtractousHost)
-	} else {
-		text, err = cfg.Extract(path, nil, cfg.ExtractousHost)
+	var pluginRels []plugin.Relation
+
+	// Check whether a loaded plugin handles this file extension.
+	// Plugins take priority over the default Extractous/Whisper path.
+	ext := strings.ToLower(filepath.Ext(path))
+	var matched plugin.ExtractorPlugin
+	for _, p := range cfg.Plugins {
+		for _, pe := range p.Extensions() {
+			if pe == ext {
+				matched = p
+				break
+			}
+		}
+		if matched != nil {
+			break
+		}
 	}
 
-	if err != nil {
-		log.Printf("[node] Extraction failed for %s: %v", path, err)
-		text = ""
+	if matched != nil && len(content) > 0 {
+		text, pluginRels, err = matched.Extract(context.Background(), filepath.Base(path), content)
+		if err != nil {
+			log.Printf("[plugin] %s failed for %s: %v", matched.Name(), path, err)
+			text = ""
+		}
+	} else if len(content) > 0 {
+		text, err = cfg.Extract(path, content, cfg.ExtractousHost)
+		if err != nil {
+			log.Printf("[node] Extraction failed for %s: %v", path, err)
+			text = ""
+		}
+	} else {
+		text, err = cfg.Extract(path, nil, cfg.ExtractousHost)
+		if err != nil {
+			log.Printf("[node] Extraction failed for %s: %v", path, err)
+			text = ""
+		}
 	}
 
 	text = strings.TrimSpace(text)
@@ -52,8 +86,18 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 		return nil
 	}
 
-	// Extract structural relations from the full file text (once per file, stored on chunk 0).
-	relationsJSON := RelationsToJSON(ExtractRelations(path, text))
+	// Compute structural relations for chunk 0.
+	// If the plugin returned relations, use those; otherwise derive them from the extracted text.
+	var relationsJSON string
+	if len(pluginRels) > 0 {
+		rels := make([]Relation, len(pluginRels))
+		for i, r := range pluginRels {
+			rels[i] = Relation{Type: r.Type, Target: r.Target, Name: r.Name}
+		}
+		relationsJSON = RelationsToJSON(rels)
+	} else {
+		relationsJSON = RelationsToJSON(ExtractRelations(path, text))
+	}
 
 	var points []*qdrant.PointStruct
 	for i, chunk := range chunks {

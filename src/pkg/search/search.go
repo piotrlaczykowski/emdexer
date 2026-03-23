@@ -46,6 +46,11 @@ var rrfBothLegsHits = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Number of returned results that appeared in both vector and BM25 legs (overlap)",
 }, []string{"collection", "namespace"})
 
+var bm25Fallbacks = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_bm25_fallback_total",
+	Help: "Number of times HybridSearch fell back to vector-only due to a BM25 failure",
+}, []string{"collection", "namespace"})
+
 type Result struct {
 	ID      uint64                 `json:"id"`
 	Score   float32                `json:"score"`
@@ -232,6 +237,7 @@ func HybridSearch(ctx context.Context, pc qdrant.PointsClient, collection string
 
 	if bRes.err != nil {
 		log.Printf("[search] BM25 failed for collection %q — falling back to vector-only: %v", collection, bRes.err)
+		bm25Fallbacks.WithLabelValues(collection, namespace).Inc()
 		hybridTotalDuration.WithLabelValues(collection, namespace).Observe(float64(time.Since(start).Milliseconds()))
 		return vRes.results, nil
 	}

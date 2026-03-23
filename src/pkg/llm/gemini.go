@@ -8,8 +8,21 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/piotrlaczykowski/emdexer/safenet"
 )
+
+var llmDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "emdexer_gateway_llm_duration_ms",
+	Help:    "Latency of LLM generation API calls in milliseconds",
+	Buckets: []float64{100, 500, 1000, 2000, 5000, 10000, 20000, 30000},
+}, []string{"model"})
+
+var llmErrors = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_llm_errors_total",
+	Help: "Total number of LLM generation API errors",
+}, []string{"model"})
 
 type GeminiPart struct {
 	Text string `json:"text"`
@@ -30,6 +43,17 @@ type GeminiResponse struct {
 
 func CallGemini(prompt, apiKey string) (string, error) {
 	model := "gemini-2.0-flash"
+
+	start := time.Now()
+	result, err := callGemini(prompt, apiKey, model)
+	llmDuration.WithLabelValues(model).Observe(float64(time.Since(start).Milliseconds()))
+	if err != nil {
+		llmErrors.WithLabelValues(model).Inc()
+	}
+	return result, err
+}
+
+func callGemini(prompt, apiKey, model string) (string, error) {
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", model, apiKey)
 
 	reqBody := GeminiRequest{

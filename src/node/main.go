@@ -15,11 +15,12 @@ import (
 	"github.com/piotrlaczykowski/emdexer/embed"
 	"github.com/piotrlaczykowski/emdexer/extract"
 	"github.com/piotrlaczykowski/emdexer/extractor"
-	"github.com/piotrlaczykowski/emdexer/nodereg"
-	"github.com/piotrlaczykowski/emdexer/registry"
 	"github.com/piotrlaczykowski/emdexer/health"
 	"github.com/piotrlaczykowski/emdexer/indexer"
+	"github.com/piotrlaczykowski/emdexer/nodereg"
+	"github.com/piotrlaczykowski/emdexer/plugin"
 	"github.com/piotrlaczykowski/emdexer/queue"
+	"github.com/piotrlaczykowski/emdexer/registry"
 	"github.com/piotrlaczykowski/emdexer/safenet"
 	"github.com/piotrlaczykowski/emdexer/search"
 	"github.com/piotrlaczykowski/emdexer/vfs"
@@ -232,6 +233,21 @@ func main() {
 			}
 			return extractClient.ExtractContent(path, host)
 		},
+	}
+
+	// Load extractor plugins from EMDEX_PLUGIN_DIR (default: ./plugins/).
+	// EMDEX_PLUGIN_ENABLED=false disables the plugin system entirely.
+	if os.Getenv("EMDEX_PLUGIN_ENABLED") != "false" {
+		pluginDir := os.Getenv("EMDEX_PLUGIN_DIR")
+		if pluginDir == "" {
+			pluginDir = filepath.Join(cwd, "plugins")
+		}
+		if plugins, loadErr := plugin.LoadPlugins(pluginDir); loadErr != nil {
+			log.Printf("[plugin] Load error from %s: %v", pluginDir, loadErr)
+		} else if len(plugins) > 0 {
+			pipelineCfg.Plugins = plugins
+			log.Printf("[plugin] %d plugin(s) active for indexing", len(plugins))
+		}
 	}
 
 	_, err = collectionsClient.Get(globalCtx, &qdrant.GetCollectionInfoRequest{

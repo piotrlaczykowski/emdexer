@@ -39,6 +39,24 @@ services:
   # Extractous sidecar (document text extraction)
   # ============================================================
 
+  plugin-sidecar:
+    build: ../../src/plugin-sidecar
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    volumes:
+      - ../../plugins:/plugins:ro
+    networks:
+      - emdexer-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   extractous:
     build: ./extractous-sidecar
     deploy:
@@ -134,6 +152,8 @@ services:
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_POLL_INTERVAL=${EMDEX_POLL_INTERVAL:-60s}
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     volumes:
       # Replace ./docs-data with your actual documents directory
       - ${DOCS_DATA_PATH:-./docs-data}:/app/data:ro
@@ -145,6 +165,8 @@ services:
       gateway:
         condition: service_healthy
       extractous:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -183,6 +205,8 @@ services:
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_POLL_INTERVAL=${EMDEX_POLL_INTERVAL:-60s}
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     volumes:
       # Replace ./code-data with your actual source directory
       - ${CODE_DATA_PATH:-./code-data}:/app/data:ro
@@ -194,6 +218,8 @@ services:
       gateway:
         condition: service_healthy
       extractous:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:

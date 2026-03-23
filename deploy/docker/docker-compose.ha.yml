@@ -118,6 +118,24 @@ services:
   # Extractous sidecar
   # ============================================================
 
+  plugin-sidecar:
+    build: ../../src/plugin-sidecar
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    volumes:
+      - ../../plugins:/plugins:ro
+    networks:
+      - emdexer-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   extractous:
     build: ./extractous-sidecar
     deploy:
@@ -302,6 +320,8 @@ services:
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
       - EMDEX_GATEWAY_URL=http://nginx:80
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
     networks:
@@ -312,6 +332,8 @@ services:
       extractous:
         condition: service_healthy
       whisper:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: always
     healthcheck:
@@ -346,6 +368,8 @@ services:
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
       - EMDEX_GATEWAY_URL=http://nginx:80
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
     networks:
@@ -356,6 +380,8 @@ services:
       extractous:
         condition: service_healthy
       whisper:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: always
     healthcheck:
@@ -389,6 +415,8 @@ services:
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
       - EMDEX_GATEWAY_URL=http://nginx:80
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
     networks:
@@ -399,6 +427,8 @@ services:
       extractous:
         condition: service_healthy
       whisper:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: always
     healthcheck:
@@ -425,10 +455,14 @@ services:
     environment:
       - GATEWAY_URL=http://nginx:80
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
     networks:
       - emdexer-net
     depends_on:
       nginx:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: always
 

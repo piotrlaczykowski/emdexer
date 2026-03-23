@@ -1,4 +1,22 @@
 services:
+  plugin-sidecar:
+    build: ../../src/plugin-sidecar
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    volumes:
+      - ../../plugins:/plugins:ro
+    networks:
+      - emdexer-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   node-alpha:
     build:
       context: ../../
@@ -26,8 +44,12 @@ services:
       - EMDEX_GEMINI_MODEL=models/gemini-embedding-2-preview
       - EMDEX_GATEWAY_URL=http://gateway:7700
       - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     networks:
       - emdexer-net
+    depends_on:
+      plugin-sidecar:
+        condition: service_healthy
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8082/healthz/readiness"]
@@ -62,8 +84,12 @@ services:
       - EMDEX_GEMINI_MODEL=models/gemini-embedding-2-preview
       - EMDEX_GATEWAY_URL=http://gateway:7700
       - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     networks:
       - emdexer-net
+    depends_on:
+      plugin-sidecar:
+        condition: service_healthy
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8083/healthz/readiness"]
@@ -97,8 +123,12 @@ services:
       - EMDEX_GEMINI_MODEL=models/gemini-embedding-2-preview
       - EMDEX_GATEWAY_URL=http://gateway:7700
       - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     networks:
       - emdexer-net
+    depends_on:
+      plugin-sidecar:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8084/healthz/readiness"]

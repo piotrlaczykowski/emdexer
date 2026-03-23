@@ -180,3 +180,47 @@ groups:
             Possible causes: many distinct namespaces, very high request rate,
             or the TTL is shorter than expected. Consider increasing the
             EMDEX_GRAPH_TTL environment variable (default: 5m) if applicable.
+
+      # ────────────────────────────────────────────────────────────────────────
+      # PluginHighErrorRate
+      # Fires when any plugin's error+timeout rate exceeds 10% over 5 minutes.
+      # Indicates a broken or crashing plugin script that should be fixed or
+      # removed from EMDEX_PLUGIN_DIR.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: PluginHighErrorRate
+        expr: |
+          (
+            rate(emdexer_node_plugin_calls_total{status=~"error|timeout"}[5m])
+            /
+            rate(emdexer_node_plugin_calls_total[5m])
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Extractor plugin error/timeout rate above 10%"
+          description: >
+            Plugin {{ $labels.plugin }} (extension {{ $labels.extension }}) is
+            failing or timing out on more than 10% of calls over the past 5 minutes.
+            Check node logs for [plugin] errors. If the plugin script is broken,
+            remove it from EMDEX_PLUGIN_DIR and restart the node.
+            Consider increasing EMDEX_PLUGIN_TIMEOUT if timeouts are the root cause.
+
+      # ────────────────────────────────────────────────────────────────────────
+      # PluginTimeoutSpiking
+      # Fires immediately when any plugin is timing out — even a single timeout
+      # per minute suggests the script is hanging on some input class.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: PluginTimeoutSpiking
+        expr: |
+          rate(emdexer_node_plugin_calls_total{status="timeout"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Extractor plugin subprocess timeout detected"
+          description: >
+            Plugin {{ $labels.plugin }} is timing out on {{ $labels.extension }} files.
+            The subprocess is being killed after EMDEX_PLUGIN_TIMEOUT (default 10s).
+            Check the plugin script for blocking I/O or infinite loops.
+            Increase EMDEX_PLUGIN_TIMEOUT if the file format genuinely needs more time.

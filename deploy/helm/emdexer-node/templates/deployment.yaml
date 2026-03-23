@@ -48,6 +48,21 @@ spec:
             - name: EMDEX_GATEWAY_AUTH_KEY
               value: {{ .Values.config.gatewayAuthKey | quote }}
             {{- end }}
+            - name: EMDEX_GRAPH_MIGRATION
+              value: {{ .Values.config.graphMigration | default "auto" | quote }}
+            - name: EMDEX_PLUGIN_ENABLED
+              value: {{ .Values.config.pluginEnabled | default "true" | quote }}
+            {{- if .Values.config.pluginSidecarUrl }}
+            - name: EMDEX_PLUGIN_SIDECAR_URL
+              value: {{ .Values.config.pluginSidecarUrl | quote }}
+            {{- else }}
+            - name: EMDEX_PLUGIN_DIR
+              value: {{ .Values.config.pluginDir | default "/app/plugins" | quote }}
+            {{- if .Values.config.pluginTimeout }}
+            - name: EMDEX_PLUGIN_TIMEOUT
+              value: {{ .Values.config.pluginTimeout | quote }}
+            {{- end }}
+            {{- end }}
             {{- if eq .Values.config.nodeType "s3" }}
             - name: S3_ENDPOINT
               value: {{ .Values.config.s3Endpoint | quote }}

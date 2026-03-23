@@ -36,7 +36,10 @@ async def extract_frames(
     """Extract JPEG frames from a video at the given interval, capped at max_frames."""
 
     data = await file.read()
-    suffix = Path(file.filename or "video.mp4").suffix or ".mp4"
+    # Whitelist suffix to prevent user-controlled filename data reaching subprocess.
+    _ALLOWED_SUFFIXES = {".mp4", ".mkv", ".avi", ".mov", ".webm"}
+    _raw = Path(file.filename or "").suffix.lower()
+    suffix = _raw if _raw in _ALLOWED_SUFFIXES else ".mp4"
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_path = os.path.join(tmpdir, f"input{suffix}")
@@ -46,12 +49,17 @@ async def extract_frames(
         with open(input_path, "wb") as f:
             f.write(data)
 
+        # Break CodeQL taint chain: re-clamp to known-safe integer bounds
+        # before building the subprocess argument list.
+        _interval = max(1, min(int(interval), 3600))
+        _max_frames = max(1, min(int(max_frames), 100))
+
         # Extract one frame every `interval` seconds, naming them by timestamp.
         cmd = [
             "ffmpeg",
             "-i", input_path,
-            "-vf", f"fps=1/{interval}",
-            "-frames:v", str(max_frames),
+            "-vf", f"fps=1/{_interval}",
+            "-frames:v", str(_max_frames),
             "-q:v", "2",
             os.path.join(frames_dir, "frame_%05d.jpg"),
             "-y",
@@ -68,8 +76,8 @@ async def extract_frames(
         frame_files = sorted(Path(frames_dir).glob("frame_*.jpg"))
 
         frames = []
-        for idx, frame_path in enumerate(frame_files[:max_frames]):
-            timestamp_sec = idx * interval
+        for idx, frame_path in enumerate(frame_files[:_max_frames]):
+            timestamp_sec = idx * _interval
             with open(frame_path, "rb") as fh:
                 jpeg_b64 = base64.b64encode(fh.read()).decode()
             frames.append({"timestamp_sec": timestamp_sec, "data": jpeg_b64})

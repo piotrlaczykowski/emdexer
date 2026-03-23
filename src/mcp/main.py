@@ -119,6 +119,75 @@ def get_file(path: str, ctx: Context = None) -> str | PrefabApp:
 
 
 @mcp.tool()
+def get_file_relations(path: str, namespace: str = "default", depth: int = 1, ctx: Context = None) -> str | PrefabApp:
+    """Return structurally related files for a given path using the Graph-RAG knowledge graph.
+    Searches for files that import or link to the target path and files that the target imports.
+    depth controls BFS hop depth (1-3). Use namespace='*' for global search."""
+    url = f"{GATEWAY_URL}/v1/search"
+    # Search for the file by path to get its chunk-0 payload (which contains relations)
+    params = {"q": f"path:{path}", "namespace": namespace, "limit": 1}
+
+    try:
+        resp = requests.get(url, params=params, headers=get_headers(), timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        results = data.get("results", [])
+    except Exception as e:
+        msg = f"Error fetching relations for `{path}`: {str(e)}"
+        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
+
+    # Extract the relations field from the payload of the matched chunk-0 point
+    import json as _json
+
+    relations = []
+    for r in results:
+        payload = r.get("payload", {})
+        if payload.get("path") != path:
+            continue
+        raw = payload.get("relations", "")
+        if raw:
+            try:
+                relations = _json.loads(raw)
+            except Exception:
+                pass
+        break
+
+    if not relations:
+        msg = f"No structural relations found for `{path}` in namespace `{namespace}`.\n" \
+              "This file may not have been indexed with Phase 24 Graph-RAG enabled, " \
+              "or it has no import/link statements."
+        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
+
+    imports = [r["target"] for r in relations if r.get("type") in ("imports", "links_to") and r.get("target")]
+    defines = [r["name"] for r in relations if r.get("type") == "defines" and r.get("name")]
+
+    if is_gui(ctx):
+        rows = [{"Type": r.get("type", ""), "Target/Name": r.get("target") or r.get("name", "")} for r in relations]
+        return PrefabApp(
+            children=[
+                DataTable(
+                    columns=[
+                        DataTableColumn(key="Type", header="Relation Type"),
+                        DataTableColumn(key="Target/Name", header="Target / Name"),
+                    ],
+                    rows=rows,
+                )
+            ]
+        )
+
+    lines = [f"### Relations for `{path}` (namespace `{namespace}`)"]
+    if imports:
+        lines.append(f"\n**Imports / Links to** ({len(imports)}):")
+        for t in imports:
+            lines.append(f"- `{t}`")
+    if defines:
+        lines.append(f"\n**Defines** ({len(defines)}):")
+        for d in defines:
+            lines.append(f"- `{d}`")
+    return "\n".join(lines)
+
+
+@mcp.tool()
 def system_status(ctx: Context = None) -> str | PrefabApp:
     """Display EMDEX gateway health and active nodes."""
     try:

@@ -283,6 +283,155 @@ func HybridSearch(ctx context.Context, pc qdrant.PointsClient, collection string
 	return merged, nil
 }
 
+// HybridSearchByPaths is like HybridSearch but restricts results to the given file paths.
+// It is used by graph-augmented retrieval to search only within files that are structurally
+// adjacent to the initial results (neighbours in the knowledge graph).
+// If paths is empty the function returns nil immediately.
+func HybridSearchByPaths(ctx context.Context, pc qdrant.PointsClient, collection string, query string, vector []float32, limit uint64, namespace string, paths []string) ([]Result, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+
+	// Build a filter that matches namespace AND (path == paths[0] OR path == paths[1] …).
+	var must []*qdrant.Condition
+	if namespace != "" {
+		must = append(must, &qdrant.Condition{
+			ConditionOneOf: &qdrant.Condition_Field{
+				Field: &qdrant.FieldCondition{
+					Key: "namespace",
+					Match: &qdrant.Match{
+						MatchValue: &qdrant.Match_Keyword{Keyword: namespace},
+					},
+				},
+			},
+		})
+	}
+	// Use Match_Keywords for an efficient "path in {paths}" filter.
+	must = append(must, &qdrant.Condition{
+		ConditionOneOf: &qdrant.Condition_Field{
+			Field: &qdrant.FieldCondition{
+				Key: "path",
+				Match: &qdrant.Match{
+					MatchValue: &qdrant.Match_Keywords{
+						Keywords: &qdrant.RepeatedStrings{Strings: paths},
+					},
+				},
+			},
+		},
+	})
+	filter := &qdrant.Filter{Must: must}
+
+	type leg struct {
+		results []Result
+		err     error
+	}
+
+	vectorCh := make(chan leg, 1)
+	bm25Ch := make(chan leg, 1)
+
+	go func() {
+		resp, err := pc.Search(ctx, &qdrant.SearchPoints{
+			CollectionName: collection,
+			Vector:         vector,
+			Limit:          limit * 2,
+			Filter:         filter,
+			WithPayload:    &qdrant.WithPayloadSelector{SelectorOptions: &qdrant.WithPayloadSelector_Enable{Enable: true}},
+		})
+		if err != nil {
+			vectorCh <- leg{nil, err}
+			return
+		}
+		var res []Result
+		for _, pt := range resp.GetResult() {
+			res = append(res, pointToResult(pt))
+		}
+		vectorCh <- leg{res, nil}
+	}()
+
+	go func() {
+		lim := uint32(limit * 2)
+		bm25Must := append(must, &qdrant.Condition{
+			ConditionOneOf: &qdrant.Condition_Field{
+				Field: &qdrant.FieldCondition{
+					Key: "text",
+					Match: &qdrant.Match{
+						MatchValue: &qdrant.Match_Text{Text: query},
+					},
+				},
+			},
+		})
+		resp, err := pc.Scroll(ctx, &qdrant.ScrollPoints{
+			CollectionName: collection,
+			Filter:         &qdrant.Filter{Must: bm25Must},
+			Limit:          &lim,
+			WithPayload:    &qdrant.WithPayloadSelector{SelectorOptions: &qdrant.WithPayloadSelector_Enable{Enable: true}},
+		})
+		if err != nil {
+			bm25Ch <- leg{nil, err}
+			return
+		}
+		var res []Result
+		for _, pt := range resp.GetResult() {
+			payload := make(map[string]interface{})
+			for k, v := range pt.Payload {
+				switch val := v.Kind.(type) {
+				case *qdrant.Value_StringValue:
+					payload[k] = val.StringValue
+				case *qdrant.Value_IntegerValue:
+					payload[k] = val.IntegerValue
+				case *qdrant.Value_DoubleValue:
+					payload[k] = val.DoubleValue
+				case *qdrant.Value_BoolValue:
+					payload[k] = val.BoolValue
+				default:
+					payload[k] = fmt.Sprintf("%v", v)
+				}
+			}
+			var id uint64
+			if numID, ok := pt.Id.PointIdOptions.(*qdrant.PointId_Num); ok {
+				id = numID.Num
+			}
+			res = append(res, Result{ID: id, Score: 0, Payload: payload})
+		}
+		bm25Ch <- leg{res, nil}
+	}()
+
+	vRes := <-vectorCh
+	bRes := <-bm25Ch
+
+	if vRes.err != nil {
+		return nil, vRes.err
+	}
+	if bRes.err != nil || len(bRes.results) == 0 {
+		return vRes.results, nil
+	}
+	return MergeRRFHybrid(vRes.results, bRes.results, int(limit)), nil
+}
+
+// pointToResult converts a Qdrant ScoredPoint to a Result.
+func pointToResult(pt *qdrant.ScoredPoint) Result {
+	payload := make(map[string]interface{})
+	for k, v := range pt.Payload {
+		switch val := v.Kind.(type) {
+		case *qdrant.Value_StringValue:
+			payload[k] = val.StringValue
+		case *qdrant.Value_IntegerValue:
+			payload[k] = val.IntegerValue
+		case *qdrant.Value_DoubleValue:
+			payload[k] = val.DoubleValue
+		case *qdrant.Value_BoolValue:
+			payload[k] = val.BoolValue
+		default:
+			payload[k] = fmt.Sprintf("%v", v)
+		}
+	}
+	var id uint64
+	if numID, ok := pt.Id.PointIdOptions.(*qdrant.PointId_Num); ok {
+		id = numID.Num
+	}
+	return Result{ID: id, Score: pt.Score, Payload: payload}
+}
+
 // resultKeySet builds a set of path:chunk keys from a result slice for O(1) leg-membership checks.
 func resultKeySet(results []Result) map[string]bool {
 	keys := make(map[string]bool, len(results))

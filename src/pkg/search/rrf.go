@@ -61,6 +61,19 @@ func mergeRRFHybrid(vectorResults, bm25Results []Result, limit int, cfg RRFConfi
 	return out
 }
 
+// MergeRRFWeighted merges a primary result set with a secondary (graph-neighbour) set using
+// RRF.  The secondary leg is multiplied by secondaryWeight (typically 0.7) so that direct
+// matches always rank above structurally adjacent results.
+// Uses the same K constant as the package-level defaultRRFConfig.
+func MergeRRFWeighted(primary, secondary []Result, secondaryWeight float64, limit int) []Result {
+	cfg := RRFConfig{
+		K:            defaultRRFConfig.K,
+		VectorWeight: 1.0,
+		BM25Weight:   secondaryWeight,
+	}
+	return mergeRRFHybrid(primary, secondary, limit, cfg)
+}
+
 // MergeRRF merges results from multiple namespace searches using Reciprocal Rank Fusion.
 // Uses the package-level defaultRRFConfig (configurable via env vars).
 func MergeRRF(perNS map[string][]Result, limit int) []Result {

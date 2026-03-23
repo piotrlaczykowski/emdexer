@@ -72,6 +72,12 @@ spec:
             - name: EMDEX_HOP_CONFIDENCE_THRESHOLD
               value: {{ .Values.config.hopConfidenceThreshold | quote }}
             {{- end }}
+            - name: EMDEX_GRAPH_ENABLED
+              value: {{ .Values.config.graphEnabled | default "true" | quote }}
+            {{- if .Values.config.graphDepth }}
+            - name: EMDEX_GRAPH_DEPTH
+              value: {{ .Values.config.graphDepth | quote }}
+            {{- end }}
             {{- if eq .Values.config.haMode "true" }}
             - name: EMDEX_HA_MODE
               value: "true"

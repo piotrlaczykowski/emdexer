@@ -43,6 +43,10 @@ config:
   agenticEnabled: "true"
   # maxHops: "3"          # Maximum retrieval hops (1-5). Default: 3.
   # hopConfidenceThreshold: "0.7"  # LLM confidence threshold for early stop. Default: 0.7.
+  # Graph-RAG — filesystem knowledge graph (Phase 24).
+  # Set graphEnabled to "false" to disable graph expansion.
+  graphEnabled: "true"
+  # graphDepth: "1"       # BFS hop depth [1-3]. Default: 1.
   # HA mode
   haMode: "false"
   postgresUrl: ""

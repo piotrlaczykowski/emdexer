@@ -254,7 +254,7 @@ The gateway refreshes its namespace topology from the registry every 30 seconds.
 #### Metrics (Prometheus)
 - **Method:** `GET`
 - **Path:** `/metrics`
-- **Description:** Exposes search latency, embedding latency, and HTTP request counts in Prometheus format.
+- **Description:** Exposes Prometheus metrics. Key metrics include vector/BM25/hybrid latency histograms, RRF hit-distribution counters, embed/LLM latency, BM25 fallback and zero-result counters, and topology gauges. See [hybrid-search.md](hybrid-search.md) for the full metric list.
 
 #### Liveness
 - **Method:** `GET`

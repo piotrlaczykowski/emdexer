@@ -86,6 +86,9 @@ services:
       - EMDEX_CHAT_LIMIT=${EMDEX_CHAT_LIMIT:-5}
       - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
       - EMDEX_BM25_ENABLED=${EMDEX_BM25_ENABLED:-true}
+      - EMDEX_RRF_K=${EMDEX_RRF_K:-60}
+      - EMDEX_RRF_VECTOR_WEIGHT=${EMDEX_RRF_VECTOR_WEIGHT:-1.0}
+      - EMDEX_RRF_BM25_WEIGHT=${EMDEX_RRF_BM25_WEIGHT:-1.0}
     volumes:
       - gateway-registry:/var/lib/emdexer/nodes
     networks:

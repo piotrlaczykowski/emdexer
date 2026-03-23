@@ -99,6 +99,10 @@ EMDEX_REGISTRY_FILE=/var/lib/emdexer/nodes/nodes.json
 EMDEX_PORT=7700
 EMDEX_SEARCH_LIMIT=10
 EMDEX_CHAT_LIMIT=5
+# RRF tuning (optional — defaults shown)
+# EMDEX_RRF_K=60
+# EMDEX_RRF_VECTOR_WEIGHT=1.0
+# EMDEX_RRF_BM25_WEIGHT=1.0
 ```
 
 **Node** → `/etc/emdexer/node.env`:

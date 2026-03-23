@@ -50,6 +50,18 @@ spec:
               value: {{ .Values.config.globalSearchTimeout | default "500" | quote }}
             - name: EMDEX_BM25_ENABLED
               value: {{ .Values.config.bm25Enabled | default "true" | quote }}
+            {{- if .Values.config.rrfK }}
+            - name: EMDEX_RRF_K
+              value: {{ .Values.config.rrfK | quote }}
+            {{- end }}
+            {{- if .Values.config.rrfVectorWeight }}
+            - name: EMDEX_RRF_VECTOR_WEIGHT
+              value: {{ .Values.config.rrfVectorWeight | quote }}
+            {{- end }}
+            {{- if .Values.config.rrfBm25Weight }}
+            - name: EMDEX_RRF_BM25_WEIGHT
+              value: {{ .Values.config.rrfBm25Weight | quote }}
+            {{- end }}
             {{- if eq .Values.config.haMode "true" }}
             - name: EMDEX_HA_MODE
               value: "true"

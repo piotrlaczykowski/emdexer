@@ -68,6 +68,7 @@ type Server struct {
 
 	globalSearchTimeout time.Duration
 	bm25Enabled         bool
+	agenticCfg          rag.AgenticConfig
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -420,6 +421,29 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Agentic multi-hop RAG — only for single-namespace requests (not global fan-out).
+	agenticHops := 0
+	if s.agenticCfg.Enabled && len(namespaces) <= 1 {
+		ns := ""
+		if len(namespaces) == 1 {
+			ns = namespaces[0]
+		}
+		searchFn := func(ctx context.Context, query string, vec []float32, limit uint64, searchNS string) ([]search.Result, error) {
+			if s.bm25Enabled {
+				return search.HybridSearch(ctx, s.pointsClient, s.collection, query, vec, limit, searchNS)
+			}
+			return search.SearchQdrant(ctx, s.pointsClient, s.collection, vec, limit, searchNS)
+		}
+		agResults, totalHops, agErr := rag.RunAgenticLoop(
+			r.Context(), s.agenticCfg, searchFn, s.embedder.Embed, audit.Log, llm.CallGeminiStructured,
+			question, ns, results, s.apiKey,
+		)
+		if agErr == nil {
+			results = agResults
+			agenticHops = totalHops
+		}
+	}
+
 	contextStr := rag.BuildContext(results)
 
 	var finalPrompt string
@@ -465,8 +489,15 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		LatencyMS: time.Since(start).Milliseconds(),
 		Status:    http.StatusOK,
 	}
+	chatMeta := map[string]interface{}{}
 	if isGlobal {
-		chatEntry.Metadata = map[string]interface{}{"namespaces_searched": namespaces}
+		chatMeta["namespaces_searched"] = namespaces
+	}
+	if agenticHops > 0 {
+		chatMeta["agentic_hops"] = agenticHops
+	}
+	if len(chatMeta) > 0 {
+		chatEntry.Metadata = chatMeta
 	}
 	audit.Log(chatEntry)
 }
@@ -612,6 +643,31 @@ func main() {
 	bm25Enabled := os.Getenv("EMDEX_BM25_ENABLED") != "false"
 	log.Printf("[gateway] hybrid search (BM25+vector): enabled=%v", bm25Enabled)
 
+	// Agentic multi-hop RAG — enabled by default; set EMDEX_AGENTIC_ENABLED=false to disable.
+	agenticEnabled := os.Getenv("EMDEX_AGENTIC_ENABLED") != "false"
+	agenticMaxHops := 3
+	if v := os.Getenv("EMDEX_MAX_HOPS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			if n > 5 {
+				n = 5
+			}
+			agenticMaxHops = n
+		}
+	}
+	agenticThreshold := 0.7
+	if v := os.Getenv("EMDEX_HOP_CONFIDENCE_THRESHOLD"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f <= 1 {
+			agenticThreshold = f
+		}
+	}
+	agenticCfg := rag.AgenticConfig{
+		Enabled:             agenticEnabled,
+		MaxHops:             agenticMaxHops,
+		ConfidenceThreshold: agenticThreshold,
+	}
+	log.Printf("[gateway] agentic RAG: enabled=%v max_hops=%d confidence_threshold=%.2f",
+		agenticCfg.Enabled, agenticCfg.MaxHops, agenticCfg.ConfidenceThreshold)
+
 	srv := &Server{
 		reg:                 reg,
 		qdrantConn:          conn,
@@ -626,6 +682,7 @@ func main() {
 		nsTopology:          make(map[string][]string),
 		globalSearchTimeout: globalSearchTimeout,
 		bm25Enabled:         bm25Enabled,
+		agenticCfg:          agenticCfg,
 	}
 
 	// Initial topology refresh + background ticker.

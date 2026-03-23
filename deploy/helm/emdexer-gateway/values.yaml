@@ -39,6 +39,10 @@ config:
   # rrfK: "60"
   # rrfVectorWeight: "1.0"
   # rrfBm25Weight: "1.0"
+  # Agentic multi-hop RAG (Phase 20).
+  agenticEnabled: "true"
+  # maxHops: "3"          # Maximum retrieval hops (1-5). Default: 3.
+  # hopConfidenceThreshold: "0.7"  # LLM confidence threshold for early stop. Default: 0.7.
   # HA mode
   haMode: "false"
   postgresUrl: ""

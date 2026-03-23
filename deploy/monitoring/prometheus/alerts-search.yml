@@ -77,3 +77,52 @@ groups:
             BM25 leg is returning errors — hybrid search has fallen back to
             vector-only results. Search is degraded but still functional.
             Check gateway logs for: [search] BM25 failed for collection
+
+      # ────────────────────────────────────────────────────────────────────────
+      # AgenticHighHopRate
+      # Fires when the average additional hops per chat request exceeds 2.
+      # This usually indicates the confidence threshold is too high, causing
+      # the loop to exhaust MaxHops on most requests and driving up LLM cost.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: AgenticHighHopRate
+        expr: |
+          (
+            rate(emdexer_gateway_agentic_hops_total[5m])
+            /
+            rate(emdexer_gateway_llm_duration_ms_count{model="gemini-2.0-flash"}[5m])
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agentic RAG averaging >2 extra hops per request"
+          description: >
+            Namespace {{ $labels.namespace }}:
+            The agentic retrieval loop is performing more than 2 additional hops
+            per chat request on average. This increases LLM cost and latency.
+            Consider lowering EMDEX_HOP_CONFIDENCE_THRESHOLD or EMDEX_MAX_HOPS.
+
+      # ────────────────────────────────────────────────────────────────────────
+      # AgenticLowEarlyStopRate
+      # Fires when the early-stop ratio drops below 20% for 10 minutes.
+      # Means the LLM rarely considers context sufficient before MaxHops —
+      # the threshold may be set too high for the corpus.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: AgenticLowEarlyStopRate
+        expr: |
+          (
+            rate(emdexer_gateway_agentic_early_stop_total[10m])
+            /
+            (rate(emdexer_gateway_agentic_hops_total[10m]) + rate(emdexer_gateway_agentic_early_stop_total[10m]))
+          ) < 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agentic RAG early-stop rate below 20%"
+          description: >
+            Namespace {{ $labels.namespace }}:
+            The agentic loop early-stops on fewer than 20% of requests.
+            Most requests are running to MaxHops. Check EMDEX_HOP_CONFIDENCE_THRESHOLD
+            (default 0.7) — lower it to allow earlier stopping, or review whether
+            the corpus has sufficient coverage for the queries being asked.

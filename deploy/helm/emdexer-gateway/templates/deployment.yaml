@@ -62,6 +62,16 @@ spec:
             - name: EMDEX_RRF_BM25_WEIGHT
               value: {{ .Values.config.rrfBm25Weight | quote }}
             {{- end }}
+            - name: EMDEX_AGENTIC_ENABLED
+              value: {{ .Values.config.agenticEnabled | default "true" | quote }}
+            {{- if .Values.config.maxHops }}
+            - name: EMDEX_MAX_HOPS
+              value: {{ .Values.config.maxHops | quote }}
+            {{- end }}
+            {{- if .Values.config.hopConfidenceThreshold }}
+            - name: EMDEX_HOP_CONFIDENCE_THRESHOLD
+              value: {{ .Values.config.hopConfidenceThreshold | quote }}
+            {{- end }}
             {{- if eq .Values.config.haMode "true" }}
             - name: EMDEX_HA_MODE
               value: "true"

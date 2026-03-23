@@ -123,10 +123,12 @@ rule_files:
 | `HighBM25Latency` | warning | BM25 avg > 2× vector avg for 5 min | Check Qdrant full-text index exists |
 | `BM25IndexFailure` | warning | >50 zero-result BM25 queries in 5 min | Verify `text` payload field in documents |
 | `HybridFallbackActive` | warning | Any BM25 error triggers fallback | Check gateway logs for BM25 failure details |
+| `AgenticHighHopRate` | warning | Avg extra hops per request > 2 for 5 min | Lower `EMDEX_HOP_CONFIDENCE_THRESHOLD` or `EMDEX_MAX_HOPS` |
+| `AgenticLowEarlyStopRate` | warning | Early-stop ratio < 20% for 10 min | Threshold too high for corpus; lower `EMDEX_HOP_CONFIDENCE_THRESHOLD` |
 
 ### Key Metrics
 
-See `docs/reference/hybrid-search.md` for the full metric list. Quick reference:
+See `docs/reference/hybrid-search.md` and `docs/reference/agentic-rag.md` for full metric lists. Quick reference:
 
 ```promql
 # BM25 average latency (ms)
@@ -140,6 +142,15 @@ rate(emdexer_gateway_rrf_top_both_legs_hits_total[5m])
 
 # Fallback rate
 rate(emdexer_gateway_bm25_fallback_total[5m])
+
+# Agentic RAG — additional hops per minute
+rate(emdexer_gateway_agentic_hops_total[5m])
+
+# Agentic RAG — early-stop rate
+rate(emdexer_gateway_agentic_early_stop_total[5m])
+
+# Agentic RAG — P90 confidence score at assessment time
+histogram_quantile(0.9, rate(emdexer_gateway_agentic_confidence_score_bucket[5m]))
 ```
 
 ---

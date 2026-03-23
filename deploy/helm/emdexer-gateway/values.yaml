@@ -47,6 +47,10 @@ config:
   # Set graphEnabled to "false" to disable graph expansion.
   graphEnabled: "true"
   # graphDepth: "1"       # BFS hop depth [1-3]. Default: 1.
+  # OpenTelemetry distributed tracing (Phase 27). Leave otelEndpoint empty to disable.
+  otelEndpoint: ""
+  # otelServiceName: "emdex-gateway"
+  # otelSamplingRatio: "1.0"
   # HA mode
   haMode: "false"
   postgresUrl: ""

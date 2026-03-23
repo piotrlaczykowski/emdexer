@@ -2,6 +2,7 @@ package embed
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"github.com/piotrlaczykowski/emdexer/safenet"
 )
 
@@ -44,7 +47,7 @@ func validateOllamaHost(hostStr string) error {
 
 // EmbedProvider is the single abstraction over any dense-embedding backend.
 type EmbedProvider interface {
-	Embed(text string) ([]float32, error)
+	Embed(ctx context.Context, text string) ([]float32, error)
 	Name() string
 }
 
@@ -81,11 +84,15 @@ type embedResponse struct {
 	} `json:"embedding"`
 }
 
-func (g *GeminiProvider) Embed(text string) ([]float32, error) {
+func (g *GeminiProvider) Embed(ctx context.Context, text string) ([]float32, error) {
 	geminiModel := g.Model
 	if envModel := os.Getenv("EMDEX_GEMINI_MODEL"); envModel != "" {
 		geminiModel = envModel
 	}
+
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.embed")
+	span.SetAttributes(attribute.String("embed.provider", "gemini"), attribute.String("embed.model", geminiModel))
+	defer span.End()
 
 	start := time.Now()
 	result, err := g.embed(text, geminiModel)
@@ -134,7 +141,11 @@ type OllamaProvider struct {
 
 func (o *OllamaProvider) Name() string { return "ollama:" + o.Model }
 
-func (o *OllamaProvider) Embed(text string) ([]float32, error) {
+func (o *OllamaProvider) Embed(ctx context.Context, text string) ([]float32, error) {
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.embed")
+	span.SetAttributes(attribute.String("embed.provider", "ollama"), attribute.String("embed.model", o.Model))
+	defer span.End()
+
 	start := time.Now()
 	result, err := o.embed(text)
 	embedDuration.WithLabelValues("ollama", o.Model).Observe(float64(time.Since(start).Milliseconds()))

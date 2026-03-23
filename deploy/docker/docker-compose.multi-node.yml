@@ -108,6 +108,9 @@ services:
       - EMDEX_HOP_CONFIDENCE_THRESHOLD=${EMDEX_HOP_CONFIDENCE_THRESHOLD:-0.7}
       - EMDEX_GRAPH_ENABLED=${EMDEX_GRAPH_ENABLED:-true}
       - EMDEX_GRAPH_DEPTH=${EMDEX_GRAPH_DEPTH:-1}
+      # Uncomment to enable distributed tracing (OTLP/gRPC, backend-agnostic).
+      # - EMDEX_OTEL_ENDPOINT=otel-collector:4317
+      # - EMDEX_OTEL_SAMPLING_RATIO=1.0
     volumes:
       - gateway-registry:/var/lib/emdexer/nodes
     networks:

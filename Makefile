@@ -82,6 +82,8 @@ vet:
 
 ## test: Run tests across all modules
 test:
+	@echo "[TEST] pkg"
+	@cd src/pkg && $(GOFLAGS) $(GO) test ./...
 	@echo "[TEST] gateway"
 	@cd $(GATEWAY_DIR) && $(GOFLAGS) $(GO) test ./...
 	@echo "[TEST] node"

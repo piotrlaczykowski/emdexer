@@ -81,6 +81,13 @@ services:
       # Uncomment to enable distributed tracing (OTLP/gRPC, backend-agnostic).
       # - EMDEX_OTEL_ENDPOINT=otel-collector:4317
       # - EMDEX_OTEL_SAMPLING_RATIO=1.0
+      # ── Qdrant mTLS (Phase 28) ────────────────────────────────
+      # - EMDEX_QDRANT_TLS=true
+      # - EMDEX_QDRANT_TLS_CA=/certs/ca.pem
+      # - EMDEX_QDRANT_TLS_CERT=/certs/client.pem
+      # - EMDEX_QDRANT_TLS_KEY=/certs/client.key
+      # ── PostgreSQL read replica (Phase 28) ───────────────────
+      # - EMDEX_PG_REPLICA_URL=postgres://user:pass@replica:5432/emdexer?sslmode=require
     volumes:
       - ../../logs:/app/logs
     networks:

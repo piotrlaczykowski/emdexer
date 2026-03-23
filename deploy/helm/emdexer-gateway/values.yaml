@@ -54,6 +54,13 @@ config:
   # HA mode
   haMode: "false"
   postgresUrl: ""
+  # PostgreSQL read replica (Phase 28) — routes List queries to replica; fallback to primary on error
+  # pgReplicaUrl: "postgres://user:pass@replica:5432/emdexer?sslmode=require"
+  # Qdrant mTLS (Phase 28) — default is plaintext gRPC (unchanged)
+  qdrantTls: "false"
+  # qdrantTlsCa: "/certs/ca.pem"
+  # qdrantTlsCert: "/certs/client.pem"
+  # qdrantTlsKey: "/certs/client.key"
 
 # Node registry persistence — set enabled=true to keep the registry across pod restarts.
 # The registry file path inside the container is persistence.registryFile.

@@ -140,6 +140,33 @@ Set `EMDEX_OTEL_ENDPOINT=tempo:4317`.
 
 ---
 
+## Grafana Dashboards
+
+Four pre-built dashboards are provided in `deploy/monitoring/grafana/`. They are **drop-in files** for users who already run their own Grafana + Prometheus stack — no new services are added to any Docker Compose file.
+
+| Dashboard file | Covers |
+|----------------|--------|
+| `emdexer-overview.json` | Request rate, latency P50/P95, error rate, topology |
+| `emdexer-search.json` | Vector vs BM25 latency, RRF hit distribution, end-to-end hybrid latency |
+| `emdexer-rag.json` | Agentic hops, LLM confidence scores, LLM generation latency |
+| `emdexer-multimodal.json` | Whisper/Vision/Frame counters and latency (Phase 26 metrics) |
+
+### Provisioning
+
+Copy the provisioning files into your Grafana config directory:
+
+```
+deploy/monitoring/grafana/
+├── dashboards/           → map to /var/lib/grafana/dashboards/emdexer/
+└── provisioning/
+    ├── dashboards.yaml   → /etc/grafana/provisioning/dashboards/emdexer.yaml
+    └── datasources.yaml  → /etc/grafana/provisioning/datasources/emdexer.yaml
+```
+
+`datasources.yaml` configures a Prometheus datasource at `http://prometheus:9090`. Override the URL if your Prometheus runs elsewhere.
+
+---
+
 ## Alert Rules
 
 Prometheus alert rules for search latency, BM25 health, and agentic loop behaviour are defined in `deploy/monitoring/prometheus/alerts-search.yml`.

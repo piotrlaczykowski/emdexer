@@ -19,6 +19,7 @@ import (
 	"github.com/piotrlaczykowski/emdexer/indexer"
 	"github.com/piotrlaczykowski/emdexer/nodereg"
 	"github.com/piotrlaczykowski/emdexer/plugin"
+	"github.com/piotrlaczykowski/emdexer/qdrantcreds"
 	"github.com/piotrlaczykowski/emdexer/queue"
 	"github.com/piotrlaczykowski/emdexer/registry"
 	"github.com/piotrlaczykowski/emdexer/safenet"
@@ -29,7 +30,6 @@ import (
 	"github.com/piotrlaczykowski/emdexer/version"
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -182,7 +182,11 @@ func main() {
 
 	globalCB = extractor.NewCircuitBreaker(5, 5*time.Minute)
 	globalCtx = context.Background()
-	conn, err := grpc.NewClient(globalCfg.QdrantHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	qdrantDialOpt, err := qdrantcreds.FromEnv()
+	if err != nil {
+		log.Fatalf("qdrant TLS config: %v", err)
+	}
+	conn, err := grpc.NewClient(globalCfg.QdrantHost, qdrantDialOpt)
 	if err != nil {
 		panic(err)
 	}

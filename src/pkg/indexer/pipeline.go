@@ -17,7 +17,9 @@ import (
 const ProjectNamespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 
 // Extractor is a function that extracts text from file content.
-type Extractor func(path string, content []byte, host string) (string, error)
+// The second return value carries optional extra metadata (e.g. whisper segments,
+// extraction_method) to be merged into the Qdrant point payload on chunk 0.
+type Extractor func(path string, content []byte, host string) (string, map[string]string, error)
 
 // PipelineConfig holds injected dependencies for the indexing pipeline.
 type PipelineConfig struct {
@@ -37,6 +39,7 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 	var text string
 	var err error
 	var pluginRels []plugin.Relation
+	var extraMeta map[string]string
 
 	// Check whether a loaded plugin handles this file extension.
 	// Plugins take priority over the default Extractous/Whisper path.
@@ -61,13 +64,13 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 			text = ""
 		}
 	} else if len(content) > 0 {
-		text, err = cfg.Extract(path, content, cfg.ExtractousHost)
+		text, extraMeta, err = cfg.Extract(path, content, cfg.ExtractousHost)
 		if err != nil {
 			log.Printf("[node] Extraction failed for %s: %v", path, err)
 			text = ""
 		}
 	} else {
-		text, err = cfg.Extract(path, nil, cfg.ExtractousHost)
+		text, extraMeta, err = cfg.Extract(path, nil, cfg.ExtractousHost)
 		if err != nil {
 			log.Printf("[node] Extraction failed for %s: %v", path, err)
 			text = ""
@@ -132,6 +135,12 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 		// Attach relations to chunk 0 only — the graph builder only needs one point per file.
 		if i == 0 && relationsJSON != "" {
 			payload["relations"] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: relationsJSON}}
+		}
+		// Merge extractor-provided metadata (e.g. whisper segments, extraction_method) into chunk 0.
+		if i == 0 {
+			for k, v := range extraMeta {
+				payload[k] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: v}}
+			}
 		}
 
 		points = append(points, &qdrant.PointStruct{

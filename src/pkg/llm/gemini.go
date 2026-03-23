@@ -31,8 +31,13 @@ type GeminiContent struct {
 	Role  string       `json:"role"`
 	Parts []GeminiPart `json:"parts"`
 }
+type GeminiGenerationConfig struct {
+	ResponseMIMEType string `json:"responseMimeType,omitempty"`
+}
+
 type GeminiRequest struct {
-	Contents []GeminiContent `json:"contents"`
+	Contents         []GeminiContent         `json:"contents"`
+	GenerationConfig *GeminiGenerationConfig `json:"generationConfig,omitempty"`
 }
 type GeminiCandidate struct {
 	Content GeminiContent `json:"content"`
@@ -53,13 +58,33 @@ func CallGemini(prompt, apiKey string) (string, error) {
 	return result, err
 }
 
+// CallGeminiStructured calls Gemini with JSON mode enabled (responseMimeType: application/json).
+// The response is guaranteed to be valid JSON. The caller is responsible for unmarshalling.
+func CallGeminiStructured(prompt, apiKey string) (string, error) {
+	model := "gemini-2.0-flash"
+	start := time.Now()
+	result, err := callGeminiWithConfig(prompt, apiKey, model, &GeminiGenerationConfig{
+		ResponseMIMEType: "application/json",
+	})
+	llmDuration.WithLabelValues(model).Observe(float64(time.Since(start).Milliseconds()))
+	if err != nil {
+		llmErrors.WithLabelValues(model).Inc()
+	}
+	return result, err
+}
+
 func callGemini(prompt, apiKey, model string) (string, error) {
+	return callGeminiWithConfig(prompt, apiKey, model, nil)
+}
+
+func callGeminiWithConfig(prompt, apiKey, model string, genCfg *GeminiGenerationConfig) (string, error) {
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", model, apiKey)
 
 	reqBody := GeminiRequest{
 		Contents: []GeminiContent{
 			{Role: "user", Parts: []GeminiPart{{Text: prompt}}},
 		},
+		GenerationConfig: genCfg,
 	}
 	body, _ := json.Marshal(reqBody)
 

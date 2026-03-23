@@ -103,6 +103,10 @@ EMDEX_CHAT_LIMIT=5
 # EMDEX_RRF_K=60
 # EMDEX_RRF_VECTOR_WEIGHT=1.0
 # EMDEX_RRF_BM25_WEIGHT=1.0
+# Agentic multi-hop RAG (optional — defaults shown)
+# EMDEX_AGENTIC_ENABLED=true
+# EMDEX_MAX_HOPS=3
+# EMDEX_HOP_CONFIDENCE_THRESHOLD=0.7
 ```
 
 **Node** → `/etc/emdexer/node.env`:

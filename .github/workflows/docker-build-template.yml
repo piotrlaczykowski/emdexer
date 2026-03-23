@@ -122,7 +122,7 @@ jobs:
 
       - name: Set up Helm
         if: inputs.chart_path != ''
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
 
       - name: Lint Helm Chart
         if: inputs.chart_path != ''

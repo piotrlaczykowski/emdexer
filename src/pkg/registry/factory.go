@@ -37,6 +37,9 @@ func NewRegistry(dataFile string) NodeRegistry {
 				"  → Set EMDEX_HA_MODE=true to enforce PostgreSQL.", err)
 		} else {
 			log.Printf("✅ [registry] PostgreSQL backend ready (Ping OK, migration OK)")
+			if replicaDSN := os.Getenv("EMDEX_PG_REPLICA_URL"); replicaDSN != "" {
+				reg.OpenReplica(replicaDSN)
+			}
 			return reg
 		}
 	}

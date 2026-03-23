@@ -15,10 +15,13 @@ import (
 	"github.com/piotrlaczykowski/emdexer/embed"
 	"github.com/piotrlaczykowski/emdexer/extract"
 	"github.com/piotrlaczykowski/emdexer/extractor"
-	"github.com/piotrlaczykowski/emdexer/nodereg"
 	"github.com/piotrlaczykowski/emdexer/health"
 	"github.com/piotrlaczykowski/emdexer/indexer"
+	"github.com/piotrlaczykowski/emdexer/nodereg"
+	"github.com/piotrlaczykowski/emdexer/plugin"
+	"github.com/piotrlaczykowski/emdexer/qdrantcreds"
 	"github.com/piotrlaczykowski/emdexer/queue"
+	"github.com/piotrlaczykowski/emdexer/registry"
 	"github.com/piotrlaczykowski/emdexer/safenet"
 	"github.com/piotrlaczykowski/emdexer/search"
 	"github.com/piotrlaczykowski/emdexer/vfs"
@@ -27,7 +30,6 @@ import (
 	"github.com/piotrlaczykowski/emdexer/version"
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -63,9 +65,18 @@ type Config struct {
 	S3Bucket       string
 	S3UseSSL       bool
 	S3Prefix       string
-	WhisperURL     string // Whisper sidecar URL (e.g. http://whisper:8080)
-	WhisperModel   string // Whisper model name (default: "base")
-	EnableOCR      bool   // Enable OCR for images and scanned PDFs
+	WhisperURL      string // Whisper sidecar URL (e.g. http://whisper:8080)
+	WhisperModel    string // Whisper model name (default: "base")
+	WhisperEnabled  bool   // EMDEX_WHISPER_ENABLED — master toggle for audio transcription
+	WhisperMinChars int    // EMDEX_WHISPER_MIN_CHARS — minimum transcript length
+	WhisperLanguage string // EMDEX_WHISPER_LANGUAGE — optional language hint
+	EnableOCR       bool   // Enable OCR for images and scanned PDFs
+	VisionEnabled   bool   // EMDEX_VISION_ENABLED — enable Gemini Vision image captioning
+	VisionMaxSizeMB int    // EMDEX_VISION_MAX_SIZE_MB — skip images larger than this
+	FrameEnabled    bool   // EMDEX_FRAME_ENABLED — enable FFmpeg video frame extraction
+	FFmpegURL       string // EMDEX_FFMPEG_URL — FFmpeg sidecar URL
+	FrameIntervalSec int   // EMDEX_FRAME_INTERVAL_SEC — seconds between extracted frames
+	MaxFrames        int   // EMDEX_MAX_FRAMES — maximum frames per video
 }
 
 var globalPointsClient qdrant.PointsClient
@@ -138,9 +149,18 @@ func main() {
 		S3Bucket:       os.Getenv("S3_BUCKET"),
 		S3UseSSL:       os.Getenv("S3_USE_SSL") == "true",
 		S3Prefix:       os.Getenv("S3_PREFIX"),
-		WhisperURL:     os.Getenv("EMDEX_WHISPER_URL"),
-		WhisperModel:   os.Getenv("EMDEX_WHISPER_MODEL"),
-		EnableOCR:      os.Getenv("EMDEX_ENABLE_OCR") == "true",
+		WhisperURL:       os.Getenv("EMDEX_WHISPER_URL"),
+		WhisperModel:     os.Getenv("EMDEX_WHISPER_MODEL"),
+		WhisperEnabled:   os.Getenv("EMDEX_WHISPER_ENABLED") == "true",
+		WhisperMinChars:  parseIntEnv("EMDEX_WHISPER_MIN_CHARS", 50),
+		WhisperLanguage:  os.Getenv("EMDEX_WHISPER_LANGUAGE"),
+		EnableOCR:        os.Getenv("EMDEX_ENABLE_OCR") == "true",
+		VisionEnabled:    os.Getenv("EMDEX_VISION_ENABLED") == "true",
+		VisionMaxSizeMB:  parseIntEnv("EMDEX_VISION_MAX_SIZE_MB", 10),
+		FrameEnabled:     os.Getenv("EMDEX_FRAME_ENABLED") == "true",
+		FFmpegURL:        os.Getenv("EMDEX_FFMPEG_URL"),
+		FrameIntervalSec: parseIntEnv("EMDEX_FRAME_INTERVAL_SEC", 30),
+		MaxFrames:        parseIntEnv("EMDEX_MAX_FRAMES", 10),
 	}
 
 	if globalCfg.ExtractousHost == "" {
@@ -162,7 +182,11 @@ func main() {
 
 	globalCB = extractor.NewCircuitBreaker(5, 5*time.Minute)
 	globalCtx = context.Background()
-	conn, err := grpc.NewClient(globalCfg.QdrantHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	qdrantDialOpt, err := qdrantcreds.FromEnv()
+	if err != nil {
+		log.Fatalf("qdrant TLS config: %v", err)
+	}
+	conn, err := grpc.NewClient(globalCfg.QdrantHost, qdrantDialOpt)
 	if err != nil {
 		panic(err)
 	}
@@ -199,25 +223,48 @@ func main() {
 	// Create extract client and pipeline config after VFS, CB, and embedder are ready.
 	safeHTTP := safenet.NewSafeClient(60 * time.Second)
 	extractClient := &extract.Client{
-		CB:        globalCB,
-		FS:        globalFS,
-		HTTP:      safeHTTP,
-		EnableOCR: globalCfg.EnableOCR,
+		CB:              globalCB,
+		FS:              globalFS,
+		HTTP:            safeHTTP,
+		EnableOCR:       globalCfg.EnableOCR,
+		VisionEnabled:   globalCfg.VisionEnabled,
+		VisionMaxSizeMB: globalCfg.VisionMaxSizeMB,
+		VisionAPIKey:    globalCfg.GoogleAPIKey,
 	}
 
 	// Configure Whisper sidecar if URL is set.
 	if globalCfg.WhisperURL != "" {
 		whisperCB := extractor.NewCircuitBreaker(5, 5*time.Minute)
 		extractClient.Whisper = &extract.WhisperClient{
-			URL:   globalCfg.WhisperURL,
-			Model: globalCfg.WhisperModel,
-			HTTP:  safeHTTP,
-			CB:    whisperCB,
+			URL:      globalCfg.WhisperURL,
+			Model:    globalCfg.WhisperModel,
+			HTTP:     safeHTTP,
+			CB:       whisperCB,
+			Enabled:  globalCfg.WhisperEnabled,
+			MinChars: globalCfg.WhisperMinChars,
+			Language: globalCfg.WhisperLanguage,
 		}
-		log.Printf("[node] Whisper sidecar configured: %s (model=%s)", globalCfg.WhisperURL, globalCfg.WhisperModel)
+		log.Printf("[node] Whisper sidecar configured: %s (model=%s enabled=%v)",
+			globalCfg.WhisperURL, globalCfg.WhisperModel, globalCfg.WhisperEnabled)
 	}
+
+	// Configure FFmpeg sidecar if frame extraction is enabled.
+	if globalCfg.FrameEnabled && globalCfg.FFmpegURL != "" {
+		extractClient.Frames = &extract.FFmpegClient{
+			URL:         globalCfg.FFmpegURL,
+			HTTP:        safeHTTP,
+			IntervalSec: globalCfg.FrameIntervalSec,
+			MaxFrames:   globalCfg.MaxFrames,
+		}
+		log.Printf("[node] FFmpeg sidecar configured: %s (interval=%ds max_frames=%d)",
+			globalCfg.FFmpegURL, globalCfg.FrameIntervalSec, globalCfg.MaxFrames)
+	}
+
 	if globalCfg.EnableOCR {
 		log.Println("[node] OCR enabled for images and scanned PDFs")
+	}
+	if globalCfg.VisionEnabled {
+		log.Println("[node] Gemini Vision enabled for image captioning")
 	}
 
 	pipelineCfg := indexer.PipelineConfig{
@@ -225,12 +272,27 @@ func main() {
 		ExtractousHost: globalCfg.ExtractousHost,
 		NodeType:       globalCfg.NodeType,
 		Embedder:       globalEmbedder,
-		Extract: func(path string, content []byte, host string) (string, error) {
+		Extract: func(path string, content []byte, host string) (string, map[string]string, error) {
 			if len(content) > 0 {
 				return extractClient.ExtractFromBytes(path, content, host)
 			}
 			return extractClient.ExtractContent(path, host)
 		},
+	}
+
+	// Load extractor plugins from EMDEX_PLUGIN_DIR (default: ./plugins/).
+	// EMDEX_PLUGIN_ENABLED=false disables the plugin system entirely.
+	if os.Getenv("EMDEX_PLUGIN_ENABLED") != "false" {
+		pluginDir := os.Getenv("EMDEX_PLUGIN_DIR")
+		if pluginDir == "" {
+			pluginDir = filepath.Join(cwd, "plugins")
+		}
+		if plugins, loadErr := plugin.LoadPlugins(pluginDir); loadErr != nil {
+			log.Printf("[plugin] Load error from %s: %v", pluginDir, loadErr)
+		} else if len(plugins) > 0 {
+			pipelineCfg.Plugins = plugins
+			log.Printf("[plugin] %d plugin(s) active for indexing", len(plugins))
+		}
 	}
 
 	_, err = collectionsClient.Get(globalCtx, &qdrant.GetCollectionInfoRequest{
@@ -250,6 +312,24 @@ func main() {
 			},
 		})
 	}
+
+	// Ensure full-text payload indexes exist for hybrid (BM25 + vector) search.
+	registry.EnsureTextIndexes(globalCtx, globalPointsClient, globalCfg.CollectionName)
+
+	// Hoist cacheDir so it is available for both migration check and poller setup.
+	cacheDir := os.Getenv("EMDEX_CACHE_DIR")
+	if cacheDir == "" {
+		cacheDir = filepath.Join(cwd, "cache")
+	}
+	_ = os.MkdirAll(cacheDir, 0700)
+
+	// Automatic graph-relation migration: if the collection predates Phase 24
+	// (i.e. <20% of sampled chunk-0 points carry a `relations` field), delete
+	// the metadata cache so the next poller/walk treats every file as new and
+	// re-indexes it with relation extraction enabled.
+	migrationMode := parseGraphMigrationMode(os.Getenv("EMDEX_GRAPH_MIGRATION"))
+	checkRelationsMigration(globalCtx, globalPointsClient, globalCfg.CollectionName,
+		globalCfg.Namespace, cacheDir, globalCfg.NodeType, migrationMode)
 
 	// Closure that delegates to the extracted search.DeletePointsByPath,
 	// capturing the global context, client, and collection name.
@@ -286,11 +366,6 @@ func main() {
 			go w.Start()
 		}
 	} else {
-		cacheDir := os.Getenv("EMDEX_CACHE_DIR")
-		if cacheDir == "" {
-			cacheDir = filepath.Join(cwd, "cache")
-		}
-		_ = os.MkdirAll(cacheDir, 0700)
 		cache, _ := watcher.NewMetadataCache(filepath.Join(cacheDir, "emdex_cache.db"))
 		if cache != nil {
 			p := watcher.NewPoller(
@@ -387,6 +462,16 @@ func main() {
 		QdrantConn:      conn,
 		WorkerHeartbeat: globalWorkerHeartbeat,
 	})
+}
+
+// parseIntEnv parses an environment variable as an integer, returning def if unset or invalid.
+func parseIntEnv(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
 }
 
 func initVFS(root string) {

@@ -27,7 +27,7 @@ services:
       - emdexer-net
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -69,6 +69,25 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMDEX_BM25_ENABLED=${EMDEX_BM25_ENABLED:-true}
+      - EMDEX_RRF_K=${EMDEX_RRF_K:-60}
+      - EMDEX_RRF_VECTOR_WEIGHT=${EMDEX_RRF_VECTOR_WEIGHT:-1.0}
+      - EMDEX_RRF_BM25_WEIGHT=${EMDEX_RRF_BM25_WEIGHT:-1.0}
+      - EMDEX_AGENTIC_ENABLED=${EMDEX_AGENTIC_ENABLED:-true}
+      - EMDEX_MAX_HOPS=${EMDEX_MAX_HOPS:-3}
+      - EMDEX_HOP_CONFIDENCE_THRESHOLD=${EMDEX_HOP_CONFIDENCE_THRESHOLD:-0.7}
+      - EMDEX_GRAPH_ENABLED=${EMDEX_GRAPH_ENABLED:-true}
+      - EMDEX_GRAPH_DEPTH=${EMDEX_GRAPH_DEPTH:-1}
+      # Uncomment to enable distributed tracing (OTLP/gRPC, backend-agnostic).
+      # - EMDEX_OTEL_ENDPOINT=otel-collector:4317
+      # - EMDEX_OTEL_SAMPLING_RATIO=1.0
+      # ── Qdrant mTLS (Phase 28) ────────────────────────────────
+      # - EMDEX_QDRANT_TLS=true
+      # - EMDEX_QDRANT_TLS_CA=/certs/ca.pem
+      # - EMDEX_QDRANT_TLS_CERT=/certs/client.pem
+      # - EMDEX_QDRANT_TLS_KEY=/certs/client.key
+      # ── PostgreSQL read replica (Phase 28) ───────────────────
+      # - EMDEX_PG_REPLICA_URL=postgres://user:pass@replica:5432/emdexer?sslmode=require
     volumes:
       - ../../logs:/app/logs
     networks:
@@ -76,6 +95,26 @@ services:
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7700/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  plugin-sidecar:
+    build: ../../src/plugin-sidecar
+    # No host port mappings — plugin-sidecar is internal only.
+    # Access via the emdexer-net Docker network (plugin-sidecar:8003).
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    volumes:
+      - ../../plugins:/plugins:ro
+    networks:
+      - emdexer-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -101,17 +140,37 @@ services:
       - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
       - NODE_HEALTH_PORT=8081
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
+      # ── Audio/Video transcription (Track 1) ──────────────────
+      # Uncomment to enable audio/video transcription:
+      # - EMDEX_WHISPER_ENABLED=true
       - EMDEX_WHISPER_URL=${EMDEX_WHISPER_URL:-http://whisper:8080}
       - EMDEX_WHISPER_MODEL=${EMDEX_WHISPER_MODEL:-base}
+      # - EMDEX_WHISPER_MIN_CHARS=50
+      # - EMDEX_WHISPER_LANGUAGE=
       - EMDEX_ENABLE_OCR=${EMDEX_ENABLE_OCR:-true}
+      # ── Gemini Vision image captioning (Track 2) ─────────────
+      # Uncomment to enable Gemini Vision for images (uses GOOGLE_API_KEY):
+      # - EMDEX_VISION_ENABLED=true
+      # - EMDEX_VISION_MAX_SIZE_MB=10
+      # ── FFmpeg video frame extraction (Track 3) ──────────────
+      # Uncomment to enable video frame extraction:
+      # - EMDEX_FRAME_ENABLED=true
+      # - EMDEX_FFMPEG_URL=http://ffmpeg-sidecar:8004
+      # - EMDEX_FRAME_INTERVAL_SEC=30
+      # - EMDEX_MAX_FRAMES=10
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     networks:
       - emdexer-net
     depends_on:
       extractous:
         condition: service_healthy
       whisper:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: always
     healthcheck:
@@ -134,12 +193,29 @@ services:
     environment:
       - GATEWAY_URL=http://gateway:7700
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
     networks:
       - emdexer-net
     depends_on:
       gateway:
         condition: service_healthy
+      plugin-sidecar:
+        condition: service_healthy
     restart: always
+
+  # ── FFmpeg sidecar (video frame extraction — Track 3) ───────────────────────
+  # Uncomment to enable video frame extraction:
+  # ffmpeg-sidecar:
+  #   build: ../../src/ffmpeg-sidecar
+  #   networks:
+  #     - emdexer-net
+  #   restart: unless-stopped
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "2"
+  #         memory: 512M
 
 networks:
   emdexer-net:

@@ -25,12 +25,38 @@ spec:
               value: {{ .Values.config.namespace | quote }}
             - name: EMDEX_EXTRACTOUS_URL
               value: {{ .Values.config.extractousHost | quote }}
+            {{- if eq (.Values.config.whisperEnabled | default "false") "true" }}
+            - name: EMDEX_WHISPER_ENABLED
+              value: "true"
+            {{- end }}
             - name: EMDEX_WHISPER_URL
-              value: {{ .Values.config.whisperUrl | quote }}
+              value: {{ .Values.config.whisperUrl | default "http://whisper:8080" | quote }}
             - name: EMDEX_WHISPER_MODEL
               value: {{ .Values.config.whisperModel | default "base" | quote }}
+            - name: EMDEX_WHISPER_MIN_CHARS
+              value: {{ .Values.config.whisperMinChars | default "50" | quote }}
+            {{- if .Values.config.whisperLanguage }}
+            - name: EMDEX_WHISPER_LANGUAGE
+              value: {{ .Values.config.whisperLanguage | quote }}
+            {{- end }}
             - name: EMDEX_ENABLE_OCR
               value: {{ .Values.config.enableOcr | default "true" | quote }}
+            {{- if eq (.Values.config.visionEnabled | default "false") "true" }}
+            - name: EMDEX_VISION_ENABLED
+              value: "true"
+            - name: EMDEX_VISION_MAX_SIZE_MB
+              value: {{ .Values.config.visionMaxSizeMB | default "10" | quote }}
+            {{- end }}
+            {{- if eq (.Values.config.frameEnabled | default "false") "true" }}
+            - name: EMDEX_FRAME_ENABLED
+              value: "true"
+            - name: EMDEX_FFMPEG_URL
+              value: {{ .Values.config.ffmpegUrl | quote }}
+            - name: EMDEX_FRAME_INTERVAL_SEC
+              value: {{ .Values.config.frameIntervalSec | default "30" | quote }}
+            - name: EMDEX_MAX_FRAMES
+              value: {{ .Values.config.maxFrames | default "10" | quote }}
+            {{- end }}
             - name: GOOGLE_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -47,6 +73,35 @@ spec:
               value: {{ .Values.config.gatewayUrl | quote }}
             - name: EMDEX_GATEWAY_AUTH_KEY
               value: {{ .Values.config.gatewayAuthKey | quote }}
+            {{- end }}
+            {{- if eq (.Values.config.qdrantTls | default "false") "true" }}
+            - name: EMDEX_QDRANT_TLS
+              value: "true"
+            {{- if .Values.config.qdrantTlsCa }}
+            - name: EMDEX_QDRANT_TLS_CA
+              value: {{ .Values.config.qdrantTlsCa | quote }}
+            {{- end }}
+            {{- if .Values.config.qdrantTlsCert }}
+            - name: EMDEX_QDRANT_TLS_CERT
+              value: {{ .Values.config.qdrantTlsCert | quote }}
+            - name: EMDEX_QDRANT_TLS_KEY
+              value: {{ .Values.config.qdrantTlsKey | quote }}
+            {{- end }}
+            {{- end }}
+            - name: EMDEX_GRAPH_MIGRATION
+              value: {{ .Values.config.graphMigration | default "auto" | quote }}
+            - name: EMDEX_PLUGIN_ENABLED
+              value: {{ .Values.config.pluginEnabled | default "true" | quote }}
+            {{- if .Values.config.pluginSidecarUrl }}
+            - name: EMDEX_PLUGIN_SIDECAR_URL
+              value: {{ .Values.config.pluginSidecarUrl | quote }}
+            {{- else }}
+            - name: EMDEX_PLUGIN_DIR
+              value: {{ .Values.config.pluginDir | default "/app/plugins" | quote }}
+            {{- if .Values.config.pluginTimeout }}
+            - name: EMDEX_PLUGIN_TIMEOUT
+              value: {{ .Values.config.pluginTimeout | quote }}
+            {{- end }}
             {{- end }}
             {{- if eq .Values.config.nodeType "s3" }}
             - name: S3_ENDPOINT

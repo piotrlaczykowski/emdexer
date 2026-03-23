@@ -26,7 +26,7 @@ func TestExtractFromBytes_TextFile(t *testing.T) {
 		HTTP: http.DefaultClient,
 	}
 
-	text, err := client.ExtractFromBytes("readme.txt", []byte("hello world"), "http://unused")
+	text, _, err := client.ExtractFromBytes("readme.txt", []byte("hello world"), "http://unused")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -37,7 +37,6 @@ func TestExtractFromBytes_TextFile(t *testing.T) {
 
 func TestExtractFromBytes_ImageOCR(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify OCR flag is set
 		if r.URL.Query().Get("ocr") != "true" {
 			t.Error("expected ocr=true query parameter for image")
 		}
@@ -48,7 +47,7 @@ func TestExtractFromBytes_ImageOCR(t *testing.T) {
 	client, ts := newTestClient(handler)
 	defer ts.Close()
 
-	text, err := client.ExtractFromBytes("scan.png", []byte("fake image"), ts.URL)
+	text, _, err := client.ExtractFromBytes("scan.png", []byte("fake image"), ts.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -64,7 +63,7 @@ func TestExtractFromBytes_ImageOCRDisabled(t *testing.T) {
 		EnableOCR: false,
 	}
 
-	_, err := client.ExtractFromBytes("scan.png", []byte("fake image"), "http://unused")
+	_, _, err := client.ExtractFromBytes("scan.png", []byte("fake image"), "http://unused")
 	if err == nil {
 		t.Error("expected error when OCR is disabled for image files")
 	}
@@ -73,7 +72,7 @@ func TestExtractFromBytes_ImageOCRDisabled(t *testing.T) {
 func TestExtractFromBytes_AudioWhisper(t *testing.T) {
 	whisperServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"text": "Transcribed audio"})
+		_ = json.NewEncoder(w).Encode(whisperResponse{Text: "Transcribed audio"})
 	}))
 	defer whisperServer.Close()
 
@@ -81,14 +80,15 @@ func TestExtractFromBytes_AudioWhisper(t *testing.T) {
 		CB:   extractor.NewCircuitBreaker(5, time.Minute),
 		HTTP: whisperServer.Client(),
 		Whisper: &WhisperClient{
-			URL:   whisperServer.URL,
-			Model: "base",
-			HTTP:  whisperServer.Client(),
-			CB:    extractor.NewCircuitBreaker(5, time.Minute),
+			URL:     whisperServer.URL,
+			Model:   "base",
+			HTTP:    whisperServer.Client(),
+			CB:      extractor.NewCircuitBreaker(5, time.Minute),
+			Enabled: true,
 		},
 	}
 
-	text, err := client.ExtractFromBytes("podcast.mp3", []byte("fake audio"), "http://unused")
+	text, _, err := client.ExtractFromBytes("podcast.mp3", []byte("fake audio"), "http://unused")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestExtractFromBytes_AudioNoWhisper(t *testing.T) {
 		Whisper: nil,
 	}
 
-	_, err := client.ExtractFromBytes("podcast.mp3", []byte("fake audio"), "http://unused")
+	_, _, err := client.ExtractFromBytes("podcast.mp3", []byte("fake audio"), "http://unused")
 	if err == nil {
 		t.Error("expected error when Whisper is not configured")
 	}
@@ -116,10 +116,8 @@ func TestExtractFromBytes_PDFOCRFallback(t *testing.T) {
 		callCount++
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Query().Get("ocr") == "true" {
-			// OCR retry returns good text
 			_ = json.NewEncoder(w).Encode(Result{Text: "OCR extracted from scanned PDF with lots of content"})
 		} else {
-			// First attempt returns near-zero text (scanned PDF)
 			_ = json.NewEncoder(w).Encode(Result{Text: ""})
 		}
 	})
@@ -127,7 +125,7 @@ func TestExtractFromBytes_PDFOCRFallback(t *testing.T) {
 	client, ts := newTestClient(handler)
 	defer ts.Close()
 
-	text, err := client.ExtractFromBytes("scanned.pdf", []byte("fake pdf"), ts.URL)
+	text, _, err := client.ExtractFromBytes("scanned.pdf", []byte("fake pdf"), ts.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -151,7 +149,7 @@ func TestExtractFromBytes_PDFNoFallbackNeeded(t *testing.T) {
 	client, ts := newTestClient(handler)
 	defer ts.Close()
 
-	text, err := client.ExtractFromBytes("normal.pdf", []byte("fake pdf"), ts.URL)
+	text, _, err := client.ExtractFromBytes("normal.pdf", []byte("fake pdf"), ts.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -172,7 +170,7 @@ func TestExtractFromBytes_Extractous(t *testing.T) {
 	client, ts := newTestClient(handler)
 	defer ts.Close()
 
-	text, err := client.ExtractFromBytes("report.docx", []byte("fake docx"), ts.URL)
+	text, _, err := client.ExtractFromBytes("report.docx", []byte("fake docx"), ts.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -191,5 +189,23 @@ func TestImageExtsMap(t *testing.T) {
 		if imageExts[ext] {
 			t.Errorf("expected imageExts[%q] = false", ext)
 		}
+	}
+}
+
+// TestVideoSkipped_NeitherEnabled verifies that a video file with no Whisper
+// and no FFmpeg client configured is skipped gracefully.
+func TestVideoSkipped_NeitherEnabled(t *testing.T) {
+	client := &Client{
+		CB:   extractor.NewCircuitBreaker(5, time.Minute),
+		HTTP: http.DefaultClient,
+		// No Whisper, no Frames
+	}
+
+	text, _, err := client.ExtractFromBytes("video.mp4", []byte("fake video"), "http://unused")
+	if err != nil {
+		t.Fatalf("expected graceful skip (no error), got: %v", err)
+	}
+	if text != "" {
+		t.Errorf("expected empty text when neither extractor is enabled, got %q", text)
 	}
 }

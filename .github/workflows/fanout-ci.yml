@@ -33,6 +33,7 @@ jobs:
       gateway: ${{ steps.filter.outputs.gateway }}
       node: ${{ steps.filter.outputs.node }}
       mcp: ${{ steps.filter.outputs.mcp }}
+      plugin_sidecar: ${{ steps.filter.outputs.plugin_sidecar }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -50,13 +51,16 @@ jobs:
             mcp:
               - 'src/mcp/**'
               - 'deploy/docker/Dockerfile.mcp'
+            plugin_sidecar:
+              - 'src/plugin-sidecar/**'
 
       - name: Debug - Show detected changes
         run: |
           echo "--- Changed services ---"
-          echo "gateway : ${{ steps.filter.outputs.gateway }}"
-          echo "node    : ${{ steps.filter.outputs.node }}"
-          echo "mcp     : ${{ steps.filter.outputs.mcp }}"
+          echo "gateway        : ${{ steps.filter.outputs.gateway }}"
+          echo "node           : ${{ steps.filter.outputs.node }}"
+          echo "mcp            : ${{ steps.filter.outputs.mcp }}"
+          echo "plugin_sidecar : ${{ steps.filter.outputs.plugin_sidecar }}"
 
   # ================================================================
   # BUILD SERVICES - Per-service Docker builds with versioned tags
@@ -89,6 +93,16 @@ jobs:
       service_name: mcp
       image_name: emdexer-mcp
 
+  build-plugin-sidecar:
+    needs: changes
+    if: needs.changes.outputs.plugin_sidecar == 'true' && github.ref != 'refs/heads/main'
+    uses: ./.github/workflows/docker-build-template.yml
+    with:
+      service_name: plugin-sidecar
+      image_name: emdexer-plugin-sidecar
+      build_context: src/plugin-sidecar
+      dockerfile: src/plugin-sidecar/Dockerfile
+
   # ================================================================
   # RELEASE - Managed by release-please on main
   # Reads conventional commits to determine semver bump:
@@ -111,6 +125,30 @@ jobs:
           target-branch: main
 
   # ================================================================
+  # SYNC DEVELOP - Merge main back to develop after every release
+  # Ensures develop always has a reachable release tag for git describe
+  # ================================================================
+  sync-develop:
+    needs: release-please
+    if: github.ref == 'refs/heads/main' && needs.release-please.outputs.release_created
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Merge main → develop
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout develop
+          git merge --no-ff main -m "chore: sync main → develop after ${{ needs.release-please.outputs.tag_name }} release"
+          git push origin develop
+
+  # ================================================================
   # RELEASE DOCKER - Build versioned Docker images on release
   # Tagged: {version} (e.g. 1.0.0) + latest
   # ================================================================
@@ -128,12 +166,19 @@ jobs:
           - service: gateway
             image_name: emdexer-gateway
             dockerfile: deploy/docker/Dockerfile.gateway
+            build_context: .
           - service: node
             image_name: emdexer-node
             dockerfile: deploy/docker/Dockerfile.node
+            build_context: .
           - service: mcp
             image_name: emdexer-mcp
             dockerfile: deploy/docker/Dockerfile.mcp
+            build_context: .
+          - service: plugin-sidecar
+            image_name: emdexer-plugin-sidecar
+            dockerfile: src/plugin-sidecar/Dockerfile
+            build_context: src/plugin-sidecar
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -156,7 +201,7 @@ jobs:
       - name: Build and push release image
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: ${{ matrix.build_context }}
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |

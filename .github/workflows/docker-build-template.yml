@@ -13,6 +13,14 @@ on:
         required: false
         type: string
         default: ""
+      build_context:
+        required: false
+        type: string
+        default: "."
+      dockerfile:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   build-and-push:
@@ -48,7 +56,8 @@ jobs:
 
           # Get last released version from git tags (strip 'v' prefix)
           # Falls back to 0.0.0 if no tags exist yet
-          BASE_VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+          # Note: pipe to sed swallows git describe exit code, so assign first then strip.
+          _RAW_TAG=$(git describe --tags --abbrev=0 2>/dev/null) && BASE_VERSION="${_RAW_TAG#v}" || BASE_VERSION="0.0.0"
 
           # Pre-release format: {base}-{stage}-{sha}  (e.g. 1.0.0-beta-abc1234)
           # Single hyphen separator avoids dot-ambiguity in Helm's SemVer parser
@@ -106,8 +115,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
-          context: .
-          file: deploy/docker/Dockerfile.${{ inputs.service_name }}
+          context: ${{ inputs.build_context }}
+          file: ${{ inputs.dockerfile != '' && inputs.dockerfile || format('deploy/docker/Dockerfile.{0}', inputs.service_name) }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.tag.outputs.tags }}
 

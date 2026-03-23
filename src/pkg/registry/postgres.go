@@ -12,7 +12,8 @@ import (
 )
 
 type DBNodeRegistry struct {
-	db *sql.DB
+	db        *sql.DB
+	replicaDB *sql.DB // optional read replica; nil means use db for reads too
 }
 
 // NewDBNodeRegistry opens a PostgreSQL connection, runs auto-migration,
@@ -40,6 +41,36 @@ func NewDBNodeRegistry(dsn string) (*DBNodeRegistry, error) {
 
 	log.Println("[registry] PostgreSQL backend ready")
 	return r, nil
+}
+
+// OpenReplica attaches an optional read replica connection to the registry.
+// Read queries (List) are routed to the replica when available; write queries
+// always use the primary. On any error the replica is silently skipped and
+// all queries continue to use the primary — never fatal.
+func (r *DBNodeRegistry) OpenReplica(replicaDSN string) {
+	db, err := sql.Open("postgres", replicaDSN)
+	if err != nil {
+		log.Printf("⚠️  [registry] read replica open failed (%v) — all queries use primary", err)
+		return
+	}
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		log.Printf("⚠️  [registry] read replica ping failed (%v) — all queries use primary", err)
+		return
+	}
+	r.replicaDB = db
+	log.Println("[registry] PostgreSQL read replica attached")
+}
+
+// readDB returns replicaDB when available, otherwise the primary.
+func (r *DBNodeRegistry) readDB() *sql.DB {
+	if r.replicaDB != nil {
+		return r.replicaDB
+	}
+	return r.db
 }
 
 // migrate creates the registered_nodes table and adds columns for namespace aggregation.
@@ -94,7 +125,7 @@ func (r *DBNodeRegistry) Deregister(ctx context.Context, id string) error {
 }
 
 func (r *DBNodeRegistry) List(ctx context.Context) ([]NodeInfo, error) {
-	rows, err := r.db.QueryContext(ctx, `
+	rows, err := r.readDB().QueryContext(ctx, `
 		SELECT id, url, collections, namespaces, protocol, health_status, last_heartbeat, registered_at
 		FROM registered_nodes ORDER BY registered_at`)
 	if err != nil {

@@ -1,20 +1,25 @@
 package indexer
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/piotrlaczykowski/emdexer/embed"
+	"github.com/piotrlaczykowski/emdexer/plugin"
 	"github.com/qdrant/go-client/qdrant"
 )
 
 const ProjectNamespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 
 // Extractor is a function that extracts text from file content.
-type Extractor func(path string, content []byte, host string) (string, error)
+// The second return value carries optional extra metadata (e.g. whisper segments,
+// extraction_method) to be merged into the Qdrant point payload on chunk 0.
+type Extractor func(path string, content []byte, host string) (string, map[string]string, error)
 
 // PipelineConfig holds injected dependencies for the indexing pipeline.
 type PipelineConfig struct {
@@ -23,21 +28,53 @@ type PipelineConfig struct {
 	NodeType       string
 	Embedder       embed.EmbedProvider
 	Extract        Extractor
+	// Plugins is the list of loaded extractor plugins (may be nil).
+	// A plugin whose Extensions() list includes a file's extension takes
+	// priority over the default Extractous/Whisper extraction path.
+	Plugins []plugin.ExtractorPlugin
 }
 
 // IndexDataToPoints converts file content into Qdrant points via extraction, chunking, and embedding.
 func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdrant.PointStruct {
 	var text string
 	var err error
-	if len(content) > 0 {
-		text, err = cfg.Extract(path, content, cfg.ExtractousHost)
-	} else {
-		text, err = cfg.Extract(path, nil, cfg.ExtractousHost)
+	var pluginRels []plugin.Relation
+	var extraMeta map[string]string
+
+	// Check whether a loaded plugin handles this file extension.
+	// Plugins take priority over the default Extractous/Whisper path.
+	ext := strings.ToLower(filepath.Ext(path))
+	var matched plugin.ExtractorPlugin
+	for _, p := range cfg.Plugins {
+		for _, pe := range p.Extensions() {
+			if pe == ext {
+				matched = p
+				break
+			}
+		}
+		if matched != nil {
+			break
+		}
 	}
 
-	if err != nil {
-		log.Printf("[node] Extraction failed for %s: %v", path, err)
-		text = ""
+	if matched != nil && len(content) > 0 {
+		text, pluginRels, err = matched.Extract(context.Background(), filepath.Base(path), content)
+		if err != nil {
+			log.Printf("[plugin] %s failed for %s: %v", matched.Name(), path, err)
+			text = ""
+		}
+	} else if len(content) > 0 {
+		text, extraMeta, err = cfg.Extract(path, content, cfg.ExtractousHost)
+		if err != nil {
+			log.Printf("[node] Extraction failed for %s: %v", path, err)
+			text = ""
+		}
+	} else {
+		text, extraMeta, err = cfg.Extract(path, nil, cfg.ExtractousHost)
+		if err != nil {
+			log.Printf("[node] Extraction failed for %s: %v", path, err)
+			text = ""
+		}
 	}
 
 	text = strings.TrimSpace(text)
@@ -52,13 +89,26 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 		return nil
 	}
 
+	// Compute structural relations for chunk 0.
+	// If the plugin returned relations, use those; otherwise derive them from the extracted text.
+	var relationsJSON string
+	if len(pluginRels) > 0 {
+		rels := make([]Relation, len(pluginRels))
+		for i, r := range pluginRels {
+			rels[i] = Relation{Type: r.Type, Target: r.Target, Name: r.Name}
+		}
+		relationsJSON = RelationsToJSON(rels)
+	} else {
+		relationsJSON = RelationsToJSON(ExtractRelations(path, text))
+	}
+
 	var points []*qdrant.PointStruct
 	for i, chunk := range chunks {
 		if strings.TrimSpace(chunk) == "" {
 			continue
 		}
 
-		vector, embErr := cfg.Embedder.Embed(chunk)
+		vector, embErr := cfg.Embedder.Embed(context.Background(), chunk)
 		if embErr != nil {
 			LogEmbeddingError(path, i, embErr)
 			continue
@@ -81,6 +131,16 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 		}
 		if cfg.Namespace != "" {
 			payload["namespace"] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: cfg.Namespace}}
+		}
+		// Attach relations to chunk 0 only — the graph builder only needs one point per file.
+		if i == 0 && relationsJSON != "" {
+			payload["relations"] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: relationsJSON}}
+		}
+		// Merge extractor-provided metadata (e.g. whisper segments, extraction_method) into chunk 0.
+		if i == 0 {
+			for k, v := range extraMeta {
+				payload[k] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: v}}
+			}
 		}
 
 		points = append(points, &qdrant.PointStruct{

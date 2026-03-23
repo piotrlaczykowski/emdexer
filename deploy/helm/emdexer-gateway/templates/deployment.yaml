@@ -48,11 +48,71 @@ spec:
             {{- end }}
             - name: EMDEX_GLOBAL_SEARCH_TIMEOUT
               value: {{ .Values.config.globalSearchTimeout | default "500" | quote }}
+            - name: EMDEX_BM25_ENABLED
+              value: {{ .Values.config.bm25Enabled | default "true" | quote }}
+            {{- if .Values.config.rrfK }}
+            - name: EMDEX_RRF_K
+              value: {{ .Values.config.rrfK | quote }}
+            {{- end }}
+            {{- if .Values.config.rrfVectorWeight }}
+            - name: EMDEX_RRF_VECTOR_WEIGHT
+              value: {{ .Values.config.rrfVectorWeight | quote }}
+            {{- end }}
+            {{- if .Values.config.rrfBm25Weight }}
+            - name: EMDEX_RRF_BM25_WEIGHT
+              value: {{ .Values.config.rrfBm25Weight | quote }}
+            {{- end }}
+            - name: EMDEX_AGENTIC_ENABLED
+              value: {{ .Values.config.agenticEnabled | default "true" | quote }}
+            {{- if .Values.config.maxHops }}
+            - name: EMDEX_MAX_HOPS
+              value: {{ .Values.config.maxHops | quote }}
+            {{- end }}
+            {{- if .Values.config.hopConfidenceThreshold }}
+            - name: EMDEX_HOP_CONFIDENCE_THRESHOLD
+              value: {{ .Values.config.hopConfidenceThreshold | quote }}
+            {{- end }}
+            - name: EMDEX_GRAPH_ENABLED
+              value: {{ .Values.config.graphEnabled | default "true" | quote }}
+            {{- if .Values.config.graphDepth }}
+            - name: EMDEX_GRAPH_DEPTH
+              value: {{ .Values.config.graphDepth | quote }}
+            {{- end }}
+            {{- if .Values.config.otelEndpoint }}
+            - name: EMDEX_OTEL_ENDPOINT
+              value: {{ .Values.config.otelEndpoint | quote }}
+            {{- end }}
+            {{- if .Values.config.otelServiceName }}
+            - name: EMDEX_OTEL_SERVICE_NAME
+              value: {{ .Values.config.otelServiceName | quote }}
+            {{- end }}
+            {{- if .Values.config.otelSamplingRatio }}
+            - name: EMDEX_OTEL_SAMPLING_RATIO
+              value: {{ .Values.config.otelSamplingRatio | quote }}
+            {{- end }}
             {{- if eq .Values.config.haMode "true" }}
             - name: EMDEX_HA_MODE
               value: "true"
             - name: POSTGRES_URL
               value: {{ .Values.config.postgresUrl | quote }}
+            {{- end }}
+            {{- if .Values.config.pgReplicaUrl }}
+            - name: EMDEX_PG_REPLICA_URL
+              value: {{ .Values.config.pgReplicaUrl | quote }}
+            {{- end }}
+            {{- if eq (.Values.config.qdrantTls | default "false") "true" }}
+            - name: EMDEX_QDRANT_TLS
+              value: "true"
+            {{- if .Values.config.qdrantTlsCa }}
+            - name: EMDEX_QDRANT_TLS_CA
+              value: {{ .Values.config.qdrantTlsCa | quote }}
+            {{- end }}
+            {{- if .Values.config.qdrantTlsCert }}
+            - name: EMDEX_QDRANT_TLS_CERT
+              value: {{ .Values.config.qdrantTlsCert | quote }}
+            - name: EMDEX_QDRANT_TLS_KEY
+              value: {{ .Values.config.qdrantTlsKey | quote }}
+            {{- end }}
             {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: EMDEX_REGISTRY_FILE

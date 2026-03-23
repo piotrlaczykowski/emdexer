@@ -1,0 +1,83 @@
+{
+  "id": null,
+  "uid": "emdexer-search",
+  "title": "Emdexer — Search",
+  "tags": ["emdexer"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Vector Search Latency P50 / P95 (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_vector_duration_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p50 {{namespace}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_vector_duration_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p95 {{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "BM25 Search Latency P50 / P95 (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_bm25_duration_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p50 {{namespace}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_bm25_duration_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p95 {{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "RRF — Vector-Only Hits vs BM25-Only Hits",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(emdexer_gateway_rrf_top_vector_hits_total[5m])) by (namespace)",
+          "legendFormat": "vector-only {{namespace}}"
+        },
+        {
+          "expr": "sum(rate(emdexer_gateway_rrf_top_bm25_hits_total[5m])) by (namespace)",
+          "legendFormat": "bm25-only {{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "End-to-End Hybrid Search Latency (ms)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_hybrid_total_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p50 {{namespace}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_hybrid_total_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p95 {{namespace}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(emdexer_gateway_search_hybrid_total_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p99 {{namespace}}"
+        }
+      ]
+    }
+  ]
+}

@@ -99,6 +99,14 @@ EMDEX_REGISTRY_FILE=/var/lib/emdexer/nodes/nodes.json
 EMDEX_PORT=7700
 EMDEX_SEARCH_LIMIT=10
 EMDEX_CHAT_LIMIT=5
+# RRF tuning (optional — defaults shown)
+# EMDEX_RRF_K=60
+# EMDEX_RRF_VECTOR_WEIGHT=1.0
+# EMDEX_RRF_BM25_WEIGHT=1.0
+# Agentic multi-hop RAG (optional — defaults shown)
+# EMDEX_AGENTIC_ENABLED=true
+# EMDEX_MAX_HOPS=3
+# EMDEX_HOP_CONFIDENCE_THRESHOLD=0.7
 ```
 
 **Node** → `/etc/emdexer/node.env`:
@@ -114,7 +122,7 @@ NODE_ROOT=/opt/emdexer/data
 EMBED_PROVIDER=gemini
 GOOGLE_API_KEY=your-gemini-api-key
 EMDEX_GEMINI_MODEL=gemini-embedding-2-preview
-EXTRACTOUS_HOST=http://localhost:8000
+EMDEX_EXTRACTOUS_URL=http://localhost:8000/extract
 EMDEX_POLL_INTERVAL=60s
 EMDEX_CACHE_DIR=/var/lib/emdexer/cache
 EMDEX_QUEUE_DB=queue.db

@@ -7,29 +7,52 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/piotrlaczykowski/emdexer/audit"
 	"github.com/piotrlaczykowski/emdexer/auth"
 	"github.com/piotrlaczykowski/emdexer/config"
 	"github.com/piotrlaczykowski/emdexer/embed"
+	"github.com/piotrlaczykowski/emdexer/graph"
 	"github.com/piotrlaczykowski/emdexer/llm"
 	"github.com/piotrlaczykowski/emdexer/middleware"
 	"github.com/piotrlaczykowski/emdexer/openai"
+	"github.com/piotrlaczykowski/emdexer/qdrantcreds"
 	"github.com/piotrlaczykowski/emdexer/rag"
 	"github.com/piotrlaczykowski/emdexer/registry"
 	"github.com/piotrlaczykowski/emdexer/search"
+	"github.com/piotrlaczykowski/emdexer/telemetry"
 	"github.com/piotrlaczykowski/emdexer/version"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
+
+var searchEmptyResults = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_search_empty_results_total",
+	Help: "Number of search requests that returned zero results",
+}, []string{"namespace", "mode"})
+
+var topologyNamespacesKnown = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "emdexer_gateway_topology_namespaces_known",
+	Help: "Number of namespaces currently known from the node registry",
+})
+
+var topologyNodesKnown = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "emdexer_gateway_topology_nodes_known",
+	Help: "Number of nodes currently known from the node registry",
+})
 
 type Server struct {
 	reg          registry.NodeRegistry
@@ -48,6 +71,18 @@ type Server struct {
 	nsTopology map[string][]string // namespace -> []nodeID
 
 	globalSearchTimeout time.Duration
+	bm25Enabled         bool
+	agenticCfg          rag.AgenticConfig
+
+	// Graph-RAG (Phase 24)
+	graphCfg  GraphConfig
+	knowledgeGraph *graph.Graph
+}
+
+// GraphConfig holds feature-flag settings for the knowledge-graph expansion.
+type GraphConfig struct {
+	Enabled bool
+	Depth   int // BFS depth: 1–3
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -78,6 +113,8 @@ func (s *Server) refreshTopology() {
 	s.topoMu.Lock()
 	s.nsTopology = topo
 	s.topoMu.Unlock()
+	topologyNamespacesKnown.Set(float64(len(topo)))
+	topologyNodesKnown.Set(float64(len(nodes)))
 	log.Printf("[topology] Refreshed: %d namespaces across %d nodes", len(topo), len(nodes))
 }
 
@@ -143,7 +180,76 @@ func (s *Server) handleDeregisterNode(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]interface{}{"status": "deregistered", "id": id})
 }
 
+// ============================================================
+// Graph-RAG helpers (Phase 24)
+// ============================================================
+
+// uniquePaths returns deduplicated file paths from the payload of a result set.
+func uniquePaths(results []search.Result) []string {
+	seen := make(map[string]bool, len(results))
+	var paths []string
+	for _, r := range results {
+		if p, ok := r.Payload["path"].(string); ok && p != "" && !seen[p] {
+			seen[p] = true
+			paths = append(paths, p)
+		}
+	}
+	return paths
+}
+
+// graphExpandResults augments results by finding structurally adjacent files in the
+// knowledge graph and issuing a follow-up search restricted to those files.
+// Neighbour results are merged using RRF with a 0.7 weight so direct matches
+// always rank higher than graph-expanded ones.
+// On any error the original results are returned unchanged.
+func (s *Server) graphExpandResults(ctx context.Context, results []search.Result, query string, vector []float32, namespace string, limit int) []search.Result {
+	if !s.graphCfg.Enabled || len(results) == 0 {
+		return results
+	}
+
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.graph.expand")
+	defer span.End()
+
+	sourceFiles := uniquePaths(results)
+	neighborSet := make(map[string]bool)
+	for _, file := range sourceFiles {
+		for _, nb := range s.knowledgeGraph.Neighbors(ctx, s.pointsClient, s.collection, namespace, file, s.graphCfg.Depth) {
+			neighborSet[nb] = true
+		}
+	}
+	// Remove files already in initial results to avoid re-fetching them.
+	for _, f := range sourceFiles {
+		delete(neighborSet, f)
+	}
+	if len(neighborSet) == 0 {
+		return results
+	}
+
+	neighbors := make([]string, 0, len(neighborSet))
+	for f := range neighborSet {
+		neighbors = append(neighbors, f)
+	}
+
+	neighborResults, err := search.HybridSearchByPaths(ctx, s.pointsClient, s.collection, query, vector, uint64(limit), namespace, neighbors)
+	if err != nil {
+		log.Printf("[graph] neighbor search failed namespace=%q: %v", namespace, err)
+		return results
+	}
+	if len(neighborResults) == 0 {
+		return results
+	}
+
+	// Merge: primary (weight=1.0) and neighbour (weight=0.7).
+	return search.MergeRRFWeighted(results, neighborResults, 0.7, limit)
+}
+
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	// Extract W3C Trace Context from incoming headers and create root span.
+	ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.search")
+	defer span.End()
+	r = r.WithContext(ctx)
+
 	start := time.Now()
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -184,7 +290,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vector, err := s.embedder.Embed(query)
+	vector, err := s.embedder.Embed(r.Context(), query)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("embedding error: %v", err), http.StatusInternalServerError)
 		return
@@ -195,14 +301,18 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var results []search.Result
 	var fanoutFailedNS []string
 	if len(namespaces) <= 1 {
-		// Single namespace — existing fast path.
+		// Single namespace — fast path (hybrid or vector-only).
 		ns := ""
 		if len(namespaces) == 1 {
 			ns = namespaces[0]
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		results, err = search.SearchQdrant(ctx, s.pointsClient, s.collection, vector, 10, ns)
+		if s.bm25Enabled {
+			results, err = search.HybridSearch(ctx, s.pointsClient, s.collection, query, vector, 10, ns)
+		} else {
+			results, err = search.SearchQdrant(ctx, s.pointsClient, s.collection, vector, 10, ns)
+		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusInternalServerError)
 			return
@@ -215,7 +325,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		// Multi-namespace fan-out with RRF merge.
 		// Partial failures are surfaced in the response so clients can detect degraded results;
 		// a complete failure returns 200 with empty results rather than a 504.
-		results, fanoutFailedNS, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 10, s.globalSearchTimeout)
+		if s.bm25Enabled {
+			results, fanoutFailedNS, err = search.FanOutHybridSearch(r.Context(), s.pointsClient, s.collection, query, vector, namespaces, 10, s.globalSearchTimeout)
+		} else {
+			results, fanoutFailedNS, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 10, s.globalSearchTimeout)
+		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusInternalServerError)
 			return
@@ -224,6 +338,14 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[search] fan-out partial failure: %d/%d namespaces errored: %v",
 				len(fanoutFailedNS), len(namespaces), fanoutFailedNS)
 		}
+	}
+
+	if len(results) == 0 {
+		mode := "vector"
+		if s.bm25Enabled {
+			mode = "hybrid"
+		}
+		searchEmptyResults.WithLabelValues(requestedNamespace, mode).Inc()
 	}
 
 	resp := map[string]interface{}{
@@ -238,17 +360,32 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writeJSON(w, http.StatusOK, resp)
 
-	audit.Log(audit.Entry{
+	auditEntry := audit.Entry{
 		Action:    "search",
 		Query:     query,
 		Namespace: requestedNamespace,
 		Results:   len(results),
 		LatencyMS: time.Since(start).Milliseconds(),
 		Status:    http.StatusOK,
-	})
+	}
+	if claims, ok := auth.GetUserClaims(r); ok {
+		auditEntry.User = claims.Subject
+	}
+	if isGlobal {
+		auditEntry.Metadata = map[string]interface{}{"namespaces_searched": namespaces}
+	}
+	audit.Log(auditEntry)
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	// Extract W3C Trace Context from incoming headers and create root span.
+	ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.chat")
+	defer span.End()
+	r = r.WithContext(ctx)
+
+	start := time.Now()
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -258,6 +395,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
+	}
+
+	var user string
+	if claims, ok := auth.GetUserClaims(r); ok {
+		user = claims.Subject
 	}
 
 	var req openai.ChatRequest
@@ -301,9 +443,17 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vector, err := s.embedder.Embed(question)
+	vector, err := s.embedder.Embed(r.Context(), question)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("embedding error: %v", err), http.StatusBadGateway)
+		audit.Log(audit.Entry{
+			Action:    "chat",
+			User:      user,
+			Query:     question,
+			Namespace: requestedNamespace,
+			LatencyMS: time.Since(start).Milliseconds(),
+			Status:    http.StatusBadGateway,
+		})
 		return
 	}
 
@@ -315,9 +465,21 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if len(namespaces) == 1 {
 			ns = namespaces[0]
 		}
-		results, err = search.SearchQdrant(r.Context(), s.pointsClient, s.collection, vector, 5, ns)
+		if s.bm25Enabled {
+			results, err = search.HybridSearch(r.Context(), s.pointsClient, s.collection, question, vector, 5, ns)
+		} else {
+			results, err = search.SearchQdrant(r.Context(), s.pointsClient, s.collection, vector, 5, ns)
+		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
+			audit.Log(audit.Entry{
+				Action:    "chat",
+				User:      user,
+				Query:     question,
+				Namespace: requestedNamespace,
+				LatencyMS: time.Since(start).Milliseconds(),
+				Status:    http.StatusBadGateway,
+			})
 			return
 		}
 		for i := range results {
@@ -325,14 +487,68 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		var failedNS []string
-		results, failedNS, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 5, s.globalSearchTimeout)
+		if s.bm25Enabled {
+			results, failedNS, err = search.FanOutHybridSearch(r.Context(), s.pointsClient, s.collection, question, vector, namespaces, 5, s.globalSearchTimeout)
+		} else {
+			results, failedNS, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 5, s.globalSearchTimeout)
+		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadGateway)
+			audit.Log(audit.Entry{
+				Action:    "chat",
+				User:      user,
+				Query:     question,
+				Namespace: requestedNamespace,
+				LatencyMS: time.Since(start).Milliseconds(),
+				Status:    http.StatusBadGateway,
+			})
 			return
 		}
 		if len(failedNS) > 0 {
 			log.Printf("[chat] fan-out partial failure: %d/%d namespaces errored: %v",
 				len(failedNS), len(namespaces), failedNS)
+		}
+	}
+
+	// Graph-RAG expansion — single namespace only; silently skipped on errors.
+	if s.graphCfg.Enabled && len(namespaces) <= 1 {
+		ns := ""
+		if len(namespaces) == 1 {
+			ns = namespaces[0]
+		}
+		results = s.graphExpandResults(r.Context(), results, question, vector, ns, 5)
+	}
+
+	// Agentic multi-hop RAG — only for single-namespace requests (not global fan-out).
+	// The searchFn is wrapped to apply graph expansion on each follow-up search so that
+	// the agentic loop also benefits from structurally adjacent context.
+	agenticHops := 0
+	if s.agenticCfg.Enabled && len(namespaces) <= 1 {
+		ns := ""
+		if len(namespaces) == 1 {
+			ns = namespaces[0]
+		}
+		searchFn := func(ctx context.Context, query string, vec []float32, limit uint64, searchNS string) ([]search.Result, error) {
+			var res []search.Result
+			var err error
+			if s.bm25Enabled {
+				res, err = search.HybridSearch(ctx, s.pointsClient, s.collection, query, vec, limit, searchNS)
+			} else {
+				res, err = search.SearchQdrant(ctx, s.pointsClient, s.collection, vec, limit, searchNS)
+			}
+			if err != nil {
+				return nil, err
+			}
+			// Apply graph expansion to follow-up hop results as well.
+			return s.graphExpandResults(ctx, res, query, vec, searchNS, int(limit)), nil
+		}
+		agResults, totalHops, agErr := rag.RunAgenticLoop(
+			r.Context(), s.agenticCfg, searchFn, s.embedder.Embed, audit.Log, llm.CallGeminiStructured,
+			question, ns, results, s.apiKey,
+		)
+		if agErr == nil {
+			results = agResults
+			agenticHops = totalHops
 		}
 	}
 
@@ -348,9 +564,18 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	} else {
 		finalPrompt = fmt.Sprintf("Answer the question using the consolidated context.\n\nContext:\n%s\n\nQuestion: %s", contextStr, question)
 	}
-	eval, err := llm.CallGemini(finalPrompt, s.apiKey)
+	eval, err := llm.CallGemini(r.Context(), finalPrompt, s.apiKey)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("LLM error: %v", err), http.StatusBadGateway)
+		audit.Log(audit.Entry{
+			Action:    "chat",
+			User:      user,
+			Query:     question,
+			Namespace: requestedNamespace,
+			Results:   len(results),
+			LatencyMS: time.Since(start).Milliseconds(),
+			Status:    http.StatusBadGateway,
+		})
 		return
 	}
 
@@ -362,6 +587,27 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			Choices: []openai.ChatChoice{{Message: openai.ChatMessage{Role: "assistant", Content: eval}}},
 		})
 	}
+
+	chatEntry := audit.Entry{
+		Action:    "chat",
+		User:      user,
+		Query:     question,
+		Namespace: requestedNamespace,
+		Results:   len(results),
+		LatencyMS: time.Since(start).Milliseconds(),
+		Status:    http.StatusOK,
+	}
+	chatMeta := map[string]interface{}{}
+	if isGlobal {
+		chatMeta["namespaces_searched"] = namespaces
+	}
+	if agenticHops > 0 {
+		chatMeta["agentic_hops"] = agenticHops
+	}
+	if len(chatMeta) > 0 {
+		chatEntry.Metadata = chatMeta
+	}
+	audit.Log(chatEntry)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -415,6 +661,19 @@ func (s *Server) handleWhoami(w http.ResponseWriter, r *http.Request) {
 func main() {
 	cwd, _ := os.Getwd()
 	config.LoadEnv(filepath.Join(cwd, ".env"))
+
+	// OpenTelemetry — no-op when EMDEX_OTEL_ENDPOINT is unset.
+	otelServiceName := os.Getenv("EMDEX_OTEL_SERVICE_NAME")
+	if otelServiceName == "" {
+		otelServiceName = "emdex-gateway"
+	}
+	otelShutdown, err := telemetry.InitTracer(otelServiceName, os.Getenv("EMDEX_OTEL_ENDPOINT"))
+	if err != nil {
+		log.Printf("[gateway] WARN: OpenTelemetry init failed: %v — tracing disabled", err)
+		otelShutdown = func() {}
+	} else if ep := os.Getenv("EMDEX_OTEL_ENDPOINT"); ep != "" {
+		log.Printf("[gateway] OpenTelemetry tracing enabled: endpoint=%s service=%s", ep, otelServiceName)
+	}
 
 	apiKey := os.Getenv("GOOGLE_API_KEY")
 	qdrantHost := os.Getenv("QDRANT_HOST")
@@ -473,7 +732,11 @@ func main() {
 		log.Printf("[auth] Group ACL loaded: %d group mappings", len(groupACL.Mapping))
 	}
 
-	conn, err := grpc.NewClient(qdrantHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	qdrantDialOpt, err := qdrantcreds.FromEnv()
+	if err != nil {
+		log.Fatalf("qdrant TLS config: %v", err)
+	}
+	conn, err := grpc.NewClient(qdrantHost, qdrantDialOpt)
 	if err != nil {
 		log.Fatalf("Failed to connect to Qdrant: %v", err)
 	}
@@ -501,6 +764,49 @@ func main() {
 		}
 	}
 
+	// BM25 hybrid search is enabled by default; set EMDEX_BM25_ENABLED=false to use vector-only.
+	bm25Enabled := os.Getenv("EMDEX_BM25_ENABLED") != "false"
+	log.Printf("[gateway] hybrid search (BM25+vector): enabled=%v", bm25Enabled)
+
+	// Agentic multi-hop RAG — enabled by default; set EMDEX_AGENTIC_ENABLED=false to disable.
+	agenticEnabled := os.Getenv("EMDEX_AGENTIC_ENABLED") != "false"
+	agenticMaxHops := 3
+	if v := os.Getenv("EMDEX_MAX_HOPS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			if n > 5 {
+				n = 5
+			}
+			agenticMaxHops = n
+		}
+	}
+	agenticThreshold := 0.7
+	if v := os.Getenv("EMDEX_HOP_CONFIDENCE_THRESHOLD"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f <= 1 {
+			agenticThreshold = f
+		}
+	}
+	agenticCfg := rag.AgenticConfig{
+		Enabled:             agenticEnabled,
+		MaxHops:             agenticMaxHops,
+		ConfidenceThreshold: agenticThreshold,
+	}
+	log.Printf("[gateway] agentic RAG: enabled=%v max_hops=%d confidence_threshold=%.2f",
+		agenticCfg.Enabled, agenticCfg.MaxHops, agenticCfg.ConfidenceThreshold)
+
+	// Graph-RAG — enabled by default; set EMDEX_GRAPH_ENABLED=false to disable.
+	graphEnabled := os.Getenv("EMDEX_GRAPH_ENABLED") != "false"
+	graphDepth := 1
+	if v := os.Getenv("EMDEX_GRAPH_DEPTH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			if n > 3 {
+				n = 3
+			}
+			graphDepth = n
+		}
+	}
+	graphCfg := GraphConfig{Enabled: graphEnabled, Depth: graphDepth}
+	log.Printf("[gateway] graph-RAG: enabled=%v depth=%d", graphCfg.Enabled, graphCfg.Depth)
+
 	srv := &Server{
 		reg:                 reg,
 		qdrantConn:          conn,
@@ -514,6 +820,10 @@ func main() {
 		startTime:           time.Now(),
 		nsTopology:          make(map[string][]string),
 		globalSearchTimeout: globalSearchTimeout,
+		bm25Enabled:         bm25Enabled,
+		agenticCfg:          agenticCfg,
+		graphCfg:            graphCfg,
+		knowledgeGraph:      graph.New(5 * time.Minute),
 	}
 
 	// Initial topology refresh + background ticker.
@@ -547,7 +857,25 @@ func main() {
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("gateway server error: %v", err)
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("gateway server error: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	<-quit
+	log.Printf("[gateway] Shutting down...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("[gateway] HTTP shutdown error: %v", err)
 	}
+
+	audit.Shutdown()
+	otelShutdown()
+	log.Printf("[gateway] Shutdown complete")
 }

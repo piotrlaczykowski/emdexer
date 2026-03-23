@@ -1,6 +1,7 @@
 package search
 
 import (
+	"fmt"
 	"math"
 	"testing"
 )
@@ -224,5 +225,120 @@ func TestMergeRRFHybrid_SortedDescending(t *testing.T) {
 			t.Errorf("results not sorted: index %d score %f > index %d score %f",
 				i, results[i].Score, i-1, results[i-1].Score)
 		}
+	}
+}
+
+// ── Phase 22 edge-case tests ──────────────────────────────────────────────────
+
+// TestMergeRRFHybrid_BM25Flood verifies that a shared hit beats all BM25-only
+// results even when BM25 returns many more candidates than vector.
+func TestMergeRRFHybrid_BM25Flood(t *testing.T) {
+	shared := Result{ID: 1, Payload: map[string]interface{}{"path": "shared.md", "chunk": 0}}
+	vector := []Result{shared}
+
+	// BM25 leg: shared appears at rank 0, followed by 20 unique-to-BM25 results.
+	bm25 := []Result{shared}
+	for i := 2; i <= 21; i++ {
+		bm25 = append(bm25, Result{
+			ID:      uint64(i),
+			Payload: map[string]interface{}{"path": fmt.Sprintf("bm25-%d.md", i), "chunk": 0},
+		})
+	}
+
+	cfg := RRFConfig{K: 60, VectorWeight: 1.0, BM25Weight: 1.0}
+	results := mergeRRFHybrid(vector, bm25, 10, cfg)
+
+	if len(results) == 0 {
+		t.Fatal("expected results, got none")
+	}
+	if results[0].Payload["path"] != "shared.md" {
+		t.Errorf("expected shared.md to rank first (both-leg boost), got %v", results[0].Payload["path"])
+	}
+	// shared scores 2*(1/61) ≈ 0.0328; best BM25-only scores 1/61 ≈ 0.0164 — shared must lead.
+	if len(results) > 1 && results[0].Score <= results[1].Score {
+		t.Errorf("shared hit score %f should exceed best single-leg hit %f", results[0].Score, results[1].Score)
+	}
+}
+
+// TestMergeRRFHybrid_ZeroVectorResults checks that an empty vector leg returns
+// BM25-only results with correct RRF scores (not zeroed out).
+func TestMergeRRFHybrid_ZeroVectorResults(t *testing.T) {
+	cfg := RRFConfig{K: 60, VectorWeight: 1.0, BM25Weight: 1.0}
+	bm25 := []Result{
+		{ID: 1, Payload: map[string]interface{}{"path": "a.md", "chunk": 0}},
+		{ID: 2, Payload: map[string]interface{}{"path": "b.md", "chunk": 0}},
+	}
+
+	results := mergeRRFHybrid(nil, bm25, 10, cfg)
+
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	// rank-0 BM25 score: 1/(60+0+1) = 1/61
+	expectedFirst := float32(1.0 / 61.0)
+	if math.Abs(float64(results[0].Score-expectedFirst)) > 1e-6 {
+		t.Errorf("expected score %f for rank-0 BM25 result, got %f", expectedFirst, results[0].Score)
+	}
+	// rank-1 BM25 score: 1/62, must be strictly less than rank-0
+	if results[1].Score >= results[0].Score {
+		t.Errorf("results not sorted: score[1]=%f >= score[0]=%f", results[1].Score, results[0].Score)
+	}
+}
+
+// TestMergeRRFHybrid_AsymmetricLegSizes ensures a single BM25 result at rank-0
+// surfaces in the top-10 when the vector leg has 15 results.
+func TestMergeRRFHybrid_AsymmetricLegSizes(t *testing.T) {
+	cfg := RRFConfig{K: 60, VectorWeight: 1.0, BM25Weight: 1.0}
+
+	var vector []Result
+	for i := 1; i <= 15; i++ {
+		vector = append(vector, Result{
+			ID:      uint64(i),
+			Payload: map[string]interface{}{"path": fmt.Sprintf("vec-%d.md", i), "chunk": 0},
+		})
+	}
+	// BM25 leg has exactly one result that does NOT appear in the vector leg.
+	bm25 := []Result{
+		{ID: 100, Payload: map[string]interface{}{"path": "bm25-unique.md", "chunk": 0}},
+	}
+
+	results := mergeRRFHybrid(vector, bm25, 10, cfg)
+
+	if len(results) != 10 {
+		t.Fatalf("expected 10 results (limit), got %d", len(results))
+	}
+	// The unique BM25 result scores 1/61 ≈ 0.0164 which equals the vector rank-0 score —
+	// it should appear in the top-10 (total pool is 16 results, limit 10).
+	found := false
+	for _, r := range results {
+		if r.Payload["path"] == "bm25-unique.md" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected bm25-unique.md to appear in top-10 results")
+	}
+}
+
+// TestMergeRRFHybrid_WeightedBM25Zero verifies that setting BM25Weight=0 excludes
+// the BM25 leg entirely — only vector-leg results appear in the output.
+func TestMergeRRFHybrid_WeightedBM25Zero(t *testing.T) {
+	cfg := RRFConfig{K: 60, VectorWeight: 1.0, BM25Weight: 0.0}
+
+	vector := []Result{
+		{ID: 1, Payload: map[string]interface{}{"path": "vec.md", "chunk": 0}},
+	}
+	bm25 := []Result{
+		{ID: 2, Payload: map[string]interface{}{"path": "bm25.md", "chunk": 0}},
+	}
+
+	results := mergeRRFHybrid(vector, bm25, 10, cfg)
+
+	if len(results) != 1 {
+		t.Fatalf("expected only vector-leg result (BM25Weight=0), got %d results", len(results))
+	}
+	if results[0].Payload["path"] != "vec.md" {
+		t.Errorf("expected vec.md, got %v", results[0].Payload["path"])
 	}
 }

@@ -51,6 +51,11 @@ var bm25Fallbacks = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Number of times HybridSearch fell back to vector-only due to a BM25 failure",
 }, []string{"collection", "namespace"})
 
+var bm25ZeroResults = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_bm25_zero_results_total",
+	Help: "Number of times BM25 search returned 0 results (index may be empty or query too specific)",
+}, []string{"collection", "namespace"})
+
 type Result struct {
 	ID      uint64                 `json:"id"`
 	Score   float32                `json:"score"`
@@ -134,34 +139,37 @@ func BM25SearchQdrant(ctx context.Context, pc qdrant.PointsClient, collection st
 		bm25SearchDuration.WithLabelValues(collection, namespace).Observe(float64(time.Since(start).Milliseconds()))
 	}()
 
-	must := []*qdrant.Condition{
-		{
-			ConditionOneOf: &qdrant.Condition_Field{
-				Field: &qdrant.FieldCondition{
-					Key: "text",
-					Match: &qdrant.Match{
-						MatchValue: &qdrant.Match_Text{
-							Text: query,
+	// Namespace keyword filter is placed first so Qdrant can prune candidates
+	// with the cheaper keyword index before evaluating the full-text scan.
+	var must []*qdrant.Condition
+	if namespace != "" {
+		must = []*qdrant.Condition{
+			{
+				ConditionOneOf: &qdrant.Condition_Field{
+					Field: &qdrant.FieldCondition{
+						Key: "namespace",
+						Match: &qdrant.Match{
+							MatchValue: &qdrant.Match_Keyword{
+								Keyword: namespace,
+							},
 						},
+					},
+				},
+			},
+		}
+	}
+	must = append(must, &qdrant.Condition{
+		ConditionOneOf: &qdrant.Condition_Field{
+			Field: &qdrant.FieldCondition{
+				Key: "text",
+				Match: &qdrant.Match{
+					MatchValue: &qdrant.Match_Text{
+						Text: query,
 					},
 				},
 			},
 		},
-	}
-	if namespace != "" {
-		must = append(must, &qdrant.Condition{
-			ConditionOneOf: &qdrant.Condition_Field{
-				Field: &qdrant.FieldCondition{
-					Key: "namespace",
-					Match: &qdrant.Match{
-						MatchValue: &qdrant.Match_Keyword{
-							Keyword: namespace,
-						},
-					},
-				},
-			},
-		})
-	}
+	})
 
 	lim := uint32(limit)
 	resp, err := pc.Scroll(ctx, &qdrant.ScrollPoints{
@@ -174,6 +182,11 @@ func BM25SearchQdrant(ctx context.Context, pc qdrant.PointsClient, collection st
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if len(resp.GetResult()) == 0 {
+		log.Printf("[search] BM25 returned 0 results for collection %q namespace %q query %q", collection, namespace, query)
+		bm25ZeroResults.WithLabelValues(collection, namespace).Inc()
 	}
 
 	var results []Result

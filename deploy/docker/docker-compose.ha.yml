@@ -455,10 +455,14 @@ services:
     environment:
       - GATEWAY_URL=http://nginx:80
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
     networks:
       - emdexer-net
     depends_on:
       nginx:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: always
 

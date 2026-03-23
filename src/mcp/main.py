@@ -190,39 +190,58 @@ def get_file_relations(path: str, namespace: str = "default", depth: int = 1, ct
 @mcp.tool()
 def list_plugins(ctx: Context = None) -> str | PrefabApp:
     """List all active extractor plugins registered on the node, including the file extensions they handle."""
-    plugin_dir = os.getenv("EMDEX_PLUGIN_DIR", "./plugins")
     plugin_enabled = os.getenv("EMDEX_PLUGIN_ENABLED", "true").lower()
 
     if plugin_enabled == "false":
         msg = "Plugin system is disabled (EMDEX_PLUGIN_ENABLED=false)."
         return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
 
-    if not os.path.isdir(plugin_dir):
-        msg = f"Plugin directory not found: `{plugin_dir}`"
-        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
-
+    sidecar_url = os.getenv("EMDEX_PLUGIN_SIDECAR_URL", "")
     plugins = []
-    for fname in sorted(os.listdir(plugin_dir)):
-        if not fname.endswith(".py"):
-            continue
-        fpath = os.path.join(plugin_dir, fname)
-        name, exts = "", []
+
+    if sidecar_url:
+        # Sidecar mode: query GET /plugins on the plugin-sidecar HTTP service.
+        base_url = sidecar_url.rstrip("/extract").rstrip("/")
         try:
-            with open(fpath, encoding="utf-8", errors="replace") as f:
-                for i, line in enumerate(f):
-                    if i >= 30:
-                        break
-                    line = line.strip()
-                    if not line.startswith("#"):
-                        continue
-                    if line.startswith("# name:"):
-                        name = line[len("# name:"):].strip()
-                    elif line.startswith("# extensions:"):
-                        exts = [e.strip() for e in line[len("# extensions:"):].split(",") if e.strip()]
-        except OSError:
-            continue
-        if name and exts:
-            plugins.append({"file": fname, "name": name, "extensions": ", ".join(exts)})
+            resp = requests.get(f"{base_url}/plugins", timeout=5)
+            resp.raise_for_status()
+            for entry in resp.json():
+                plugins.append({
+                    "file": "(sidecar)",
+                    "name": entry.get("name", ""),
+                    "extensions": ", ".join(entry.get("extensions", [])),
+                })
+        except Exception as e:
+            msg = f"Error querying plugin sidecar at `{base_url}`: {str(e)}"
+            return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
+    else:
+        # Subprocess mode: scan plugin directory for *.py metadata.
+        plugin_dir = os.getenv("EMDEX_PLUGIN_DIR", "./plugins")
+        if not os.path.isdir(plugin_dir):
+            msg = f"Plugin directory not found: `{plugin_dir}`"
+            return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
+
+        for fname in sorted(os.listdir(plugin_dir)):
+            if not fname.endswith(".py"):
+                continue
+            fpath = os.path.join(plugin_dir, fname)
+            name, exts = "", []
+            try:
+                with open(fpath, encoding="utf-8", errors="replace") as f:
+                    for i, line in enumerate(f):
+                        if i >= 30:
+                            break
+                        line = line.strip()
+                        if not line.startswith("#"):
+                            continue
+                        if line.startswith("# name:"):
+                            name = line[len("# name:"):].strip()
+                        elif line.startswith("# extensions:"):
+                            exts = [e.strip() for e in line[len("# extensions:"):].split(",") if e.strip()]
+            except OSError:
+                continue
+            if name and exts:
+                plugins.append({"file": fname, "name": name, "extensions": ", ".join(exts)})
 
     if not plugins:
         msg = f"No valid plugins found in `{plugin_dir}`."

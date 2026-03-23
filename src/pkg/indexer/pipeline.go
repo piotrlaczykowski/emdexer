@@ -52,6 +52,9 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 		return nil
 	}
 
+	// Extract structural relations from the full file text (once per file, stored on chunk 0).
+	relationsJSON := RelationsToJSON(ExtractRelations(path, text))
+
 	var points []*qdrant.PointStruct
 	for i, chunk := range chunks {
 		if strings.TrimSpace(chunk) == "" {
@@ -81,6 +84,10 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 		}
 		if cfg.Namespace != "" {
 			payload["namespace"] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: cfg.Namespace}}
+		}
+		// Attach relations to chunk 0 only — the graph builder only needs one point per file.
+		if i == 0 && relationsJSON != "" {
+			payload["relations"] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: relationsJSON}}
 		}
 
 		points = append(points, &qdrant.PointStruct{

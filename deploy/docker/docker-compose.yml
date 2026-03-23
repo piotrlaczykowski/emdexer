@@ -76,6 +76,8 @@ services:
       - EMDEX_AGENTIC_ENABLED=${EMDEX_AGENTIC_ENABLED:-true}
       - EMDEX_MAX_HOPS=${EMDEX_MAX_HOPS:-3}
       - EMDEX_HOP_CONFIDENCE_THRESHOLD=${EMDEX_HOP_CONFIDENCE_THRESHOLD:-0.7}
+      - EMDEX_GRAPH_ENABLED=${EMDEX_GRAPH_ENABLED:-true}
+      - EMDEX_GRAPH_DEPTH=${EMDEX_GRAPH_DEPTH:-1}
     volumes:
       - ../../logs:/app/logs
     networks:
@@ -113,6 +115,7 @@ services:
       - EMDEX_ENABLE_OCR=${EMDEX_ENABLE_OCR:-true}
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
     networks:
       - emdexer-net
     depends_on:

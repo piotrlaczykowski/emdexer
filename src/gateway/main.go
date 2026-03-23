@@ -19,6 +19,7 @@ import (
 	"github.com/piotrlaczykowski/emdexer/auth"
 	"github.com/piotrlaczykowski/emdexer/config"
 	"github.com/piotrlaczykowski/emdexer/embed"
+	"github.com/piotrlaczykowski/emdexer/graph"
 	"github.com/piotrlaczykowski/emdexer/llm"
 	"github.com/piotrlaczykowski/emdexer/middleware"
 	"github.com/piotrlaczykowski/emdexer/openai"
@@ -69,6 +70,16 @@ type Server struct {
 	globalSearchTimeout time.Duration
 	bm25Enabled         bool
 	agenticCfg          rag.AgenticConfig
+
+	// Graph-RAG (Phase 24)
+	graphCfg  GraphConfig
+	knowledgeGraph *graph.Graph
+}
+
+// GraphConfig holds feature-flag settings for the knowledge-graph expansion.
+type GraphConfig struct {
+	Enabled bool
+	Depth   int // BFS depth: 1–3
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -164,6 +175,66 @@ func (s *Server) handleDeregisterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]interface{}{"status": "deregistered", "id": id})
+}
+
+// ============================================================
+// Graph-RAG helpers (Phase 24)
+// ============================================================
+
+// uniquePaths returns deduplicated file paths from the payload of a result set.
+func uniquePaths(results []search.Result) []string {
+	seen := make(map[string]bool, len(results))
+	var paths []string
+	for _, r := range results {
+		if p, ok := r.Payload["path"].(string); ok && p != "" && !seen[p] {
+			seen[p] = true
+			paths = append(paths, p)
+		}
+	}
+	return paths
+}
+
+// graphExpandResults augments results by finding structurally adjacent files in the
+// knowledge graph and issuing a follow-up search restricted to those files.
+// Neighbour results are merged using RRF with a 0.7 weight so direct matches
+// always rank higher than graph-expanded ones.
+// On any error the original results are returned unchanged.
+func (s *Server) graphExpandResults(ctx context.Context, results []search.Result, query string, vector []float32, namespace string, limit int) []search.Result {
+	if !s.graphCfg.Enabled || len(results) == 0 {
+		return results
+	}
+
+	sourceFiles := uniquePaths(results)
+	neighborSet := make(map[string]bool)
+	for _, file := range sourceFiles {
+		for _, nb := range s.knowledgeGraph.Neighbors(ctx, s.pointsClient, s.collection, namespace, file, s.graphCfg.Depth) {
+			neighborSet[nb] = true
+		}
+	}
+	// Remove files already in initial results to avoid re-fetching them.
+	for _, f := range sourceFiles {
+		delete(neighborSet, f)
+	}
+	if len(neighborSet) == 0 {
+		return results
+	}
+
+	neighbors := make([]string, 0, len(neighborSet))
+	for f := range neighborSet {
+		neighbors = append(neighbors, f)
+	}
+
+	neighborResults, err := search.HybridSearchByPaths(ctx, s.pointsClient, s.collection, query, vector, uint64(limit), namespace, neighbors)
+	if err != nil {
+		log.Printf("[graph] neighbor search failed namespace=%q: %v", namespace, err)
+		return results
+	}
+	if len(neighborResults) == 0 {
+		return results
+	}
+
+	// Merge: primary (weight=1.0) and neighbour (weight=0.7).
+	return search.MergeRRFWeighted(results, neighborResults, 0.7, limit)
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -421,7 +492,18 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Graph-RAG expansion — single namespace only; silently skipped on errors.
+	if s.graphCfg.Enabled && len(namespaces) <= 1 {
+		ns := ""
+		if len(namespaces) == 1 {
+			ns = namespaces[0]
+		}
+		results = s.graphExpandResults(r.Context(), results, question, vector, ns, 5)
+	}
+
 	// Agentic multi-hop RAG — only for single-namespace requests (not global fan-out).
+	// The searchFn is wrapped to apply graph expansion on each follow-up search so that
+	// the agentic loop also benefits from structurally adjacent context.
 	agenticHops := 0
 	if s.agenticCfg.Enabled && len(namespaces) <= 1 {
 		ns := ""
@@ -429,10 +511,18 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			ns = namespaces[0]
 		}
 		searchFn := func(ctx context.Context, query string, vec []float32, limit uint64, searchNS string) ([]search.Result, error) {
+			var res []search.Result
+			var err error
 			if s.bm25Enabled {
-				return search.HybridSearch(ctx, s.pointsClient, s.collection, query, vec, limit, searchNS)
+				res, err = search.HybridSearch(ctx, s.pointsClient, s.collection, query, vec, limit, searchNS)
+			} else {
+				res, err = search.SearchQdrant(ctx, s.pointsClient, s.collection, vec, limit, searchNS)
 			}
-			return search.SearchQdrant(ctx, s.pointsClient, s.collection, vec, limit, searchNS)
+			if err != nil {
+				return nil, err
+			}
+			// Apply graph expansion to follow-up hop results as well.
+			return s.graphExpandResults(ctx, res, query, vec, searchNS, int(limit)), nil
 		}
 		agResults, totalHops, agErr := rag.RunAgenticLoop(
 			r.Context(), s.agenticCfg, searchFn, s.embedder.Embed, audit.Log, llm.CallGeminiStructured,
@@ -668,6 +758,20 @@ func main() {
 	log.Printf("[gateway] agentic RAG: enabled=%v max_hops=%d confidence_threshold=%.2f",
 		agenticCfg.Enabled, agenticCfg.MaxHops, agenticCfg.ConfidenceThreshold)
 
+	// Graph-RAG — enabled by default; set EMDEX_GRAPH_ENABLED=false to disable.
+	graphEnabled := os.Getenv("EMDEX_GRAPH_ENABLED") != "false"
+	graphDepth := 1
+	if v := os.Getenv("EMDEX_GRAPH_DEPTH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			if n > 3 {
+				n = 3
+			}
+			graphDepth = n
+		}
+	}
+	graphCfg := GraphConfig{Enabled: graphEnabled, Depth: graphDepth}
+	log.Printf("[gateway] graph-RAG: enabled=%v depth=%d", graphCfg.Enabled, graphCfg.Depth)
+
 	srv := &Server{
 		reg:                 reg,
 		qdrantConn:          conn,
@@ -683,6 +787,8 @@ func main() {
 		globalSearchTimeout: globalSearchTimeout,
 		bm25Enabled:         bm25Enabled,
 		agenticCfg:          agenticCfg,
+		graphCfg:            graphCfg,
+		knowledgeGraph:      graph.New(5 * time.Minute),
 	}
 
 	// Initial topology refresh + background ticker.

@@ -255,6 +255,21 @@ func main() {
 	// Ensure full-text payload indexes exist for hybrid (BM25 + vector) search.
 	registry.EnsureTextIndexes(globalCtx, globalPointsClient, globalCfg.CollectionName)
 
+	// Hoist cacheDir so it is available for both migration check and poller setup.
+	cacheDir := os.Getenv("EMDEX_CACHE_DIR")
+	if cacheDir == "" {
+		cacheDir = filepath.Join(cwd, "cache")
+	}
+	_ = os.MkdirAll(cacheDir, 0700)
+
+	// Automatic graph-relation migration: if the collection predates Phase 24
+	// (i.e. <20% of sampled chunk-0 points carry a `relations` field), delete
+	// the metadata cache so the next poller/walk treats every file as new and
+	// re-indexes it with relation extraction enabled.
+	migrationMode := parseGraphMigrationMode(os.Getenv("EMDEX_GRAPH_MIGRATION"))
+	checkRelationsMigration(globalCtx, globalPointsClient, globalCfg.CollectionName,
+		globalCfg.Namespace, cacheDir, globalCfg.NodeType, migrationMode)
+
 	// Closure that delegates to the extracted search.DeletePointsByPath,
 	// capturing the global context, client, and collection name.
 	deletePoints := func(path string) error {
@@ -290,11 +305,6 @@ func main() {
 			go w.Start()
 		}
 	} else {
-		cacheDir := os.Getenv("EMDEX_CACHE_DIR")
-		if cacheDir == "" {
-			cacheDir = filepath.Join(cwd, "cache")
-		}
-		_ = os.MkdirAll(cacheDir, 0700)
 		cache, _ := watcher.NewMetadataCache(filepath.Join(cacheDir, "emdex_cache.db"))
 		if cache != nil {
 			p := watcher.NewPoller(

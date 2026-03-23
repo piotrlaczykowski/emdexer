@@ -88,6 +88,8 @@ services:
       - EMDEX_AGENTIC_ENABLED=${EMDEX_AGENTIC_ENABLED:-true}
       - EMDEX_MAX_HOPS=${EMDEX_MAX_HOPS:-3}
       - EMDEX_HOP_CONFIDENCE_THRESHOLD=${EMDEX_HOP_CONFIDENCE_THRESHOLD:-0.7}
+      - EMDEX_GRAPH_ENABLED=${EMDEX_GRAPH_ENABLED:-true}
+      - EMDEX_GRAPH_DEPTH=${EMDEX_GRAPH_DEPTH:-1}
     volumes:
       - gateway-registry:/var/lib/emdexer/nodes
     networks:
@@ -131,6 +133,7 @@ services:
       - EMDEX_GATEWAY_URL=http://gateway:7700
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_POLL_INTERVAL=${EMDEX_POLL_INTERVAL:-60s}
+      - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
     volumes:
       # Replace ./docs-data with your actual documents directory
       - ${DOCS_DATA_PATH:-./docs-data}:/app/data:ro
@@ -179,6 +182,7 @@ services:
       - EMDEX_GATEWAY_URL=http://gateway:7700
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_POLL_INTERVAL=${EMDEX_POLL_INTERVAL:-60s}
+      - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
     volumes:
       # Replace ./code-data with your actual source directory
       - ${CODE_DATA_PATH:-./code-data}:/app/data:ro

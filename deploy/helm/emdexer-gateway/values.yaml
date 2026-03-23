@@ -35,6 +35,10 @@ config:
   # Hybrid search — BM25 keyword + vector merged via RRF (Phase 21).
   # Set to "false" to fall back to pure vector search.
   bm25Enabled: "true"
+  # RRF tuning (Phase 22). Leave empty to use code defaults (K=60, weights=1.0).
+  # rrfK: "60"
+  # rrfVectorWeight: "1.0"
+  # rrfBm25Weight: "1.0"
   # HA mode
   haMode: "false"
   postgresUrl: ""

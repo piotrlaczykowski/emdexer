@@ -8,17 +8,27 @@ import (
 // MergeRRFHybrid merges vector and BM25 results from a single namespace using RRF.
 // Results that appear in both legs get their per-leg scores accumulated, naturally
 // surfacing high-confidence hits that match both semantically and lexically.
-// k=60 is the standard RRF constant.
+// Uses the package-level defaultRRFConfig (configurable via env vars).
 func MergeRRFHybrid(vectorResults, bm25Results []Result, limit int) []Result {
+	return mergeRRFHybrid(vectorResults, bm25Results, limit, defaultRRFConfig)
+}
+
+// mergeRRFHybrid is the internal implementation that accepts an explicit RRFConfig.
+// Score formula per result per leg: weight * (1.0 / (K + rank + 1)).
+// If a leg's weight is 0.0 its results are excluded from the pool entirely.
+func mergeRRFHybrid(vectorResults, bm25Results []Result, limit int, cfg RRFConfig) []Result {
 	type scored struct {
 		result Result
 		score  float64
 	}
 	scoreMap := make(map[string]*scored)
 
-	addResults := func(results []Result) {
+	addResults := func(results []Result, weight float64) {
+		if weight == 0 {
+			return
+		}
 		for rank, r := range results {
-			rrfScore := 1.0 / float64(60+rank+1)
+			rrfScore := weight * (1.0 / (cfg.K + float64(rank) + 1))
 			path, _ := r.Payload["path"].(string)
 			chunk := fmt.Sprintf("%v", r.Payload["chunk"])
 			key := path + ":" + chunk
@@ -31,8 +41,8 @@ func MergeRRFHybrid(vectorResults, bm25Results []Result, limit int) []Result {
 		}
 	}
 
-	addResults(vectorResults)
-	addResults(bm25Results)
+	addResults(vectorResults, cfg.VectorWeight)
+	addResults(bm25Results, cfg.BM25Weight)
 
 	sorted := make([]scored, 0, len(scoreMap))
 	for _, s := range scoreMap {
@@ -52,8 +62,13 @@ func MergeRRFHybrid(vectorResults, bm25Results []Result, limit int) []Result {
 }
 
 // MergeRRF merges results from multiple namespace searches using Reciprocal Rank Fusion.
-// k=60 is the standard RRF constant.
+// Uses the package-level defaultRRFConfig (configurable via env vars).
 func MergeRRF(perNS map[string][]Result, limit int) []Result {
+	return mergeRRF(perNS, limit, defaultRRFConfig)
+}
+
+// mergeRRF is the internal implementation that accepts an explicit RRFConfig.
+func mergeRRF(perNS map[string][]Result, limit int, cfg RRFConfig) []Result {
 	type scored struct {
 		result Result
 		score  float64
@@ -62,7 +77,7 @@ func MergeRRF(perNS map[string][]Result, limit int) []Result {
 
 	for ns, nsResults := range perNS {
 		for rank, r := range nsResults {
-			rrfScore := 1.0 / float64(60+rank+1)
+			rrfScore := 1.0 / (cfg.K + float64(rank) + 1)
 			path, _ := r.Payload["path"].(string)
 			chunk := fmt.Sprintf("%v", r.Payload["chunk"])
 			key := ns + ":" + path + ":" + chunk

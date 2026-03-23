@@ -12,13 +12,19 @@ Query
   └─► BM25 Search    (keyword match via full-text index)   ─┴─► RRF Merge ──► ranked results
 ```
 
-Both legs run **concurrently** in the gateway. Results are fused with the standard RRF formula:
+Both legs run **concurrently** in the gateway. Results are fused with the weighted RRF formula:
 
 ```
-score(d) = Σ  1 / (k + rank_i(d))     k = 60
+score(d) = Σ  weight_i × (1 / (K + rank_i(d)))
 ```
 
-Documents that appear in both legs accumulate score from each, naturally surfacing high-confidence hits. The k=60 constant dampens the advantage of top-ranked documents and is the standard RRF default.
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `K` | 60 | Rank-smoothing constant. Higher = gentler slope. Standard RRF default. |
+| `weight_vector` | 1.0 | Multiplier for the vector leg contribution. |
+| `weight_bm25` | 1.0 | Multiplier for the BM25 leg contribution. Set to `0` to run vector-only. |
+
+Documents that appear in both legs accumulate score from each, naturally surfacing high-confidence hits.
 
 **Fallback:** If BM25 fails (e.g., the full-text index has not been created yet), the gateway automatically falls back to vector-only results and logs a warning. Search always returns a response.
 
@@ -33,21 +39,40 @@ Documents that appear in both legs accumulate score from each, naturally surfaci
 | `true` (default) | Hybrid search: vector + BM25 with RRF merge |
 | `false` | Vector-only search |
 
-Set in `.env`:
+### RRF Tuning (Phase 22)
+
+Fine-tune the fusion balance without redeploying. All parameters are optional — omit them to use the defaults.
+
+| Variable | Default | Range | Description |
+|----------|---------|-------|-------------|
+| `EMDEX_RRF_K` | `60` | ≥ 1 | Rank-smoothing constant. Higher values reduce the scoring gap between ranks. |
+| `EMDEX_RRF_VECTOR_WEIGHT` | `1.0` | 0 – 10 | Score multiplier for the vector leg. Set to `0` for BM25-only mode. |
+| `EMDEX_RRF_BM25_WEIGHT` | `1.0` | 0 – 10 | Score multiplier for the BM25 leg. Set to `0` for vector-only mode. |
+
+**Example: boost semantic results for a domain with rich natural language**
 ```env
-EMDEX_BM25_ENABLED=true
+EMDEX_RRF_VECTOR_WEIGHT=1.5
+EMDEX_RRF_BM25_WEIGHT=0.5
 ```
 
-Or in `docker-compose.yml` (already wired):
-```yaml
-environment:
-  EMDEX_BM25_ENABLED: ${EMDEX_BM25_ENABLED:-true}
+**Example: boost keyword precision for a technical code corpus**
+```env
+EMDEX_RRF_VECTOR_WEIGHT=0.8
+EMDEX_RRF_BM25_WEIGHT=1.5
 ```
 
-Or in the Helm chart `values.yaml`:
+**Example: increase rank smoothing to reduce sensitivity to top-1 results**
+```env
+EMDEX_RRF_K=80
+```
+
+In the Helm chart `values.yaml`:
 ```yaml
-gateway:
+config:
   bm25Enabled: "true"
+  rrfK: "60"
+  rrfVectorWeight: "1.0"
+  rrfBm25Weight: "1.0"
 ```
 
 ---
@@ -76,12 +101,24 @@ Partial failures (individual nodes timing out) are reported in `partial_failures
 
 ## Metrics
 
-| Metric | Description |
-|--------|-------------|
-| `emdexer_gateway_search_latency_ms` | Vector leg latency (labelled by collection) |
-| `emdexer_gateway_bm25_latency_ms` | BM25 leg latency (labelled by collection) |
+All metrics are Prometheus histograms or counters, labelled by `{collection, namespace}`.
 
-Both are Prometheus histograms. A significantly higher `bm25_latency` relative to `search_latency` may indicate the full-text index is missing and Qdrant is doing a full scan.
+| Metric | Type | Description |
+|--------|------|-------------|
+| `emdexer_gateway_search_vector_duration_ms` | Histogram | Vector leg latency |
+| `emdexer_gateway_search_bm25_duration_ms` | Histogram | BM25 leg latency |
+| `emdexer_gateway_search_hybrid_total_ms` | Histogram | End-to-end hybrid search latency (both legs + RRF merge) |
+| `emdexer_gateway_rrf_top_vector_hits_total` | Counter | Returned results sourced exclusively from the vector leg |
+| `emdexer_gateway_rrf_top_bm25_hits_total` | Counter | Returned results sourced exclusively from the BM25 leg |
+| `emdexer_gateway_rrf_top_both_legs_hits_total` | Counter | Returned results that appeared in both legs (overlap) |
+| `emdexer_gateway_bm25_fallback_total` | Counter | Times hybrid fell back to vector-only due to a BM25 failure |
+| `emdexer_gateway_bm25_zero_results_total` | Counter | Times BM25 returned 0 results (index may be empty or query too specific) |
+
+**Useful alert rules:**
+- High `bm25_duration_ms` relative to `vector_duration_ms` → full-text index may be missing (Qdrant doing a full scan).
+- Rising `bm25_fallback_total` → BM25 is failing consistently; check node startup logs.
+- High `bm25_zero_results_total` → queries aren't matching the text index; verify documents were indexed with a `text` payload field.
+- Low `rrf_top_both_legs_hits_total` / total → legs are returning disjoint results; consider adjusting weights.
 
 ---
 

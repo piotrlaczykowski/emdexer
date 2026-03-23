@@ -122,6 +122,10 @@ Each binary reads only its own environment variables. In a bare-metal deployment
 | `EMDEX_CHAT_LIMIT`        |          | `5`               | Max results considered during RAG hops           |
 | `EMDEX_GEMINI_MODEL`      |          | `gemini-embedding-2-preview`| Gemini model for RAG/Chat                        |
 | `EMDEX_STRICT_NAMESPACE`  |          | `false`           | Require namespace header for all requests        |
+| `EMDEX_BM25_ENABLED`      |          | `true`            | Enable hybrid BM25+vector search with RRF        |
+| `EMDEX_RRF_K`             |          | `60`              | RRF rank-smoothing constant (≥ 1)                |
+| `EMDEX_RRF_VECTOR_WEIGHT` |          | `1.0`             | Score multiplier for the vector leg (0–10)       |
+| `EMDEX_RRF_BM25_WEIGHT`   |          | `1.0`             | Score multiplier for the BM25 leg (0–10)         |
 
 | `OIDC_ISSUER`             |          | —                 | OIDC provider URL. Enables JWT auth when set.    |
 | `OIDC_CLIENT_ID`          | ✅**     | —                 | Client ID for JWT audience validation            |

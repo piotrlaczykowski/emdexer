@@ -1,0 +1,67 @@
+{
+  "id": null,
+  "uid": "emdexer-rag",
+  "title": "Emdexer — RAG",
+  "tags": ["emdexer"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Agentic Hops per Request",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(emdexer_gateway_agentic_hops_total[5m])) by (namespace)",
+          "legendFormat": "hops/s {{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Agentic Hop Confidence Score",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "avg(emdexer_gateway_agentic_confidence_score) by (namespace)",
+          "legendFormat": "avg confidence {{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "LLM Generation Latency P50 / P95 (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_llm_duration_ms_bucket[5m])) by (le, model))",
+          "legendFormat": "p50 {{model}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_llm_duration_ms_bucket[5m])) by (le, model))",
+          "legendFormat": "p95 {{model}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Known Namespaces (Graph-RAG Scope)",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "emdexer_gateway_topology_namespaces_known",
+          "legendFormat": "namespaces"
+        }
+      ]
+    }
+  ]
+}

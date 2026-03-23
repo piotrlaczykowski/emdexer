@@ -23,6 +23,7 @@ import (
 	"github.com/piotrlaczykowski/emdexer/llm"
 	"github.com/piotrlaczykowski/emdexer/middleware"
 	"github.com/piotrlaczykowski/emdexer/openai"
+	"github.com/piotrlaczykowski/emdexer/qdrantcreds"
 	"github.com/piotrlaczykowski/emdexer/rag"
 	"github.com/piotrlaczykowski/emdexer/registry"
 	"github.com/piotrlaczykowski/emdexer/search"
@@ -35,7 +36,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
@@ -732,7 +732,11 @@ func main() {
 		log.Printf("[auth] Group ACL loaded: %d group mappings", len(groupACL.Mapping))
 	}
 
-	conn, err := grpc.NewClient(qdrantHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	qdrantDialOpt, err := qdrantcreds.FromEnv()
+	if err != nil {
+		log.Fatalf("qdrant TLS config: %v", err)
+	}
+	conn, err := grpc.NewClient(qdrantHost, qdrantDialOpt)
 	if err != nil {
 		log.Fatalf("Failed to connect to Qdrant: %v", err)
 	}

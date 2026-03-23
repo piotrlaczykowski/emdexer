@@ -1,0 +1,93 @@
+{
+  "id": null,
+  "uid": "emdexer-overview",
+  "title": "Emdexer — Overview",
+  "tags": ["emdexer"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Search Request Rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(emdexer_gateway_search_hybrid_total_ms_count[5m])) by (namespace)",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Search Latency P50 / P95 (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_hybrid_total_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p50 {{namespace}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_hybrid_total_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p95 {{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Empty Result Rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(emdexer_gateway_search_empty_results_total[5m])) by (namespace, mode)",
+          "legendFormat": "{{namespace}} / {{mode}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Known Namespaces",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "emdexer_gateway_topology_namespaces_known",
+          "legendFormat": "namespaces"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Known Nodes",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "emdexer_gateway_topology_nodes_known",
+          "legendFormat": "nodes"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Embedding Latency (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_embed_duration_ms_bucket[5m])) by (le, provider, model))",
+          "legendFormat": "p95 {{provider}}/{{model}}"
+        }
+      ]
+    }
+  ]
+}

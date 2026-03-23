@@ -90,7 +90,7 @@ services:
       retries: 5
 
   plugin-sidecar:
-    build: ./plugin-sidecar
+    build: ../../src/plugin-sidecar
     # No host port mappings — plugin-sidecar is internal only.
     # Access via the emdexer-net Docker network (plugin-sidecar:8003).
     deploy:

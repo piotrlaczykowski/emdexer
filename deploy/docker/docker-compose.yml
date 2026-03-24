@@ -15,7 +15,9 @@ services:
     restart: always
 
   extractous:
-    build: ./extractous-sidecar
+    build:
+      context: ./extractous-sidecar
+      dockerfile: Dockerfile
     # No host port mappings — Extractous is internal only.
     # Access via the emdexer-net Docker network (extractous:8000).
     deploy:
@@ -88,6 +90,11 @@ services:
       # - EMDEX_QDRANT_TLS_KEY=/certs/client.key
       # ── PostgreSQL read replica (Phase 28) ───────────────────
       # - EMDEX_PG_REPLICA_URL=postgres://user:pass@replica:5432/emdexer?sslmode=require
+      # ── Raft health probe / audit buffer (Phase 29) ──────────
+      # QDRANT_HTTP_HOST is derived automatically from QDRANT_HOST when unset.
+      # Override only if the HTTP port differs from 6333.
+      # - QDRANT_HTTP_HOST=qdrant:6333
+      - EMDEX_AUDIT_BUFFER_SIZE=${EMDEX_AUDIT_BUFFER_SIZE:-1000}
     volumes:
       - ../../logs:/app/logs
     networks:
@@ -100,7 +107,9 @@ services:
       retries: 5
 
   plugin-sidecar:
-    build: ../../src/plugin-sidecar
+    build:
+      context: ../../src/plugin-sidecar
+      dockerfile: Dockerfile
     # No host port mappings — plugin-sidecar is internal only.
     # Access via the emdexer-net Docker network (plugin-sidecar:8003).
     deploy:

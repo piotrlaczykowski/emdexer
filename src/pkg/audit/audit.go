@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -21,9 +22,27 @@ type Entry struct {
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 }
 
+// defaultBufferSize is used when EMDEX_AUDIT_BUFFER_SIZE is not set.
+const defaultBufferSize = 1000
+
+// loadBufferSize reads EMDEX_AUDIT_BUFFER_SIZE from the environment.
+// Values outside [100, 100000] are rejected and the default is used.
+func loadBufferSize() int {
+	if v := os.Getenv("EMDEX_AUDIT_BUFFER_SIZE"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 100 || n > 100000 {
+			log.Printf("[audit] EMDEX_AUDIT_BUFFER_SIZE=%q is invalid (must be int in [100, 100000]); using default %d", v, defaultBufferSize)
+			return defaultBufferSize
+		}
+		return n
+	}
+	return defaultBufferSize
+}
+
 // auditCh buffers entries so Log() never blocks the HTTP hot path.
+// Buffer size is configurable via EMDEX_AUDIT_BUFFER_SIZE (default: 1000).
 // Entries are dropped (with a log warning) when the buffer is full.
-const bufferSize = 1000
+var bufferSize = loadBufferSize()
 
 var (
 	auditCh      = make(chan Entry, bufferSize)

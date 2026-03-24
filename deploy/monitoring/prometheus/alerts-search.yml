@@ -4,42 +4,35 @@ groups:
     rules:
 
       # ────────────────────────────────────────────────────────────────────────
-      # HighBM25Latency
-      # Fires when the average BM25 latency exceeds 2× the average vector
-      # latency over the same collection+namespace in the last 5 minutes.
-      # This usually means the Qdrant full-text index is missing and Qdrant
-      # is performing a slow full-collection scan for text matches.
+      # UnifiedSearchHighLatency
+      # Fires when the Qdrant Universal Query API p99 latency (server-side RRF)
+      # exceeds 1 second over the last 5 minutes.
+      # This replaced the old HighBM25Latency alert (Phase 29 migration to
+      # server-side RRF removed separate vector/BM25 leg metrics).
       # ────────────────────────────────────────────────────────────────────────
-      - alert: HighBM25Latency
+      - alert: UnifiedSearchHighLatency
         expr: |
-          (
-            rate(emdexer_gateway_search_bm25_duration_ms_sum[5m])
-            /
-            rate(emdexer_gateway_search_bm25_duration_ms_count[5m])
-          )
-          >
-          2 * (
-            rate(emdexer_gateway_search_vector_duration_ms_sum[5m])
-            /
-            rate(emdexer_gateway_search_vector_duration_ms_count[5m])
-          )
+          histogram_quantile(0.99,
+            rate(emdexer_gateway_search_unified_query_duration_ms_bucket[5m])
+          ) > 1000
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "BM25 search is more than 2× slower than vector search"
+          summary: "Unified hybrid search p99 latency above 1 second"
           description: >
             Collection {{ $labels.collection }} namespace {{ $labels.namespace }}:
-            BM25 avg latency {{ $value | humanizeDuration }} exceeds 2× vector latency.
-            Likely cause: missing full-text index on the 'text' field.
-            Fix: restart the emdex-node to trigger EnsureTextIndexes(), or create
-            the index manually via the Qdrant REST API.
+            Qdrant Universal Query API p99 latency {{ $value | humanizeDuration }}
+            exceeds 1 second. Possible causes: missing full-text index on the 'text'
+            field causing Qdrant to perform a slow full-collection scan for the text
+            prefetch leg. Fix: restart the emdex-node to trigger EnsureTextIndexes(),
+            or create the index manually via the Qdrant REST API.
 
       # ────────────────────────────────────────────────────────────────────────
       # BM25IndexFailure
-      # Fires when BM25 returns 0 results more than 50 times in 5 minutes.
-      # A sudden spike indicates the full-text index may have been dropped,
-      # the 'text' payload field is missing, or a namespace mismatch.
+      # Fires when unified hybrid search returns 0 results more than 50 times
+      # in 5 minutes. A sudden spike indicates the full-text index may have been
+      # dropped, the 'text' payload field is missing, or a namespace mismatch.
       # ────────────────────────────────────────────────────────────────────────
       - alert: BM25IndexFailure
         expr: |
@@ -48,21 +41,22 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "BM25 returning 0 results — possible index issue"
+          summary: "Unified hybrid search returning 0 results — possible index issue"
           description: >
             Collection {{ $labels.collection }} namespace {{ $labels.namespace }}:
-            BM25 returned 0 results {{ $value | humanize }} times in the last 5 minutes.
+            Unified hybrid search (server-side RRF) returned 0 results {{ $value | humanize }}
+            times in the last 5 minutes.
             Possible causes:
-            - Full-text index missing on the 'text' field
+            - Full-text index missing on the 'text' field (text prefetch leg returns nothing)
             - Documents indexed without a 'text' payload field
             - All queries contain only stop-words
-            Check gateway logs for: [search] BM25 returned 0 results
+            Check gateway logs for: [search] unified query returned 0 results
 
       # ────────────────────────────────────────────────────────────────────────
       # HybridFallbackActive
       # Fires immediately when any hybrid search falls back to vector-only
-      # due to a BM25 error. This means BM25 is failing, not just empty —
-      # Qdrant returned an error (e.g., index not found, connection issue).
+      # due to the Qdrant Universal Query API failing. This means the Qdrant
+      # version is too old (< 1.10.0) or the gRPC method is unavailable.
       # ────────────────────────────────────────────────────────────────────────
       - alert: HybridFallbackActive
         expr: |
@@ -74,9 +68,11 @@ groups:
           summary: "Hybrid search falling back to vector-only"
           description: >
             Collection {{ $labels.collection }} namespace {{ $labels.namespace }}:
-            BM25 leg is returning errors — hybrid search has fallen back to
-            vector-only results. Search is degraded but still functional.
-            Check gateway logs for: [search] BM25 failed for collection
+            The Qdrant Universal Query API is returning errors — hybrid search has
+            fallen back to vector-only results. Search is degraded but still functional.
+            Likely cause: Qdrant version < 1.10.0 (Universal Query API not available).
+            Required: Qdrant >= 1.10.0. Check gateway logs for:
+            [search] unified query failed for collection
 
       # ────────────────────────────────────────────────────────────────────────
       # AgenticHighHopRate

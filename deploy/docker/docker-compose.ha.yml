@@ -29,7 +29,8 @@ services:
       - emdexer-net
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      # Two-stage: HTTP liveness + Raft cluster readiness check.
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz && curl -sf http://localhost:6333/cluster | grep -q '\"status\":\"ok\"'"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -56,7 +57,7 @@ services:
         condition: service_healthy
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz && curl -sf http://localhost:6333/cluster | grep -q '\"status\":\"ok\"'"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -83,7 +84,7 @@ services:
         condition: service_healthy
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz && curl -sf http://localhost:6333/cluster | grep -q '\"status\":\"ok\"'"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -191,6 +192,7 @@ services:
     environment:
       - EMDEX_PORT=8080
       - QDRANT_HOST=qdrant-1:6334
+      - QDRANT_HTTP_HOST=qdrant-1:6333
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
@@ -202,6 +204,7 @@ services:
       - EMDEX_RRF_K=${EMDEX_RRF_K:-60}
       - EMDEX_RRF_VECTOR_WEIGHT=${EMDEX_RRF_VECTOR_WEIGHT:-1.0}
       - EMDEX_RRF_BM25_WEIGHT=${EMDEX_RRF_BM25_WEIGHT:-1.0}
+      - EMDEX_AUDIT_BUFFER_SIZE=${EMDEX_AUDIT_BUFFER_SIZE:-1000}
       - EMDEX_AGENTIC_ENABLED=${EMDEX_AGENTIC_ENABLED:-true}
       - EMDEX_MAX_HOPS=${EMDEX_MAX_HOPS:-3}
       - EMDEX_HOP_CONFIDENCE_THRESHOLD=${EMDEX_HOP_CONFIDENCE_THRESHOLD:-0.7}
@@ -245,6 +248,7 @@ services:
     environment:
       - EMDEX_PORT=8080
       - QDRANT_HOST=qdrant-1:6334
+      - QDRANT_HTTP_HOST=qdrant-1:6333
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
@@ -256,6 +260,7 @@ services:
       - EMDEX_RRF_K=${EMDEX_RRF_K:-60}
       - EMDEX_RRF_VECTOR_WEIGHT=${EMDEX_RRF_VECTOR_WEIGHT:-1.0}
       - EMDEX_RRF_BM25_WEIGHT=${EMDEX_RRF_BM25_WEIGHT:-1.0}
+      - EMDEX_AUDIT_BUFFER_SIZE=${EMDEX_AUDIT_BUFFER_SIZE:-1000}
       - EMDEX_AGENTIC_ENABLED=${EMDEX_AGENTIC_ENABLED:-true}
       - EMDEX_MAX_HOPS=${EMDEX_MAX_HOPS:-3}
       - EMDEX_HOP_CONFIDENCE_THRESHOLD=${EMDEX_HOP_CONFIDENCE_THRESHOLD:-0.7}

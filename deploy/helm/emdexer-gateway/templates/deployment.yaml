@@ -114,6 +114,14 @@ spec:
               value: {{ .Values.config.qdrantTlsKey | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.config.qdrantHttpHost }}
+            - name: QDRANT_HTTP_HOST
+              value: {{ .Values.config.qdrantHttpHost | quote }}
+            {{- end }}
+            {{- if .Values.config.auditBufferSize }}
+            - name: EMDEX_AUDIT_BUFFER_SIZE
+              value: {{ .Values.config.auditBufferSize | quote }}
+            {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: EMDEX_REGISTRY_FILE
               value: {{ .Values.persistence.registryFile | quote }}
@@ -137,6 +145,13 @@ spec:
               port: http
             failureThreshold: 30
             periodSeconds: 10
+          # Optional: surface Raft cluster health in pod conditions.
+          # Uncomment in HA deployments to fail-fast on split-brain.
+          # lifecycle:
+          #   postStart:
+          #     httpGet:
+          #       path: /healthz/qdrant
+          #       port: http
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- if .Values.persistence.enabled }}

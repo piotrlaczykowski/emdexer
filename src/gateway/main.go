@@ -26,6 +26,7 @@ import (
 	"github.com/piotrlaczykowski/emdexer/qdrantcreds"
 	"github.com/piotrlaczykowski/emdexer/rag"
 	"github.com/piotrlaczykowski/emdexer/registry"
+	"github.com/piotrlaczykowski/emdexer/rerank"
 	"github.com/piotrlaczykowski/emdexer/search"
 	"github.com/piotrlaczykowski/emdexer/telemetry"
 	"github.com/piotrlaczykowski/emdexer/version"
@@ -75,8 +76,13 @@ type Server struct {
 	agenticCfg          rag.AgenticConfig
 
 	// Graph-RAG (Phase 24)
-	graphCfg  GraphConfig
+	graphCfg       GraphConfig
 	knowledgeGraph *graph.Graph
+
+	// Reranking (Phase 30)
+	reranker   rerank.Reranker
+	rerankTopK int
+	rerankThreshold float64
 }
 
 // GraphConfig holds feature-flag settings for the knowledge-graph expansion.
@@ -347,6 +353,44 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		searchEmptyResults.WithLabelValues(requestedNamespace, mode).Inc()
 	}
+
+	// ── Phase 30: Late-interaction reranking ──────────────────────────────────
+	// Apply only when results are available and a real Reranker is wired in.
+	if _, isNoop := s.reranker.(rerank.NoOpReranker); !isNoop && len(results) > 0 {
+		texts := make([]string, len(results))
+		for i, r := range results {
+			if t, ok := r.Payload["text"].(string); ok {
+				texts[i] = t
+			}
+		}
+		ranked, rerr := rerank.Rank(r.Context(), s.reranker, query, texts, s.rerankTopK, requestedNamespace)
+		if rerr != nil {
+			log.Printf("[rerank] error for namespace %q — skipping rerank: %v", requestedNamespace, rerr)
+		} else {
+			// Log rank delta for research audit.
+			changed := 0
+			for newPos, sc := range ranked {
+				if sc.Index != newPos {
+					changed++
+				}
+				score := sc.Score
+				results[sc.Index].RerankScore = &score
+			}
+			log.Printf("[rerank] namespace=%q candidates=%d changed_rank=%d", requestedNamespace, len(ranked), changed)
+
+			// Rebuild results in reranked order, applying threshold filter.
+			reranked := make([]search.Result, 0, len(ranked))
+			for _, sc := range ranked {
+				if float64(sc.Score) >= s.rerankThreshold {
+					reranked = append(reranked, results[sc.Index])
+				}
+			}
+			if len(reranked) > 0 {
+				results = reranked
+			}
+		}
+	}
+	// ─────────────────────────────────────────────────────────────────────────
 
 	resp := map[string]interface{}{
 		"query":   query,
@@ -851,6 +895,32 @@ func main() {
 	graphCfg := GraphConfig{Enabled: graphEnabled, Depth: graphDepth}
 	log.Printf("[gateway] graph-RAG: enabled=%v depth=%d", graphCfg.Enabled, graphCfg.Depth)
 
+	// Reranking — disabled by default; set EMDEX_RERANK_ENABLED=true to enable.
+	rerankEnabled := os.Getenv("EMDEX_RERANK_ENABLED") == "true"
+	rerankURL := os.Getenv("EMDEX_RERANK_URL")
+	if rerankURL == "" {
+		rerankURL = "http://reranker:8005"
+	}
+	rerankTopK := 20
+	if v := os.Getenv("EMDEX_RERANK_TOP_K"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			rerankTopK = n
+		}
+	}
+	rerankThreshold := 0.0
+	if v := os.Getenv("EMDEX_RERANK_THRESHOLD"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			rerankThreshold = f
+		}
+	}
+	var reranker rerank.Reranker = rerank.NoOpReranker{}
+	if rerankEnabled {
+		reranker = rerank.NewSidecarReranker(rerankURL)
+		log.Printf("[gateway] reranking: enabled=true url=%s top_k=%d threshold=%.3f", rerankURL, rerankTopK, rerankThreshold)
+	} else {
+		log.Printf("[gateway] reranking: enabled=false")
+	}
+
 	srv := &Server{
 		reg:                 reg,
 		qdrantConn:          conn,
@@ -868,6 +938,9 @@ func main() {
 		agenticCfg:          agenticCfg,
 		graphCfg:            graphCfg,
 		knowledgeGraph:      graph.New(5 * time.Minute),
+		reranker:            reranker,
+		rerankTopK:          rerankTopK,
+		rerankThreshold:     rerankThreshold,
 	}
 
 	// Initial topology refresh + background ticker.

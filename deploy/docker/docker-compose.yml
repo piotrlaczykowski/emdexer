@@ -16,7 +16,7 @@ services:
 
   extractous:
     build:
-      context: ./extractous-sidecar
+      context: ../../src/extractous-sidecar
       dockerfile: Dockerfile
     # No host port mappings — Extractous is internal only.
     # Access via the emdexer-net Docker network (extractous:8000).
@@ -58,7 +58,7 @@ services:
   gateway:
     build:
       context: ../../
-      dockerfile: deploy/docker/Dockerfile.gateway
+      dockerfile: src/gateway/Dockerfile
     deploy:
       resources:
         limits:
@@ -131,7 +131,7 @@ services:
   node:
     build:
       context: ../../
-      dockerfile: deploy/docker/Dockerfile.node
+      dockerfile: src/node/Dockerfile
     deploy:
       resources:
         limits:
@@ -191,7 +191,7 @@ services:
   mcp:
     build:
       context: ../../
-      dockerfile: deploy/docker/Dockerfile.mcp
+      dockerfile: src/mcp/Dockerfile
     deploy:
       resources:
         limits:

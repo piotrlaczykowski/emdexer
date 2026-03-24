@@ -43,14 +43,14 @@ jobs:
             gateway:
               - 'src/gateway/**'
               - 'src/pkg/**'
-              - 'deploy/docker/Dockerfile.gateway'
+              - 'src/gateway/Dockerfile'
             node:
               - 'src/node/**'
               - 'src/pkg/**'
-              - 'deploy/docker/Dockerfile.node'
+              - 'src/node/Dockerfile'
             mcp:
               - 'src/mcp/**'
-              - 'deploy/docker/Dockerfile.mcp'
+              - 'src/mcp/Dockerfile'
             plugin_sidecar:
               - 'src/plugin-sidecar/**'
 
@@ -165,15 +165,15 @@ jobs:
         include:
           - service: gateway
             image_name: emdexer-gateway
-            dockerfile: deploy/docker/Dockerfile.gateway
+            dockerfile: src/gateway/Dockerfile
             build_context: .
           - service: node
             image_name: emdexer-node
-            dockerfile: deploy/docker/Dockerfile.node
+            dockerfile: src/node/Dockerfile
             build_context: .
           - service: mcp
             image_name: emdexer-mcp
-            dockerfile: deploy/docker/Dockerfile.mcp
+            dockerfile: src/mcp/Dockerfile
             build_context: .
           - service: plugin-sidecar
             image_name: emdexer-plugin-sidecar

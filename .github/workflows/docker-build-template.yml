@@ -116,7 +116,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.build_context }}
-          file: ${{ inputs.dockerfile != '' && inputs.dockerfile || format('deploy/docker/Dockerfile.{0}', inputs.service_name) }}
+          file: ${{ inputs.dockerfile != '' && inputs.dockerfile || format('src/{0}/Dockerfile', inputs.service_name) }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.tag.outputs.tags }}
 

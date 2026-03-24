@@ -1,9 +1,36 @@
 # To enable dependabot updates for every package, we need to enumerate them here
 version: 2
 updates:
-  # Docker updates for all Dockerfiles in deploy/docker
+  # Docker updates — Dockerfiles live alongside their source
   - package-ecosystem: "docker"
-    directory: "/deploy/docker"
+    directory: "/src/gateway"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/src/node"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/src/mcp"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/src/extractous-sidecar"
     target-branch: "develop"
     schedule:
       interval: "weekly"
@@ -24,16 +51,6 @@ updates:
   # Go updates for Node
   - package-ecosystem: "gomod"
     directory: "/src/node"
-    target-branch: "develop"
-    schedule:
-      interval: "daily"
-    labels:
-      - "dependencies"
-      - "go"
-
-  # Go updates for MCP
-  - package-ecosystem: "gomod"
-    directory: "/src/mcp"
     target-branch: "develop"
     schedule:
       interval: "daily"

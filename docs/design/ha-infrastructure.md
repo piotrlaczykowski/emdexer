@@ -105,7 +105,7 @@ Nginx routes the following path prefixes to the upstream pool:
 ### Gateway Replicas
 
 Both `gateway-1` and `gateway-2` are identical stateless replicas:
-- Built from `deploy/docker/Dockerfile.gateway`
+- Built from `src/gateway/Dockerfile`
 - Inject `POSTGRES_URL` to switch from `FileNodeRegistry` to `DBNodeRegistry`
 - Share the same PostgreSQL instance → consistent node registry across replicas
 - Health-checked at `/healthz/readiness` (Qdrant gRPC probe)

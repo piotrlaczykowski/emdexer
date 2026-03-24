@@ -1,7 +1,7 @@
 ---
 name: docker-devops
 description: Expert multi-stage Docker build standards and CI/CD alignment for Emdexer.
-applyTo: "deploy/docker/Dockerfile.*"
+applyTo: "src/*/Dockerfile"
 ---
 
 # Docker & DevOps Standards for Emdexer

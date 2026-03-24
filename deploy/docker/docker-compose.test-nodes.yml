@@ -20,7 +20,7 @@ services:
   node-alpha:
     build:
       context: ../../
-      dockerfile: deploy/docker/Dockerfile.node
+      dockerfile: src/node/Dockerfile
     deploy:
       resources:
         limits:
@@ -60,7 +60,7 @@ services:
   node-beta:
     build:
       context: ../../
-      dockerfile: deploy/docker/Dockerfile.node
+      dockerfile: src/node/Dockerfile
     deploy:
       resources:
         limits:
@@ -100,7 +100,7 @@ services:
   node-s3:
     build:
       context: ../../
-      dockerfile: deploy/docker/Dockerfile.node
+      dockerfile: src/node/Dockerfile
     deploy:
       resources:
         limits:

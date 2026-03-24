@@ -138,7 +138,7 @@ services:
       retries: 5
 
   extractous:
-    build: ./extractous-sidecar
+    build: ../../src/extractous-sidecar
     deploy:
       resources:
         limits:
@@ -183,7 +183,7 @@ services:
   gateway-1:
     build:
       context: ../../
-      dockerfile: deploy/docker/Dockerfile.gateway
+      dockerfile: src/gateway/Dockerfile
     deploy:
       resources:
         limits:
@@ -239,7 +239,7 @@ services:
   gateway-2:
     build:
       context: ../../
-      dockerfile: deploy/docker/Dockerfile.gateway
+      dockerfile: src/gateway/Dockerfile
     deploy:
       resources:
         limits:
@@ -323,7 +323,7 @@ services:
   node-local:
     build:
       context: ../../
-      dockerfile: deploy/docker/Dockerfile.node
+      dockerfile: src/node/Dockerfile
     deploy:
       resources:
         limits:
@@ -382,7 +382,7 @@ services:
   node-smb:
     build:
       context: ../../
-      dockerfile: deploy/docker/Dockerfile.node
+      dockerfile: src/node/Dockerfile
     deploy:
       resources:
         limits:
@@ -442,7 +442,7 @@ services:
   node-sftp:
     build:
       context: ../../
-      dockerfile: deploy/docker/Dockerfile.node
+      dockerfile: src/node/Dockerfile
     deploy:
       resources:
         limits:
@@ -505,7 +505,7 @@ services:
   mcp:
     build:
       context: ../../
-      dockerfile: deploy/docker/Dockerfile.mcp
+      dockerfile: src/mcp/Dockerfile
     deploy:
       resources:
         limits:

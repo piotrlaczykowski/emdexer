@@ -21,7 +21,7 @@ All topologies share the same sidecar services (Extractous, Whisper, Qdrant).
 ### Extractous Sidecar
 
 **Purpose:** Text extraction from binary documents (PDF, DOCX, XLSX, PPTX, images).
-**Image:** Built from `deploy/docker/extractous-sidecar/Dockerfile` (Python 3.12 + `extractous` library + Tesseract OCR).
+**Image:** Built from `src/extractous-sidecar/Dockerfile` (Python 3.12 + `extractous` library + Tesseract OCR).
 **Port:** `8000` (internal only — not exposed to host).
 **Network alias:** `extractous`
 
@@ -66,7 +66,7 @@ docker compose -f deploy/docker/docker-compose.yml up -d extractous
 | Node logs `extraction failed` | Sidecar is down | `docker compose logs extractous` |
 | OCR returns empty text | Tesseract not installed or language pack missing | Rebuild image without cache |
 | `cb open` errors in node logs | Circuit breaker tripped after 5 consecutive failures | Restart sidecar; circuit resets after 5 min |
-| Build fails with missing `extractous-sidecar/` | Directory was missing from repo | `git pull` to get latest; it now lives at `deploy/docker/extractous-sidecar/` |
+| Build fails with missing `extractous-sidecar/` | Directory was missing from repo | `git pull` to get latest; it now lives at `src/extractous-sidecar/` |
 
 ---
 

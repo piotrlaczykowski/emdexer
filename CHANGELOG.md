@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1 (2026-03-24)
+
+### Bug Fixes
+
+- **CI**: Build and test workflows now trigger on push/PR to `main` in addition to `develop`; added `workflow_dispatch` so builds can be triggered manually on any branch
+
+---
+
 ## 1.1.0 (2026-03-23)
 
 ### Highlights

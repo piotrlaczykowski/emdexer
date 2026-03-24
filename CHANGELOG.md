@@ -1,5 +1,90 @@
 # Changelog
 
+## [Unreleased] — Phase 29: Server-Side RRF
+
+### Highlights
+
+- Hybrid search migrated from client-side Go RRF to Qdrant's Universal Query API — one round-trip instead of two
+- Raft cluster health probe (`/healthz/qdrant`) — surfaces split-brain in HA deployments before traffic is routed
+- Configurable async audit buffer (`EMDEX_AUDIT_BUFFER_SIZE`) — prevents log back-pressure under bursty search load
+
+### New Features
+
+#### 🔍 Server-Side Hybrid Search via Universal Query API (`shared`, `backend`, `gateway`)
+
+`HybridSearch` and `HybridSearchByPaths` now issue a single `pc.Query()` call with two server-side `PrefetchQuery` legs — a dense-vector prefetch and a text-match-filter prefetch — fused by Qdrant using `Fusion_RRF`. This replaces the previous two-goroutine + client-side `MergeRRFHybrid` approach and halves the number of Qdrant gRPC round-trips per search request.
+
+Backward-compatible: if the Query API is unavailable (Qdrant < 1.10.0), both functions transparently fall back to vector-only `SearchQdrant` and increment the existing `bm25_fallback_total` counter so the `HybridFallbackActive` alert fires.
+
+`MergeRRFHybrid`, `MergeRRF`, and `MergeRRFWeighted` are retained for cross-namespace fan-out merging and graph-RAG secondary leg weighting.
+
+#### 🏥 Raft Cluster Health Probe (`backend`, `gateway`, `docker`, `helm`)
+
+`registry.CheckRaftCluster(ctx, addr)` queries Qdrant's `/cluster` REST endpoint and returns a `ClusterStatus` struct. The gateway exposes this as `GET /healthz/qdrant` alongside the existing liveness/readiness/startup probes. Single-node deployments (cluster disabled) are treated as healthy. The HA docker-compose and Helm chart now consume `QDRANT_HTTP_HOST` to locate the HTTP endpoint.
+
+#### 📋 Configurable Audit Buffer (`backend`, `logging`, `envs`)
+
+`EMDEX_AUDIT_BUFFER_SIZE` (range [100, 100000], default 1000) sets the async channel depth of the audit log writer. Previously hardcoded at 1000; high-throughput HA gateways can now raise this to avoid dropping entries during traffic spikes.
+
+### Changed
+
+#### Observability (`metrics`, `observability`, `logging`)
+
+| Before (Phase 21–22) | After (Phase 29) |
+|---|---|
+| `emdexer_gateway_search_vector_duration_ms` | Unchanged — still emitted by vector-only `SearchQdrant` path |
+| `emdexer_gateway_search_bm25_duration_ms` | **Removed** — BM25 is now a server-side prefetch leg, not a separate client call |
+| `emdexer_gateway_rrf_top_vector_hits_total` | **Removed** — individual leg attribution is not observable from server-side RRF |
+| `emdexer_gateway_rrf_top_bm25_hits_total` | **Removed** |
+| `emdexer_gateway_rrf_top_both_legs_hits_total` | **Removed** |
+| `emdexer_gateway_bm25_fallback_total` | Retained — now fires when the Query API itself fails |
+| `emdexer_gateway_bm25_zero_results_total` | Retained — now fires when the unified result set is empty |
+| _(new)_ `emdexer_gateway_search_unified_query_duration_ms` | Latency histogram for the single `pc.Query` call |
+
+OTel span `emdex.search.hybrid` gains attribute `search.mode=server_rrf`.
+
+#### Prometheus Alerts (`observability`, `pipelines`)
+
+- `HighBM25Latency` **replaced** by `UnifiedSearchHighLatency` (fires when unified query p99 > 1 s)
+- `BM25IndexFailure` and `HybridFallbackActive` descriptions updated to reflect server-side RRF semantics
+
+#### Infrastructure (`docker`, `helm`, `envs`)
+
+- HA docker-compose: Qdrant healthcheck now verifies `/cluster` Raft status alongside HTTP liveness
+- Both gateway replicas: `QDRANT_HTTP_HOST` and `EMDEX_AUDIT_BUFFER_SIZE` added to environment
+- Helm `values.yaml`: `config.qdrantHttpHost` and `config.auditBufferSize` passthrough added
+- Helm `deployment.yaml`: `QDRANT_HTTP_HOST` and `EMDEX_AUDIT_BUFFER_SIZE` env blocks added
+
+#### CI/CD (`pipelines`, `tests`)
+
+- `./audit/...` added to the unit test run
+- `go build ./search/...` smoke step added to validate Universal Query API compilation on every push
+
+#### MCP (`mcp`)
+
+No changes required. The `search_files` tool calls `GET /v1/search` whose response schema is unchanged.
+
+#### Plugin system (`plugin`)
+
+No changes required. Plugin extraction runs at index time (node); the unified search result schema is structurally identical to the previous one.
+
+#### Node / VFS / Extraction (`node`)
+
+No changes required. `EnsureTextIndexes` still runs at startup and creates the full-text index on `text` and `namespace` fields — these are now consumed by the text-match prefetch leg instead of the scroll-based BM25 call.
+
+### Breaking Changes
+
+None. Callers of `HybridSearch`, `HybridSearchByPaths`, `SearchQdrant`, `MergeRRF`, and `MergeRRFWeighted` are interface-compatible. The function `BM25SearchQdrant` has been removed; it had no callers outside the `search` package.
+
+Qdrant **≥ 1.10.0** is required for the hybrid path. Earlier versions fall back to vector-only automatically.
+
+### Migration Notes
+
+- Grafana dashboards using `emdexer_gateway_search_bm25_duration_ms` or `emdexer_gateway_rrf_top_*` panels should be updated to use `emdexer_gateway_search_unified_query_duration_ms`.
+- If `EMDEX_QDRANT_TLS=false` (default), set `QDRANT_HTTP_HOST=<host>:6333` in HA deployments where the gRPC port is not `6334` to ensure `/healthz/qdrant` resolves correctly.
+
+---
+
 ## 1.1.1 (2026-03-24)
 
 ### Bug Fixes

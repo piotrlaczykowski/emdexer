@@ -61,6 +61,11 @@ config:
   # qdrantTlsCa: "/certs/ca.pem"
   # qdrantTlsCert: "/certs/client.pem"
   # qdrantTlsKey: "/certs/client.key"
+  # Qdrant HTTP host for cluster health probe (/healthz/qdrant). Defaults to
+  # QDRANT_HOST with gRPC port 6334 replaced by HTTP port 6333.
+  # qdrantHttpHost: "qdrant:6333"
+  # Audit log async buffer size (Phase 29). Default: 1000. Range: [100, 100000].
+  # auditBufferSize: "1000"
 
 # Node registry persistence — set enabled=true to keep the registry across pod restarts.
 # The registry file path inside the container is persistence.registryFile.

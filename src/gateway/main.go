@@ -642,6 +642,50 @@ func (s *Server) handleStartup(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]string{"status": "STARTED"})
 }
 
+// handleQdrantHealth checks the Qdrant cluster health via the /cluster REST endpoint.
+// In single-node deployments (cluster disabled) the Raft check is skipped and the
+// gRPC health probe result is returned instead.
+func (s *Server) handleQdrantHealth(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	qdrantHTTPAddr := os.Getenv("QDRANT_HTTP_HOST")
+	if qdrantHTTPAddr == "" {
+		// Derive HTTP host from gRPC host by replacing port 6334 → 6333.
+		grpcHost := os.Getenv("QDRANT_HOST")
+		if grpcHost == "" {
+			grpcHost = "localhost:6334"
+		}
+		qdrantHTTPAddr = strings.Replace(grpcHost, ":6334", ":6333", 1)
+	}
+
+	cs, err := registry.CheckRaftCluster(ctx, qdrantHTTPAddr)
+	if err != nil {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"status": "DOWN",
+			"reason": err.Error(),
+		})
+		return
+	}
+	if !cs.RaftReady {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"status":      "DOWN",
+			"reason":      "raft_not_ready",
+			"cluster":     cs.Status,
+			"node_count":  cs.NodeCount,
+			"leader_id":   cs.LeaderID,
+		})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":       "UP",
+		"cluster":      cs.Status,
+		"node_count":   cs.NodeCount,
+		"leader_id":    cs.LeaderID,
+		"commit_index": cs.CommitIndex,
+	})
+}
+
 func (s *Server) handleWhoami(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.GetUserClaims(r)
 	if !ok {
@@ -841,6 +885,7 @@ func main() {
 	mux.HandleFunc("/healthz/liveness", srv.handleLiveness)
 	mux.HandleFunc("/healthz/readiness", srv.handleReadiness)
 	mux.HandleFunc("/healthz/startup", srv.handleStartup)
+	mux.HandleFunc("/healthz/qdrant", srv.handleQdrantHealth)
 	mux.HandleFunc("/nodes/register", middleware.Instrument("/nodes/register", srv.authCfg.Middleware(srv.handleRegisterNode)))
 	mux.HandleFunc("/nodes/deregister/", middleware.Instrument("/nodes/deregister", srv.authCfg.Middleware(srv.handleDeregisterNode)))
 	mux.HandleFunc("/nodes", middleware.Instrument("/nodes", srv.authCfg.Middleware(srv.handleListNodes)))

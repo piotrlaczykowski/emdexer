@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/piotrlaczykowski/emdexer/compare/v1.0.0...v1.1.1) (2026-03-24)
+
+
+### Bug Fixes
+
+* **ci:** run builds on main, add workflow_dispatch ([#66](https://github.com/piotrlaczykowski/emdexer/issues/66)) ([b6d0d61](https://github.com/piotrlaczykowski/emdexer/commit/b6d0d610b3519b8e81f73c34e93eb63212e7ce58))
+
 ## 1.1.0 (2026-03-23)
 
 ### Highlights

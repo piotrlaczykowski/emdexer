@@ -28,7 +28,10 @@ spec:
             - name: QDRANT_COLLECTION
               value: {{ .Values.config.qdrantCollection | quote }}
             - name: EMDEX_AUTH_KEY
-              value: {{ .Values.config.authKey | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "emdexer-gateway.fullname" . }}-secret
+                  key: authKey
             - name: GOOGLE_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -135,6 +138,13 @@ spec:
             {{- if .Values.config.rerankThreshold }}
             - name: EMDEX_RERANK_THRESHOLD
               value: {{ .Values.config.rerankThreshold | quote }}
+            {{- end }}
+            {{- if .Values.secret.rerankToken }}
+            - name: EMDEX_RERANK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "emdexer-gateway.fullname" . }}-secret
+                  key: rerankToken
             {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: EMDEX_REGISTRY_FILE

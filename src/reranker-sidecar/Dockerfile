@@ -12,7 +12,7 @@
 # Override with RERANKER_MODEL env var.
 # ─────────────────────────────────────────────────────────────────────────────
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 
@@ -23,19 +23,25 @@ RUN pip install --no-cache-dir \
     sentence-transformers==3.4.1 \
     fastapi==0.115.12 \
     uvicorn[standard]==0.34.3 \
-    pydantic==2.11.3 \
-    python-multipart==0.0.20
+    pydantic==2.11.3
+
+# Create non-root user and set up cache directory before model download.
+RUN adduser --disabled-password --gecos "" emdexer
+ENV HF_HOME=/app/.cache/huggingface
+RUN mkdir -p /app/.cache/huggingface && chown -R emdexer:emdexer /app/.cache/huggingface
+USER emdexer
 
 # Pre-download the model at build time so startup is instant at runtime.
 ARG RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
 ENV RERANKER_MODEL=${RERANKER_MODEL}
-RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('${RERANKER_MODEL}')"
+COPY preload.py .
+RUN RERANKER_MODEL=${RERANKER_MODEL} python preload.py
 
 COPY server.py .
 
-RUN addgroup --system emdexer && adduser --system --ingroup emdexer emdexer
-USER emdexer
-
 EXPOSE 8005
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8005/health')"
 
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8005"]

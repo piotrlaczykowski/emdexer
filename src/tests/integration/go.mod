@@ -28,6 +28,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace emdexer => ../../node
-
 replace github.com/piotrlaczykowski/emdexer => ../../pkg

@@ -23,7 +23,6 @@ ingress:
 config:
   qdrantHost: "qdrant:6334"
   qdrantCollection: "emdexer_v1"
-  authKey: ""
   # OIDC / JWT (optional — set issuer to enable)
   oidcIssuer: ""
   oidcClientId: ""
@@ -67,11 +66,14 @@ config:
   # Audit log async buffer size (Phase 29). Default: 1000. Range: [100, 100000].
   # auditBufferSize: "1000"
   # Late-interaction reranking (Phase 30). Disabled by default.
-  # Enable with a BGE-Reranker sidecar (see deploy/docker/reranker-sidecar/).
+  # Enable with a BGE-Reranker sidecar (see src/reranker-sidecar/).
   rerankEnabled: "false"
   # rerankUrl: "http://reranker:8005"
   # rerankTopK: "20"          # Candidates fed into the reranker (default: 20).
   # rerankThreshold: "0.0"    # Min rerank score to include in results [0.0–1.0].
+  # Shared secret for gateway→sidecar auth. Must match RERANKER_TOKEN on the sidecar.
+  # Leave empty to disable token auth (dev/local mode).
+  # rerankToken: ""  — moved to secret.rerankToken
 
 # Node registry persistence — set enabled=true to keep the registry across pod restarts.
 # The registry file path inside the container is persistence.registryFile.
@@ -85,8 +87,16 @@ persistence:
 
 secret:
   googleApiKey: ""
+  authKey: "" # Set via: helm upgrade --set secret.authKey=<value> or values override
+  rerankToken: ""
 
-resources: {}
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
 nodeSelector: {}
 tolerations: []
 affinity: {}

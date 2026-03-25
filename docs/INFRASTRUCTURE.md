@@ -21,7 +21,7 @@ All topologies share the same sidecar services (Extractous, Whisper, Qdrant).
 ### Extractous Sidecar
 
 **Purpose:** Text extraction from binary documents (PDF, DOCX, XLSX, PPTX, images).
-**Image:** Built from `deploy/docker/extractous-sidecar/Dockerfile` (Python 3.12 + `extractous` library + Tesseract OCR).
+**Image:** Built from `src/extractous-sidecar/Dockerfile` (Python 3.14 + `extractous` library + Tesseract OCR).
 **Port:** `8000` (internal only — not exposed to host).
 **Network alias:** `extractous`
 
@@ -66,7 +66,7 @@ docker compose -f deploy/docker/docker-compose.yml up -d extractous
 | Node logs `extraction failed` | Sidecar is down | `docker compose logs extractous` |
 | OCR returns empty text | Tesseract not installed or language pack missing | Rebuild image without cache |
 | `cb open` errors in node logs | Circuit breaker tripped after 5 consecutive failures | Restart sidecar; circuit resets after 5 min |
-| Build fails with missing `extractous-sidecar/` | Directory was missing from repo | `git pull` to get latest; it now lives at `deploy/docker/extractous-sidecar/` |
+| Build fails with missing `extractous-sidecar/` | Directory was missing from repo | `git pull` to get latest; it now lives at `src/extractous-sidecar/` |
 
 ---
 
@@ -88,6 +88,40 @@ The whisper model is downloaded once on first run and cached in the `whisper-mod
 | `base` (default) | ~150 MB | Good for most use cases |
 | `small` | ~480 MB | Better accuracy |
 | `medium` | ~1.5 GB | High accuracy |
+
+---
+
+### Reranker Sidecar (Phase 30)
+
+**Purpose:** Late-interaction cross-encoder reranking of hybrid search results using a BGE model.
+
+**Image:** Built from `src/reranker-sidecar/Dockerfile` (Python 3.14 + `sentence-transformers` + `torch`).
+
+**Port:** 8005 (internal only — no host port mapping)
+
+**Endpoints:**
+- `POST /rerank` — accepts `{"query": "...", "texts": [...]}`, returns scores sorted descending
+- `GET /health` — returns 200 when model is loaded
+
+**Configuration:**
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | HuggingFace model name |
+| `RERANKER_DEVICE` | `cpu` | Torch device (`cpu` or `cuda`) |
+| `MAX_TEXTS` | `100` | Maximum texts per request |
+| `RERANKER_TOKEN` | `""` | Shared secret for X-Reranker-Token auth (empty = dev mode, no auth) — **auth not yet active; implemented in Task 4** |
+
+**Disabled by default.** To enable, set `EMDEX_RERANK_ENABLED=true` on the gateway and uncomment the `reranker` block in `docker-compose.yml`. Set `RERANKER_TOKEN` and `EMDEX_RERANK_TOKEN` to the same value.
+
+**Runbook:**
+```bash
+# Build and start reranker only
+docker compose -f deploy/docker/docker-compose.yml build reranker --no-cache
+docker compose -f deploy/docker/docker-compose.yml up -d reranker
+
+# Check health
+curl http://localhost:8005/health  # only if port is mapped for debugging
+```
 
 ---
 

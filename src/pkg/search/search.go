@@ -186,6 +186,7 @@ func HybridSearchByPaths(ctx context.Context, pc qdrant.PointsClient, collection
 		},
 	})
 	if err != nil {
+		log.Printf("primary search failed, falling back to HybridSearchByPaths vector-only: %v", err)
 		// Fall back to vector-only constrained by the path filter.
 		vecResp, vecErr := pc.Search(ctx, &qdrant.SearchPoints{
 			CollectionName: collection,
@@ -298,6 +299,9 @@ func pathsCondition(paths []string) *qdrant.Condition {
 
 // pointToResult converts a Qdrant ScoredPoint to a Result.
 func pointToResult(pt *qdrant.ScoredPoint) Result {
+	if pt == nil {
+		return Result{}
+	}
 	payload := make(map[string]interface{})
 	for k, v := range pt.Payload {
 		switch val := v.Kind.(type) {
@@ -314,8 +318,10 @@ func pointToResult(pt *qdrant.ScoredPoint) Result {
 		}
 	}
 	var id uint64
-	if numID, ok := pt.Id.PointIdOptions.(*qdrant.PointId_Num); ok {
-		id = numID.Num
+	if pt.Id != nil {
+		if numID, ok := pt.Id.PointIdOptions.(*qdrant.PointId_Num); ok {
+			id = numID.Num
+		}
 	}
 	return Result{ID: id, Score: pt.Score, Payload: payload}
 }

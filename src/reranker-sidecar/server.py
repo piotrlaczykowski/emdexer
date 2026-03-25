@@ -24,11 +24,13 @@ MAX_TEXTS        Maximum number of texts accepted per request (default: 100)
 
 import os
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from typing import List
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, field_validator
+import numpy as np
+from fastapi import Depends, FastAPI, Header, HTTPException
+from pydantic import BaseModel, Field, field_validator
 from sentence_transformers import CrossEncoder
 
 logging.basicConfig(level=logging.INFO)
@@ -36,9 +38,18 @@ log = logging.getLogger("reranker")
 
 MODEL_NAME = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 DEVICE = os.getenv("RERANKER_DEVICE", "cpu")
-MAX_TEXTS = int(os.getenv("MAX_TEXTS", "100"))
+RERANKER_TOKEN = os.getenv("RERANKER_TOKEN", "")
+try:
+    MAX_TEXTS = int(os.getenv("MAX_TEXTS", "100"))
+except ValueError:
+    MAX_TEXTS = 100
 
 model: CrossEncoder | None = None
+
+
+async def require_token(x_reranker_token: str = Header(default="")):
+    if RERANKER_TOKEN and not secrets.compare_digest(x_reranker_token, RERANKER_TOKEN):
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 @asynccontextmanager
@@ -54,7 +65,7 @@ app = FastAPI(title="emdex-reranker", lifespan=lifespan)
 
 
 class RerankRequest(BaseModel):
-    query: str
+    query: str = Field(max_length=2000)
     texts: List[str]
 
     @field_validator("texts")
@@ -75,12 +86,17 @@ class RerankResponse(BaseModel):
 
 
 @app.post("/rerank", response_model=RerankResponse)
-def rerank(req: RerankRequest) -> RerankResponse:
+async def rerank(req: RerankRequest, _: None = Depends(require_token)) -> RerankResponse:
+    if model is None:
+        raise HTTPException(status_code=503, detail="model not loaded")
+
     if not req.texts:
         return RerankResponse(results=[])
 
-    pairs = [[req.query, text] for text in req.texts]
-    scores = model.predict(pairs).tolist()  # type: ignore[union-attr]
+    texts = [t[:5000] for t in req.texts]
+    pairs = [[req.query, text] for text in texts]
+    raw = model.predict(pairs)
+    scores = np.atleast_1d(raw).tolist()
 
     results = sorted(
         [ScoredItem(index=i, score=float(s)) for i, s in enumerate(scores)],

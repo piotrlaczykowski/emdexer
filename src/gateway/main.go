@@ -83,6 +83,9 @@ type Server struct {
 	reranker   rerank.Reranker
 	rerankTopK int
 	rerankThreshold float64
+
+	// Topology shutdown (Fix R1)
+	stopTopology chan struct{}
 }
 
 // GraphConfig holds feature-flag settings for the knowledge-graph expansion.
@@ -426,6 +429,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.chat")
 	defer span.End()
+	// Hard deadline to prevent goroutine leaks on slow LLM/search calls (Fix R2).
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
 	r = r.WithContext(ctx)
 
 	start := time.Now()
@@ -898,6 +904,7 @@ func main() {
 	// Reranking — disabled by default; set EMDEX_RERANK_ENABLED=true to enable.
 	rerankEnabled := os.Getenv("EMDEX_RERANK_ENABLED") == "true"
 	rerankURL := os.Getenv("EMDEX_RERANK_URL")
+	rerankToken := os.Getenv("EMDEX_RERANK_TOKEN")
 	if rerankURL == "" {
 		rerankURL = "http://reranker:8005"
 	}
@@ -915,7 +922,7 @@ func main() {
 	}
 	var reranker rerank.Reranker = rerank.NoOpReranker{}
 	if rerankEnabled {
-		reranker = rerank.NewSidecarReranker(rerankURL)
+		reranker = rerank.NewSidecarReranker(rerankURL, rerankToken)
 		log.Printf("[gateway] reranking: enabled=true url=%s top_k=%d threshold=%.3f", rerankURL, rerankTopK, rerankThreshold)
 	} else {
 		log.Printf("[gateway] reranking: enabled=false")
@@ -944,16 +951,37 @@ func main() {
 	}
 
 	// Initial topology refresh + background ticker.
+	srv.stopTopology = make(chan struct{})
 	srv.refreshTopology()
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
-		for range ticker.C {
-			srv.refreshTopology()
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				srv.refreshTopology()
+			case <-srv.stopTopology:
+				return
+			}
+		}
+	}()
+
+	// Metrics server on internal port 9090 (Fix R5).
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.Handler())
+	metricsServer := &http.Server{
+		Addr:        ":9090",
+		Handler:     metricsMux,
+		ReadTimeout: 5 * time.Second,
+		IdleTimeout: 60 * time.Second,
+	}
+	go func() {
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("[gateway] metrics server error: %v", err)
 		}
 	}()
 
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/health", srv.handleHealth)
 	mux.HandleFunc("/healthz/liveness", srv.handleLiveness)
 	mux.HandleFunc("/healthz/readiness", srv.handleReadiness)
@@ -987,10 +1015,16 @@ func main() {
 	<-quit
 	log.Printf("[gateway] Shutting down...")
 
+	// Stop topology background goroutine.
+	close(srv.stopTopology)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("[gateway] HTTP shutdown error: %v", err)
+	}
+	if err := metricsServer.Shutdown(ctx); err != nil {
+		log.Printf("[gateway] metrics server shutdown error: %v", err)
 	}
 
 	audit.Shutdown()

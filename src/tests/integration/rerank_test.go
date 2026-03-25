@@ -114,7 +114,7 @@ func TestSidecarReranker_CallsEndpointAndParsesResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	reranker := rerank.NewSidecarReranker(srv.URL)
+	reranker := rerank.NewSidecarReranker(srv.URL, "")
 	texts := []string{"a", "b", "c"}
 	scores, err := reranker.Rerank(context.Background(), "query", texts)
 	if err != nil {
@@ -131,7 +131,7 @@ func TestSidecarReranker_CallsEndpointAndParsesResponse(t *testing.T) {
 
 func TestSidecarReranker_SidecarDown_ReturnsError(t *testing.T) {
 	// Point at a closed server to simulate sidecar being down.
-	reranker := rerank.NewSidecarReranker("http://127.0.0.1:19999")
+	reranker := rerank.NewSidecarReranker("http://127.0.0.1:19999", "")
 	_, err := reranker.Rerank(context.Background(), "q", []string{"text"})
 	if err == nil {
 		t.Error("expected error when sidecar is unreachable, got nil")
@@ -144,7 +144,7 @@ func TestSidecarReranker_Non200_ReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	reranker := rerank.NewSidecarReranker(srv.URL)
+	reranker := rerank.NewSidecarReranker(srv.URL, "")
 	_, err := reranker.Rerank(context.Background(), "q", []string{"text"})
 	if err == nil {
 		t.Error("expected error for non-200 response, got nil")

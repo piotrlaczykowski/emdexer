@@ -101,6 +101,7 @@ services:
       # - EMDEX_RERANK_URL=http://reranker:8005
       # - EMDEX_RERANK_TOP_K=20
       # - EMDEX_RERANK_THRESHOLD=0.0
+      # - EMDEX_RERANK_TOKEN=${EMDEX_RERANK_TOKEN}
       # ── Raft health probe / audit buffer (Phase 29) ──────────
       # QDRANT_HTTP_HOST is derived automatically from QDRANT_HOST when unset.
       # Override only if the HTTP port differs from 6333.
@@ -236,6 +237,9 @@ services:
   #     dockerfile: Dockerfile
   #   environment:
   #     - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+  #     - RERANKER_DEVICE=${RERANKER_DEVICE:-cpu}
+  #     - MAX_TEXTS=${MAX_TEXTS:-100}
+  #     - RERANKER_TOKEN=${RERANKER_TOKEN}
   #   deploy:
   #     resources:
   #       limits:

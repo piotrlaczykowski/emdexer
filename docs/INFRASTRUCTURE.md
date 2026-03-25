@@ -109,7 +109,7 @@ The whisper model is downloaded once on first run and cached in the `whisper-mod
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | HuggingFace model name |
 | `RERANKER_DEVICE` | `cpu` | Torch device (`cpu` or `cuda`) |
 | `MAX_TEXTS` | `100` | Maximum texts per request |
-| `RERANKER_TOKEN` | `""` | Shared secret for X-Reranker-Token auth (empty = dev mode, no auth) |
+| `RERANKER_TOKEN` | `""` | Shared secret for X-Reranker-Token auth (empty = dev mode, no auth) — **auth not yet active; implemented in Task 4** |
 
 **Disabled by default.** To enable, set `EMDEX_RERANK_ENABLED=true` on the gateway and uncomment the `reranker` block in `docker-compose.yml`. Set `RERANKER_TOKEN` and `EMDEX_RERANK_TOKEN` to the same value.
 

@@ -23,6 +23,8 @@ ingress:
 config:
   qdrantHost: "qdrant:6334"
   qdrantCollection: "emdexer_v1"
+  # authKey is sourced from the emdexer-gateway-secrets K8s Secret (key: authKey).
+  # Do not set plain values here — use: kubectl create secret generic emdexer-gateway-secrets --from-literal=authKey=<value>
   authKey: ""
   # OIDC / JWT (optional — set issuer to enable)
   oidcIssuer: ""
@@ -89,7 +91,13 @@ persistence:
 secret:
   googleApiKey: ""
 
-resources: {}
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
 nodeSelector: {}
 tolerations: []
 affinity: {}

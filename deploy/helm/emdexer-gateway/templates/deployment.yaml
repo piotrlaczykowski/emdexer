@@ -28,7 +28,10 @@ spec:
             - name: QDRANT_COLLECTION
               value: {{ .Values.config.qdrantCollection | quote }}
             - name: EMDEX_AUTH_KEY
-              value: {{ .Values.config.authKey | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: emdexer-gateway-secrets
+                  key: authKey
             - name: GOOGLE_API_KEY
               valueFrom:
                 secretKeyRef:

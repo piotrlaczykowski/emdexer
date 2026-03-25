@@ -13,6 +13,12 @@ services:
     networks:
       - emdexer-net
     restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   extractous:
     build:
@@ -104,6 +110,9 @@ services:
       - ../../logs:/app/logs
     networks:
       - emdexer-net
+    depends_on:
+      qdrant:
+        condition: service_healthy
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7700/healthz/readiness"]

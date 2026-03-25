@@ -91,8 +91,8 @@ func Rank(ctx context.Context, r Reranker, query string, texts []string, topK in
 // NoOpReranker returns 0.0 for every document. Used when EMDEX_RERANK_ENABLED=false.
 type NoOpReranker struct{}
 
-func (NoOpReranker) Rerank(_ context.Context, _ string, _ []string) ([]float32, error) {
-	return nil, nil
+func (NoOpReranker) Rerank(_ context.Context, _ string, texts []string) ([]float32, error) {
+	return make([]float32, len(texts)), nil
 }
 
 // ── SidecarReranker ───────────────────────────────────────────────────────────

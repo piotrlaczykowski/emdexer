@@ -22,7 +22,7 @@ services:
 
   extractous:
     build:
-      context: ./extractous-sidecar
+      context: ../../src/extractous-sidecar
       dockerfile: Dockerfile
     # No host port mappings — Extractous is internal only.
     # Access via the emdexer-net Docker network (extractous:8000).

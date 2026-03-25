@@ -66,6 +66,12 @@ config:
   # qdrantHttpHost: "qdrant:6333"
   # Audit log async buffer size (Phase 29). Default: 1000. Range: [100, 100000].
   # auditBufferSize: "1000"
+  # Late-interaction reranking (Phase 30). Disabled by default.
+  # Enable with a BGE-Reranker sidecar (see deploy/docker/reranker-sidecar/).
+  rerankEnabled: "false"
+  # rerankUrl: "http://reranker:8005"
+  # rerankTopK: "20"          # Candidates fed into the reranker (default: 20).
+  # rerankThreshold: "0.0"    # Min rerank score to include in results [0.0–1.0].
 
 # Node registry persistence — set enabled=true to keep the registry across pod restarts.
 # The registry file path inside the container is persistence.registryFile.

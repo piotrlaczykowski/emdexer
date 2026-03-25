@@ -51,9 +51,10 @@ var bm25ZeroResults = promauto.NewCounterVec(prometheus.CounterOpts{
 
 // Result represents a single search hit returned to callers.
 type Result struct {
-	ID      uint64                 `json:"id"`
-	Score   float32                `json:"score"`
-	Payload map[string]interface{} `json:"payload"`
+	ID          uint64                 `json:"id"`
+	Score       float32                `json:"score"`                   // RRF or vector score from Qdrant
+	RerankScore *float32               `json:"rerank_score,omitempty"`  // set by Phase 30 reranking; nil when disabled
+	Payload     map[string]interface{} `json:"payload"`
 }
 
 // SearchQdrant performs a vector similarity search filtered to the given namespace.

@@ -122,6 +122,20 @@ spec:
             - name: EMDEX_AUDIT_BUFFER_SIZE
               value: {{ .Values.config.auditBufferSize | quote }}
             {{- end }}
+            - name: EMDEX_RERANK_ENABLED
+              value: {{ .Values.config.rerankEnabled | default "false" | quote }}
+            {{- if .Values.config.rerankUrl }}
+            - name: EMDEX_RERANK_URL
+              value: {{ .Values.config.rerankUrl | quote }}
+            {{- end }}
+            {{- if .Values.config.rerankTopK }}
+            - name: EMDEX_RERANK_TOP_K
+              value: {{ .Values.config.rerankTopK | quote }}
+            {{- end }}
+            {{- if .Values.config.rerankThreshold }}
+            - name: EMDEX_RERANK_THRESHOLD
+              value: {{ .Values.config.rerankThreshold | quote }}
+            {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: EMDEX_REGISTRY_FILE
               value: {{ .Values.persistence.registryFile | quote }}

@@ -90,6 +90,11 @@ services:
       # - EMDEX_QDRANT_TLS_KEY=/certs/client.key
       # ── PostgreSQL read replica (Phase 28) ───────────────────
       # - EMDEX_PG_REPLICA_URL=postgres://user:pass@replica:5432/emdexer?sslmode=require
+      # ── Reranking (Phase 30) — disabled by default ───────────
+      - EMDEX_RERANK_ENABLED=${EMDEX_RERANK_ENABLED:-false}
+      # - EMDEX_RERANK_URL=http://reranker:8005
+      # - EMDEX_RERANK_TOP_K=20
+      # - EMDEX_RERANK_THRESHOLD=0.0
       # ── Raft health probe / audit buffer (Phase 29) ──────────
       # QDRANT_HTTP_HOST is derived automatically from QDRANT_HOST when unset.
       # Override only if the HTTP port differs from 6333.
@@ -212,6 +217,29 @@ services:
       plugin-sidecar:
         condition: service_healthy
     restart: always
+
+  # ── Reranker sidecar (late-interaction reranking — Phase 30) ────────────────
+  # Disabled by default. Set EMDEX_RERANK_ENABLED=true on the gateway service
+  # and uncomment this block to enable cross-encoder reranking.
+  # reranker:
+  #   build:
+  #     context: ./reranker-sidecar
+  #     dockerfile: Dockerfile
+  #   environment:
+  #     - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '2.0'
+  #         memory: 1G
+  #   networks:
+  #     - emdexer-net
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/health')"]
+  #     interval: 15s
+  #     timeout: 10s
+  #     retries: 5
 
   # ── FFmpeg sidecar (video frame extraction — Track 3) ───────────────────────
   # Uncomment to enable video frame extraction:

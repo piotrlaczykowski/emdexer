@@ -23,9 +23,6 @@ ingress:
 config:
   qdrantHost: "qdrant:6334"
   qdrantCollection: "emdexer_v1"
-  # authKey is sourced from the emdexer-gateway-secrets K8s Secret (key: authKey).
-  # Do not set plain values here — use: kubectl create secret generic emdexer-gateway-secrets --from-literal=authKey=<value>
-  authKey: ""
   # OIDC / JWT (optional — set issuer to enable)
   oidcIssuer: ""
   oidcClientId: ""
@@ -90,6 +87,7 @@ persistence:
 
 secret:
   googleApiKey: ""
+  authKey: "" # Set via: helm upgrade --set secret.authKey=<value> or values override
 
 resources:
   requests:

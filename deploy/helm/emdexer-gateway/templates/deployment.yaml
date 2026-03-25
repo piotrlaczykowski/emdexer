@@ -30,7 +30,7 @@ spec:
             - name: EMDEX_AUTH_KEY
               valueFrom:
                 secretKeyRef:
-                  name: emdexer-gateway-secrets
+                  name: {{ include "emdexer-gateway.fullname" . }}-secret
                   key: authKey
             - name: GOOGLE_API_KEY
               valueFrom:

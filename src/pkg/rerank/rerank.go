@@ -10,8 +10,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"sort"
 	"time"
 
@@ -55,6 +57,9 @@ type Scored struct {
 // score, capped to topK. If reranking fails the original order is preserved so
 // search continues to work without the sidecar.
 func Rank(ctx context.Context, r Reranker, query string, texts []string, topK int, namespace string) ([]Scored, error) {
+	if r == nil {
+		return nil, nil
+	}
 	if len(texts) == 0 {
 		return nil, nil
 	}
@@ -86,9 +91,8 @@ func Rank(ctx context.Context, r Reranker, query string, texts []string, topK in
 // NoOpReranker returns 0.0 for every document. Used when EMDEX_RERANK_ENABLED=false.
 type NoOpReranker struct{}
 
-func (NoOpReranker) Rerank(_ context.Context, _ string, texts []string) ([]float32, error) {
-	out := make([]float32, len(texts))
-	return out, nil
+func (NoOpReranker) Rerank(_ context.Context, _ string, _ []string) ([]float32, error) {
+	return nil, nil
 }
 
 // ── SidecarReranker ───────────────────────────────────────────────────────────
@@ -128,7 +132,7 @@ type rerankResponse struct {
 func (s *SidecarReranker) Rerank(ctx context.Context, query string, texts []string) ([]float32, error) {
 	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.search.rerank")
 	span.SetAttributes(
-		attribute.String("rerank.url", s.url),
+		attribute.String("rerank.host", rerankHost(s.url)),
 		attribute.Int("rerank.candidates", len(texts)),
 	)
 	defer span.End()
@@ -154,8 +158,14 @@ func (s *SidecarReranker) Rerank(ctx context.Context, query string, texts []stri
 		return nil, fmt.Errorf("rerank sidecar returned HTTP %d", resp.StatusCode)
 	}
 
+	const maxRespBytes = 1 << 20 // 1 MiB
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBytes))
+	if err != nil {
+		return nil, fmt.Errorf("rerank read body: %w", err)
+	}
+
 	var rr rerankResponse
-	if err := json.NewDecoder(resp.Body).Decode(&rr); err != nil {
+	if err := json.Unmarshal(respBody, &rr); err != nil {
 		return nil, fmt.Errorf("rerank decode: %w", err)
 	}
 
@@ -166,6 +176,21 @@ func (s *SidecarReranker) Rerank(ctx context.Context, query string, texts []stri
 		}
 	}
 
-	log.Printf("[rerank] scored %d/%d candidates for query %q", len(rr.Results), len(texts), query)
+	runes := []rune(query)
+	if len(runes) > 80 {
+		runes = runes[:80]
+	}
+	logQuery := string(runes)
+	log.Printf("[rerank] scored %d/%d candidates for query %q", len(rr.Results), len(texts), logQuery)
 	return scores, nil
+}
+
+// rerankHost extracts the host portion of addr for safe use in OTel span
+// attributes, avoiding leaking full URLs including paths or credentials.
+func rerankHost(addr string) string {
+	u, err := url.Parse(addr)
+	if err != nil {
+		return addr
+	}
+	return u.Host
 }

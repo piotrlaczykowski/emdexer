@@ -21,7 +21,7 @@ All topologies share the same sidecar services (Extractous, Whisper, Qdrant).
 ### Extractous Sidecar
 
 **Purpose:** Text extraction from binary documents (PDF, DOCX, XLSX, PPTX, images).
-**Image:** Built from `src/extractous-sidecar/Dockerfile` (Python 3.12 + `extractous` library + Tesseract OCR).
+**Image:** Built from `src/extractous-sidecar/Dockerfile` (Python 3.14 + `extractous` library + Tesseract OCR).
 **Port:** `8000` (internal only — not exposed to host).
 **Network alias:** `extractous`
 
@@ -95,7 +95,7 @@ The whisper model is downloaded once on first run and cached in the `whisper-mod
 
 **Purpose:** Late-interaction cross-encoder reranking of hybrid search results using a BGE model.
 
-**Image:** Built from `src/reranker-sidecar/Dockerfile` (Python 3.12 + `sentence-transformers` + `torch`).
+**Image:** Built from `src/reranker-sidecar/Dockerfile` (Python 3.14 + `sentence-transformers` + `torch`).
 
 **Port:** 8005 (internal only — no host port mapping)
 

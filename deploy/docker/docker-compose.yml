@@ -223,7 +223,7 @@ services:
   # and uncomment this block to enable cross-encoder reranking.
   # reranker:
   #   build:
-  #     context: ./reranker-sidecar
+  #     context: ../../src/reranker-sidecar
   #     dockerfile: Dockerfile
   #   environment:
   #     - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}

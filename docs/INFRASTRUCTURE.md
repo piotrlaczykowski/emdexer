@@ -91,6 +91,40 @@ The whisper model is downloaded once on first run and cached in the `whisper-mod
 
 ---
 
+### Reranker Sidecar (Phase 30)
+
+**Purpose:** Late-interaction cross-encoder reranking of hybrid search results using a BGE model.
+
+**Image:** Built from `src/reranker-sidecar/Dockerfile` (Python 3.12 + `sentence-transformers` + `torch`).
+
+**Port:** 8005 (internal only — no host port mapping)
+
+**Endpoints:**
+- `POST /rerank` — accepts `{"query": "...", "texts": [...]}`, returns scores sorted descending
+- `GET /health` — returns 200 when model is loaded
+
+**Configuration:**
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | HuggingFace model name |
+| `RERANKER_DEVICE` | `cpu` | Torch device (`cpu` or `cuda`) |
+| `MAX_TEXTS` | `100` | Maximum texts per request |
+| `RERANKER_TOKEN` | `""` | Shared secret for X-Reranker-Token auth (empty = dev mode, no auth) |
+
+**Disabled by default.** To enable, set `EMDEX_RERANK_ENABLED=true` on the gateway and uncomment the `reranker` block in `docker-compose.yml`. Set `RERANKER_TOKEN` and `EMDEX_RERANK_TOKEN` to the same value.
+
+**Runbook:**
+```bash
+# Build and start reranker only
+docker compose -f deploy/docker/docker-compose.yml build reranker --no-cache
+docker compose -f deploy/docker/docker-compose.yml up -d reranker
+
+# Check health
+curl http://localhost:8005/health  # only if port is mapped for debugging
+```
+
+---
+
 ### Qdrant
 
 **Purpose:** Vector database for semantic search and BM25 full-text index.

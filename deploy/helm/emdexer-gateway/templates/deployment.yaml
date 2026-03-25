@@ -139,9 +139,12 @@ spec:
             - name: EMDEX_RERANK_THRESHOLD
               value: {{ .Values.config.rerankThreshold | quote }}
             {{- end }}
-            {{- if .Values.config.rerankToken }}
+            {{- if .Values.secret.rerankToken }}
             - name: EMDEX_RERANK_TOKEN
-              value: {{ .Values.config.rerankToken | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "emdexer-gateway.fullname" . }}-secret
+                  key: rerankToken
             {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: EMDEX_REGISTRY_FILE

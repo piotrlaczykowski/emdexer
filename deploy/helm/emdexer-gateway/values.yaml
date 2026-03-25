@@ -73,7 +73,7 @@ config:
   # rerankThreshold: "0.0"    # Min rerank score to include in results [0.0–1.0].
   # Shared secret for gateway→sidecar auth. Must match RERANKER_TOKEN on the sidecar.
   # Leave empty to disable token auth (dev/local mode).
-  rerankToken: ""
+  # rerankToken: ""  — moved to secret.rerankToken
 
 # Node registry persistence — set enabled=true to keep the registry across pod restarts.
 # The registry file path inside the container is persistence.registryFile.
@@ -88,6 +88,7 @@ persistence:
 secret:
   googleApiKey: ""
   authKey: "" # Set via: helm upgrade --set secret.authKey=<value> or values override
+  rerankToken: ""
 
 resources:
   requests:

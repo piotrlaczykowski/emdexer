@@ -898,6 +898,7 @@ func main() {
 	// Reranking — disabled by default; set EMDEX_RERANK_ENABLED=true to enable.
 	rerankEnabled := os.Getenv("EMDEX_RERANK_ENABLED") == "true"
 	rerankURL := os.Getenv("EMDEX_RERANK_URL")
+	rerankToken := os.Getenv("EMDEX_RERANK_TOKEN")
 	if rerankURL == "" {
 		rerankURL = "http://reranker:8005"
 	}
@@ -915,7 +916,7 @@ func main() {
 	}
 	var reranker rerank.Reranker = rerank.NoOpReranker{}
 	if rerankEnabled {
-		reranker = rerank.NewSidecarReranker(rerankURL)
+		reranker = rerank.NewSidecarReranker(rerankURL, rerankToken)
 		log.Printf("[gateway] reranking: enabled=true url=%s top_k=%d threshold=%.3f", rerankURL, rerankTopK, rerankThreshold)
 	} else {
 		log.Printf("[gateway] reranking: enabled=false")

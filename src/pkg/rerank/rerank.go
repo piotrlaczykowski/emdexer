@@ -102,13 +102,16 @@ func (NoOpReranker) Rerank(_ context.Context, _ string, _ []string) ([]float32, 
 // {"results":[{"index":N, "score":F},…]}.
 type SidecarReranker struct {
 	url    string
+	token  string
 	client *http.Client
 }
 
 // NewSidecarReranker creates a SidecarReranker pointed at addr (e.g. "http://reranker:8005").
-func NewSidecarReranker(addr string) *SidecarReranker {
+// token is the shared secret sent as X-Reranker-Token; pass an empty string to disable auth.
+func NewSidecarReranker(addr, token string) *SidecarReranker {
 	return &SidecarReranker{
-		url: addr + "/rerank",
+		url:   addr + "/rerank",
+		token: token,
 		client: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -147,6 +150,9 @@ func (s *SidecarReranker) Rerank(ctx context.Context, query string, texts []stri
 		return nil, fmt.Errorf("rerank new request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if s.token != "" {
+		req.Header.Set("X-Reranker-Token", s.token)
+	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {

@@ -72,6 +72,9 @@ config:
   # rerankUrl: "http://reranker:8005"
   # rerankTopK: "20"          # Candidates fed into the reranker (default: 20).
   # rerankThreshold: "0.0"    # Min rerank score to include in results [0.0–1.0].
+  # Shared secret for gateway→sidecar auth. Must match RERANKER_TOKEN on the sidecar.
+  # Leave empty to disable token auth (dev/local mode).
+  rerankToken: ""
 
 # Node registry persistence — set enabled=true to keep the registry across pod restarts.
 # The registry file path inside the container is persistence.registryFile.

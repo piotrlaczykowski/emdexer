@@ -24,11 +24,12 @@ MAX_TEXTS        Maximum number of texts accepted per request (default: 100)
 
 import os
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from typing import List
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from sentence_transformers import CrossEncoder
 
@@ -37,12 +38,18 @@ log = logging.getLogger("reranker")
 
 MODEL_NAME = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 DEVICE = os.getenv("RERANKER_DEVICE", "cpu")
+RERANKER_TOKEN = os.getenv("RERANKER_TOKEN", "")
 try:
     MAX_TEXTS = int(os.getenv("MAX_TEXTS", "100"))
 except ValueError:
     MAX_TEXTS = 100
 
 model: CrossEncoder | None = None
+
+
+async def require_token(x_reranker_token: str = Header(default="")):
+    if RERANKER_TOKEN and not secrets.compare_digest(x_reranker_token, RERANKER_TOKEN):
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 @asynccontextmanager
@@ -79,7 +86,7 @@ class RerankResponse(BaseModel):
 
 
 @app.post("/rerank", response_model=RerankResponse)
-def rerank(req: RerankRequest) -> RerankResponse:
+async def rerank(req: RerankRequest, _: None = Depends(require_token)) -> RerankResponse:
     if model is None:
         raise HTTPException(status_code=503, detail="model not loaded")
 

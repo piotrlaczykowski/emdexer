@@ -136,6 +136,10 @@ spec:
             - name: EMDEX_RERANK_THRESHOLD
               value: {{ .Values.config.rerankThreshold | quote }}
             {{- end }}
+            {{- if .Values.config.rerankToken }}
+            - name: EMDEX_RERANK_TOKEN
+              value: {{ .Values.config.rerankToken | quote }}
+            {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: EMDEX_REGISTRY_FILE
               value: {{ .Values.persistence.registryFile | quote }}

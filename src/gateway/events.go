@@ -54,10 +54,10 @@ func (s *Server) handleIndexingEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			b, _ := json.Marshal(evt)
-			fmt.Fprintf(w, "data: %s\n\n", string(b))
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", string(b))
 			flusher.Flush()
 		case <-keepalive.C:
-			fmt.Fprintf(w, ": keepalive\n\n")
+			_, _ = fmt.Fprintf(w, ": keepalive\n\n")
 			flusher.Flush()
 		}
 	}

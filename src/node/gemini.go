@@ -16,8 +16,8 @@ func callGeminiGenerate(prompt, apiKey, model string) (string, error) {
 		return "", fmt.Errorf("GOOGLE_API_KEY not set")
 	}
 	url := fmt.Sprintf(
-		"https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
-		model, apiKey,
+		"https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent",
+		model,
 	)
 
 	reqBody, _ := json.Marshal(map[string]any{
@@ -26,8 +26,15 @@ func callGeminiGenerate(prompt, apiKey, model string) (string, error) {
 		},
 	})
 
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(reqBody))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", apiKey)
+
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(url, "application/json", bytes.NewReader(reqBody))
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}

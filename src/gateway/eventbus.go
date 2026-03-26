@@ -1,6 +1,26 @@
 package main
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+var (
+	sseSubscribers = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "emdexer_gateway_sse_subscribers",
+		Help: "Number of active SSE subscribers on /v1/events/indexing",
+	})
+	sseEventsPublished = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "emdexer_gateway_sse_events_published_total",
+		Help: "Total indexing events published to the SSE bus",
+	})
+	sseEventsDropped = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "emdexer_gateway_sse_events_dropped_total",
+		Help: "Total indexing events dropped due to slow SSE consumers",
+	})
+)
 
 // eventBus manages SSE subscriber channels for IndexingEvents.
 type eventBus struct {
@@ -19,6 +39,7 @@ func (b *eventBus) subscribe() chan IndexingEvent {
 	b.mu.Lock()
 	b.subscribers[ch] = struct{}{}
 	b.mu.Unlock()
+	sseSubscribers.Inc()
 	return ch
 }
 
@@ -27,16 +48,19 @@ func (b *eventBus) unsubscribe(ch chan IndexingEvent) {
 	delete(b.subscribers, ch)
 	close(ch)
 	b.mu.Unlock()
+	sseSubscribers.Dec()
 }
 
 func (b *eventBus) publish(evt IndexingEvent) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	sseEventsPublished.Inc()
 	for ch := range b.subscribers {
 		select {
 		case ch <- evt:
 		default:
 			// Slow consumer — drop event rather than block.
+			sseEventsDropped.Inc()
 		}
 	}
 }

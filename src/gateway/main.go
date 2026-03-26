@@ -998,6 +998,7 @@ func main() {
 	mux.HandleFunc("/v1/chat/completions", middleware.Instrument("/v1/chat/completions", srv.authCfg.Middleware(srv.handleChatCompletions)))
 	mux.HandleFunc("/v1/whoami", middleware.Instrument("/v1/whoami", srv.authCfg.Middleware(srv.handleWhoami)))
 	mux.HandleFunc("/v1/events/indexing", middleware.Instrument("/v1/events/indexing", srv.authCfg.Middleware(srv.handleIndexingEvents)))
+	mux.HandleFunc("/v1/eval", middleware.Instrument("/v1/eval", srv.authCfg.Middleware(srv.handleEval)))
 	mux.HandleFunc("/v1/nodes/", middleware.Instrument("/v1/nodes/", srv.authCfg.Middleware(srv.handleNodeIndexed)))
 
 	addr := ":" + port

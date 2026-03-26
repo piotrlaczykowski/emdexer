@@ -41,6 +41,9 @@ config:
   # Chunking (Phase 31)
   chunkSize: ""    # words per chunk; leave empty to use default (512)
   chunkOverlap: "" # overlapping words; leave empty to use default (50)
+  # Contextual Retrieval (Phase 32)
+  contextualRetrieval: "false" # set to "true" to prepend LLM context to chunk embeddings
+  contextModel: ""             # model for context generation; leave empty to use EMDEX_LLM_MODEL
   # Graph-RAG migration (Phase 24)
   graphMigration: "auto"
   # Extractor plugins (Phase 25)

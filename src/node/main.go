@@ -67,6 +67,8 @@ type Config struct {
 	S3Prefix       string
 	ChunkSize    int    // EMDEX_CHUNK_SIZE — words per chunk; default 512
 	ChunkOverlap int    // EMDEX_CHUNK_OVERLAP — overlapping words; default 50
+	ContextualRetrieval bool   // EMDEX_CONTEXTUAL_RETRIEVAL — prepend LLM context to chunk embeddings
+	ContextModel        string // EMDEX_CONTEXT_MODEL — model for context generation
 	WhisperURL      string // Whisper sidecar URL (e.g. http://whisper:8080)
 	WhisperModel    string // Whisper model name (default: "base")
 	WhisperEnabled  bool   // EMDEX_WHISPER_ENABLED — master toggle for audio transcription
@@ -163,8 +165,10 @@ func main() {
 		FFmpegURL:        os.Getenv("EMDEX_FFMPEG_URL"),
 		FrameIntervalSec: parseIntEnv("EMDEX_FRAME_INTERVAL_SEC", 30),
 		MaxFrames:        parseIntEnv("EMDEX_MAX_FRAMES", 10),
-		ChunkSize:        parseIntEnv("EMDEX_CHUNK_SIZE", 512),
-		ChunkOverlap:     parseIntEnv("EMDEX_CHUNK_OVERLAP", 50),
+		ChunkSize:           parseIntEnv("EMDEX_CHUNK_SIZE", 512),
+		ChunkOverlap:        parseIntEnv("EMDEX_CHUNK_OVERLAP", 50),
+		ContextualRetrieval: os.Getenv("EMDEX_CONTEXTUAL_RETRIEVAL") == "true",
+		ContextModel:        contextModel(),
 	}
 
 	if globalCfg.ExtractousHost == "" {
@@ -271,13 +275,24 @@ func main() {
 		log.Println("[node] Gemini Vision enabled for image captioning")
 	}
 
+	var contextLLM func(string) (string, error)
+	if globalCfg.ContextualRetrieval {
+		apiKey := globalCfg.GoogleAPIKey
+		model := globalCfg.ContextModel
+		contextLLM = func(prompt string) (string, error) {
+			return callGeminiGenerate(prompt, apiKey, model)
+		}
+	}
+
 	pipelineCfg := indexer.PipelineConfig{
-		Namespace:      globalCfg.Namespace,
-		ExtractousHost: globalCfg.ExtractousHost,
-		NodeType:       globalCfg.NodeType,
-		Embedder:       globalEmbedder,
-		ChunkSize:      globalCfg.ChunkSize,
-		ChunkOverlap:   globalCfg.ChunkOverlap,
+		Namespace:           globalCfg.Namespace,
+		ExtractousHost:      globalCfg.ExtractousHost,
+		NodeType:            globalCfg.NodeType,
+		Embedder:            globalEmbedder,
+		ChunkSize:           globalCfg.ChunkSize,
+		ChunkOverlap:        globalCfg.ChunkOverlap,
+		ContextualRetrieval: globalCfg.ContextualRetrieval,
+		ContextLLM:          contextLLM,
 		Extract: func(path string, content []byte, host string) (string, map[string]string, error) {
 			if len(content) > 0 {
 				return extractClient.ExtractFromBytes(path, content, host)
@@ -468,6 +483,18 @@ func main() {
 		QdrantConn:      conn,
 		WorkerHeartbeat: globalWorkerHeartbeat,
 	})
+}
+
+// contextModel returns the model to use for contextual retrieval context generation.
+// Priority: EMDEX_CONTEXT_MODEL → EMDEX_LLM_MODEL → gemini-3-flash-preview.
+func contextModel() string {
+	if m := os.Getenv("EMDEX_CONTEXT_MODEL"); m != "" {
+		return m
+	}
+	if m := os.Getenv("EMDEX_LLM_MODEL"); m != "" {
+		return m
+	}
+	return "gemini-3-flash-preview"
 }
 
 // parseIntEnv parses an environment variable as an integer, returning def if unset or invalid.

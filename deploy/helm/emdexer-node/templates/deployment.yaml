@@ -96,6 +96,14 @@ spec:
             - name: EMDEX_CHUNK_OVERLAP
               value: {{ .Values.config.chunkOverlap | quote }}
             {{- end }}
+            {{- if eq (.Values.config.contextualRetrieval | default "false") "true" }}
+            - name: EMDEX_CONTEXTUAL_RETRIEVAL
+              value: "true"
+            {{- end }}
+            {{- if .Values.config.contextModel }}
+            - name: EMDEX_CONTEXT_MODEL
+              value: {{ .Values.config.contextModel | quote }}
+            {{- end }}
             - name: EMDEX_GRAPH_MIGRATION
               value: {{ .Values.config.graphMigration | default "auto" | quote }}
             - name: EMDEX_PLUGIN_ENABLED

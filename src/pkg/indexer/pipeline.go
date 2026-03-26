@@ -34,6 +34,11 @@ type PipelineConfig struct {
 	Plugins      []plugin.ExtractorPlugin
 	ChunkSize    int // words per chunk; default 512 if zero
 	ChunkOverlap int // overlapping words between chunks; default 50 if zero
+	// ContextualRetrieval enables Phase 32 contextual retrieval: a short LLM-generated
+	// document summary is prepended to each chunk's embedding input. The stored
+	// payload.text remains the original chunk. Off by default.
+	ContextualRetrieval bool
+	ContextLLM          func(prompt string) (string, error) // nil = disabled
 }
 
 // IndexDataToPoints converts file content into Qdrant points via extraction, chunking, and embedding.
@@ -85,6 +90,15 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 		return nil
 	}
 
+	// Generate document-level context once per document (Phase 32).
+	var docContext string
+	if cfg.ContextualRetrieval && cfg.ContextLLM != nil {
+		docContext = BuildDocContext(text, cfg.ContextLLM)
+		if docContext != "" {
+			log.Printf("[node] contextual-retrieval: enriched %s (%d chars context)", path, len(docContext))
+		}
+	}
+
 	size := cfg.ChunkSize
 	if size <= 0 {
 		size = 512
@@ -121,7 +135,8 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 			continue
 		}
 
-		vector, embErr := cfg.Embedder.Embed(context.Background(), chunk)
+		embedText := EnrichChunkWithContext(chunk, docContext)
+		vector, embErr := cfg.Embedder.Embed(context.Background(), embedText)
 		if embErr != nil {
 			LogEmbeddingError(path, i, embErr)
 			continue

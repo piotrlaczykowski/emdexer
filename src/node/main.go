@@ -465,6 +465,9 @@ func main() {
 		})
 		log.Printf("[node] Startup walk complete: root=%s indexed=%d skipped=%d dirs_skipped=%d — watcher now live",
 			root, stats.FilesIndexed, stats.FilesSkipped, stats.DirsSkipped)
+		// Notify gateway of walk completion (Phase 33).
+		go reportIndexingComplete(globalCfg.GatewayURL, globalCfg.NodeID,
+			globalCfg.Namespace, globalCfg.GatewayAuthKey, stats)
 	}()
 
 	// Self-register with the gateway and start periodic heartbeat.

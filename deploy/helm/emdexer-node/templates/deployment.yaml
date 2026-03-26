@@ -96,6 +96,18 @@ spec:
             - name: EMDEX_CHUNK_OVERLAP
               value: {{ .Values.config.chunkOverlap | quote }}
             {{- end }}
+            {{- if and .Values.config.chunkStrategy (ne .Values.config.chunkStrategy "fixed") }}
+            - name: EMDEX_CHUNK_STRATEGY
+              value: {{ .Values.config.chunkStrategy | quote }}
+            {{- end }}
+            {{- if .Values.config.semanticChunkThreshold }}
+            - name: EMDEX_SEMANTIC_CHUNK_THRESHOLD
+              value: {{ .Values.config.semanticChunkThreshold | quote }}
+            {{- end }}
+            {{- if .Values.config.semanticChunkMaxSize }}
+            - name: EMDEX_SEMANTIC_CHUNK_MAX_SIZE
+              value: {{ .Values.config.semanticChunkMaxSize | quote }}
+            {{- end }}
             {{- if eq (.Values.config.contextualRetrieval | default "false") "true" }}
             - name: EMDEX_CONTEXTUAL_RETRIEVAL
               value: "true"

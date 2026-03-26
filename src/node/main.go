@@ -65,6 +65,8 @@ type Config struct {
 	S3Bucket       string
 	S3UseSSL       bool
 	S3Prefix       string
+	ChunkSize    int    // EMDEX_CHUNK_SIZE — words per chunk; default 512
+	ChunkOverlap int    // EMDEX_CHUNK_OVERLAP — overlapping words; default 50
 	WhisperURL      string // Whisper sidecar URL (e.g. http://whisper:8080)
 	WhisperModel    string // Whisper model name (default: "base")
 	WhisperEnabled  bool   // EMDEX_WHISPER_ENABLED — master toggle for audio transcription
@@ -161,6 +163,8 @@ func main() {
 		FFmpegURL:        os.Getenv("EMDEX_FFMPEG_URL"),
 		FrameIntervalSec: parseIntEnv("EMDEX_FRAME_INTERVAL_SEC", 30),
 		MaxFrames:        parseIntEnv("EMDEX_MAX_FRAMES", 10),
+		ChunkSize:        parseIntEnv("EMDEX_CHUNK_SIZE", 512),
+		ChunkOverlap:     parseIntEnv("EMDEX_CHUNK_OVERLAP", 50),
 	}
 
 	if globalCfg.ExtractousHost == "" {
@@ -272,6 +276,8 @@ func main() {
 		ExtractousHost: globalCfg.ExtractousHost,
 		NodeType:       globalCfg.NodeType,
 		Embedder:       globalEmbedder,
+		ChunkSize:      globalCfg.ChunkSize,
+		ChunkOverlap:   globalCfg.ChunkOverlap,
 		Extract: func(path string, content []byte, host string) (string, map[string]string, error) {
 			if len(content) > 0 {
 				return extractClient.ExtractFromBytes(path, content, host)

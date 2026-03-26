@@ -31,7 +31,9 @@ type PipelineConfig struct {
 	// Plugins is the list of loaded extractor plugins (may be nil).
 	// A plugin whose Extensions() list includes a file's extension takes
 	// priority over the default Extractous/Whisper extraction path.
-	Plugins []plugin.ExtractorPlugin
+	Plugins      []plugin.ExtractorPlugin
+	ChunkSize    int // words per chunk; default 512 if zero
+	ChunkOverlap int // overlapping words between chunks; default 50 if zero
 }
 
 // IndexDataToPoints converts file content into Qdrant points via extraction, chunking, and embedding.
@@ -83,7 +85,18 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 		return nil
 	}
 
-	chunks := SmartChunk(text, 512, 50)
+	size := cfg.ChunkSize
+	if size <= 0 {
+		size = 512
+	}
+	overlap := cfg.ChunkOverlap
+	if overlap <= 0 {
+		overlap = 50
+	}
+	if overlap >= size {
+		overlap = size / 10
+	}
+	chunks := SmartChunk(text, size, overlap)
 	if len(chunks) == 0 {
 		log.Printf("[node] WARN: Skipping %s — chunking produced no segments", path)
 		return nil

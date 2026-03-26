@@ -38,6 +38,9 @@ config:
   # Gateway registration (optional)
   gatewayUrl: ""
   gatewayAuthKey: ""
+  # Chunking (Phase 31)
+  chunkSize: ""    # words per chunk; leave empty to use default (512)
+  chunkOverlap: "" # overlapping words; leave empty to use default (50)
   # Graph-RAG migration (Phase 24)
   graphMigration: "auto"
   # Extractor plugins (Phase 25)

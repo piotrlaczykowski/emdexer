@@ -113,6 +113,9 @@ All metrics are Prometheus histograms or counters, labelled by `{collection, nam
 | `emdexer_gateway_rrf_top_both_legs_hits_total` | Counter | Returned results that appeared in both legs (overlap) |
 | `emdexer_gateway_bm25_fallback_total` | Counter | Times hybrid fell back to vector-only due to a BM25 failure |
 | `emdexer_gateway_bm25_zero_results_total` | Counter | Times BM25 returned 0 results (index may be empty or query too specific) |
+| `emdexer_gateway_sse_subscribers` | Gauge | Active SSE subscribers on `/v1/events/indexing` |
+| `emdexer_gateway_sse_events_published_total` | Counter | Indexing events published to the SSE bus |
+| `emdexer_gateway_sse_events_dropped_total` | Counter | Indexing events dropped due to slow SSE consumers |
 
 **Useful alert rules:**
 - High `bm25_duration_ms` relative to `vector_duration_ms` → full-text index may be missing (Qdrant doing a full scan).

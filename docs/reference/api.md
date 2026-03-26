@@ -270,3 +270,57 @@ The gateway refreshes its namespace topology from the registry every 30 seconds.
 - **Method:** `GET`
 - **Path:** `/healthz/startup`
 - **Response:** `{"status": "STARTED"}`
+
+---
+
+## 5. Indexing Events (Phase 33)
+
+### GET /v1/events/indexing
+
+Streams indexing completion events as Server-Sent Events (SSE).
+
+**Auth:** Bearer token required.
+
+**Response:** `text/event-stream`
+
+Each event is a JSON object:
+
+```json
+{
+  "namespace": "production",
+  "node_id": "node-abc123",
+  "status": "complete",
+  "files_indexed": 142,
+  "files_skipped": 3,
+  "timestamp": "2026-03-26T01:00:00Z"
+}
+```
+
+Keepalive comments (`: keepalive`) are sent every 30 seconds to prevent proxy timeouts.
+
+**Example:**
+
+```bash
+curl -N -H "Authorization: Bearer {key}" http://localhost:7700/v1/events/indexing
+```
+
+---
+
+### POST /v1/nodes/{nodeId}/indexed
+
+Called by nodes to report startup walk completion. Invoked automatically by the node binary after the startup walk finishes — consumers do not need to call this directly.
+
+**Auth:** Bearer token required.
+
+**Request body:**
+
+```json
+{
+  "namespace": "production",
+  "files_indexed": 142,
+  "files_skipped": 3,
+  "status": "complete"
+}
+```
+
+**Response:** `204 No Content`

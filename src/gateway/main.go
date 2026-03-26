@@ -86,6 +86,9 @@ type Server struct {
 
 	// Topology shutdown (Fix R1)
 	stopTopology chan struct{}
+
+	// Indexing events (Phase 33)
+	events *eventBus
 }
 
 // GraphConfig holds feature-flag settings for the knowledge-graph expansion.
@@ -952,6 +955,7 @@ func main() {
 
 	// Initial topology refresh + background ticker.
 	srv.stopTopology = make(chan struct{})
+	srv.events = newEventBus()
 	srv.refreshTopology()
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
@@ -993,6 +997,8 @@ func main() {
 	mux.HandleFunc("/v1/search", middleware.Instrument("/v1/search", srv.authCfg.Middleware(srv.handleSearch)))
 	mux.HandleFunc("/v1/chat/completions", middleware.Instrument("/v1/chat/completions", srv.authCfg.Middleware(srv.handleChatCompletions)))
 	mux.HandleFunc("/v1/whoami", middleware.Instrument("/v1/whoami", srv.authCfg.Middleware(srv.handleWhoami)))
+	mux.HandleFunc("/v1/events/indexing", middleware.Instrument("/v1/events/indexing", srv.authCfg.Middleware(srv.handleIndexingEvents)))
+	mux.HandleFunc("/v1/nodes/", middleware.Instrument("/v1/nodes/", srv.authCfg.Middleware(srv.handleNodeIndexed)))
 
 	addr := ":" + port
 	log.Printf("Gateway starting on %s", addr)

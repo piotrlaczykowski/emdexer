@@ -148,6 +148,29 @@ See [docs/reference/multimodal.md](multimodal.md) for full details on all three 
 
 ---
 
+## Chunking (Phase 31 / Phase 35)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMDEX_CHUNK_SIZE` | `512` | Words per chunk (fixed strategy) |
+| `EMDEX_CHUNK_OVERLAP` | `50` | Overlapping words between adjacent chunks; clamped to `< EMDEX_CHUNK_SIZE` |
+| `EMDEX_CHUNK_STRATEGY` | `fixed` | Chunking strategy: `fixed` (word-count) or `semantic` (sentence-embedding grouping) |
+| `EMDEX_SEMANTIC_CHUNK_THRESHOLD` | `0.7` | Cosine similarity threshold for sentence grouping [0.0–1.0]; only used when strategy is `semantic` |
+| `EMDEX_SEMANTIC_CHUNK_MAX_SIZE` | `512` | Max words per semantic chunk; only used when strategy is `semantic` |
+
+**Semantic chunking** groups sentences by embedding similarity instead of word count. Produces more coherent chunks at the cost of ~1 embedding call per sentence during indexing. Falls back to fixed chunking if the embedder fails or the document has ≤ 3 sentences.
+
+---
+
+## Contextual Retrieval (Phase 32)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMDEX_CONTEXTUAL_RETRIEVAL` | `false` | Prepend LLM-generated document context to each chunk before embedding |
+| `EMDEX_CONTEXT_MODEL` | _(uses `EMDEX_LLM_MODEL`)_ | Override model for context generation |
+
+---
+
 ## Extractor Plugins (Phase 25)
 
 | Variable | Default | Description |

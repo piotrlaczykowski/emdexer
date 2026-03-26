@@ -190,6 +190,10 @@ services:
       # ── Chunking (Phase 31) — defaults shown, uncomment to override ──
       # - EMDEX_CHUNK_SIZE=512
       # - EMDEX_CHUNK_OVERLAP=50
+      # ── Semantic Chunking (Phase 35) — disabled by default ────────
+      # - EMDEX_CHUNK_STRATEGY=fixed
+      # - EMDEX_SEMANTIC_CHUNK_THRESHOLD=0.7
+      # - EMDEX_SEMANTIC_CHUNK_MAX_SIZE=512
       # ── Contextual Retrieval (Phase 32) — disabled by default ─────
       # - EMDEX_CONTEXTUAL_RETRIEVAL=false
       # - EMDEX_CONTEXT_MODEL=gemini-3-flash-preview

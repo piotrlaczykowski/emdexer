@@ -34,6 +34,9 @@ type PipelineConfig struct {
 	Plugins      []plugin.ExtractorPlugin
 	ChunkSize    int // words per chunk; default 512 if zero
 	ChunkOverlap int // overlapping words between chunks; default 50 if zero
+	// Chunker is the chunking strategy (Phase 35). If nil, falls back to
+	// FixedChunker{ChunkSize, ChunkOverlap}.
+	Chunker ChunkStrategy
 	// ContextualRetrieval enables Phase 32 contextual retrieval: a short LLM-generated
 	// document summary is prepended to each chunk's embedding input. The stored
 	// payload.text remains the original chunk. Off by default.
@@ -99,18 +102,23 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 		}
 	}
 
-	size := cfg.ChunkSize
-	if size <= 0 {
-		size = 512
+	// Resolve chunking strategy (Phase 35).
+	chunker := cfg.Chunker
+	if chunker == nil {
+		size := cfg.ChunkSize
+		if size <= 0 {
+			size = 512
+		}
+		overlap := cfg.ChunkOverlap
+		if overlap <= 0 {
+			overlap = 50
+		}
+		if overlap >= size {
+			overlap = size / 10
+		}
+		chunker = FixedChunker{Size: size, Overlap: overlap}
 	}
-	overlap := cfg.ChunkOverlap
-	if overlap <= 0 {
-		overlap = 50
-	}
-	if overlap >= size {
-		overlap = size / 10
-	}
-	chunks := SmartChunk(text, size, overlap)
+	chunks := chunker.Chunk(text)
 	if len(chunks) == 0 {
 		log.Printf("[node] WARN: Skipping %s — chunking produced no segments", path)
 		return nil

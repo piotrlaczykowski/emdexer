@@ -41,6 +41,10 @@ config:
   # Chunking (Phase 31)
   chunkSize: ""    # words per chunk; leave empty to use default (512)
   chunkOverlap: "" # overlapping words; leave empty to use default (50)
+  # Semantic Chunking (Phase 35)
+  chunkStrategy: "fixed"           # "fixed" or "semantic"
+  semanticChunkThreshold: ""       # cosine similarity threshold; default 0.7
+  semanticChunkMaxSize: ""         # max words per semantic chunk; default 512
   # Contextual Retrieval (Phase 32)
   contextualRetrieval: "false" # set to "true" to prepend LLM context to chunk embeddings
   contextModel: ""             # model for context generation; leave empty to use EMDEX_LLM_MODEL

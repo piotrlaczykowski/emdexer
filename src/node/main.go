@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -171,6 +172,10 @@ func main() {
 		ContextModel:        contextModel(),
 	}
 
+	chunkStrategy := os.Getenv("EMDEX_CHUNK_STRATEGY")
+	semanticThreshold := parseFloatEnv("EMDEX_SEMANTIC_CHUNK_THRESHOLD", 0.7)
+	semanticMaxSize := parseIntEnv("EMDEX_SEMANTIC_CHUNK_MAX_SIZE", 512)
+
 	if globalCfg.ExtractousHost == "" {
 		globalCfg.ExtractousHost = "http://localhost:8000/extract"
 	}
@@ -284,6 +289,23 @@ func main() {
 		}
 	}
 
+	var chunker indexer.ChunkStrategy
+	if strings.ToLower(chunkStrategy) == "semantic" {
+		embedderForChunking := globalEmbedder
+		chunker = indexer.SemanticChunker{
+			MaxChunkWords: semanticMaxSize,
+			Threshold:     float32(semanticThreshold),
+			Embedder: func(text string) ([]float32, error) {
+				return embedderForChunking.Embed(context.Background(), text)
+			},
+		}
+		log.Printf("[node] chunk strategy: semantic (threshold=%.2f max_words=%d)",
+			semanticThreshold, semanticMaxSize)
+	} else {
+		log.Printf("[node] chunk strategy: fixed (size=%d overlap=%d)",
+			globalCfg.ChunkSize, globalCfg.ChunkOverlap)
+	}
+
 	pipelineCfg := indexer.PipelineConfig{
 		Namespace:           globalCfg.Namespace,
 		ExtractousHost:      globalCfg.ExtractousHost,
@@ -291,6 +313,7 @@ func main() {
 		Embedder:            globalEmbedder,
 		ChunkSize:           globalCfg.ChunkSize,
 		ChunkOverlap:        globalCfg.ChunkOverlap,
+		Chunker:             chunker,
 		ContextualRetrieval: globalCfg.ContextualRetrieval,
 		ContextLLM:          contextLLM,
 		Extract: func(path string, content []byte, host string) (string, map[string]string, error) {
@@ -505,6 +528,16 @@ func parseIntEnv(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return n
+		}
+	}
+	return def
+}
+
+// parseFloatEnv parses an environment variable as a float64, returning def if unset or invalid.
+func parseFloatEnv(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			return f
 		}
 	}
 	return def

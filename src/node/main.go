@@ -117,6 +117,9 @@ func main() {
 	}
 
 	apiKey := os.Getenv("GOOGLE_API_KEY")
+	if apiKey == "" {
+		log.Printf("WARNING: GOOGLE_API_KEY is not set — embedding and LLM features will be unavailable")
+	}
 	qdrantHost := os.Getenv("QDRANT_HOST")
 	if qdrantHost == "" {
 		qdrantHost = "localhost:6334"

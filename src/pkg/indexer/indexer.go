@@ -28,7 +28,7 @@ func NewIndexer(fs vfs.FileSystem) *Indexer {
 
 func (i *Indexer) Walk(root string, callback func(path string, isDir bool, content []byte) error) (WalkStats, error) {
 	var stats WalkStats
-	err := i.recursiveWalk(root, callback, &stats)
+	err := i.recursiveWalk(".", callback, &stats)
 	log.Printf("[indexer] Walk complete: root=%s indexed=%d skipped=%d dirs_skipped=%d archives=%d archive_errors=%d",
 		root, stats.FilesIndexed, stats.FilesSkipped, stats.DirsSkipped, stats.ArchivesFound, stats.ArchivesFailed)
 	return stats, err

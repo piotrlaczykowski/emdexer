@@ -14,7 +14,7 @@ services:
       - emdexer-net
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || exit 1"]
+      test: ["CMD-SHELL", "nc -z localhost 6333 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -161,7 +161,7 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_NAMESPACE=default
       - EMDEX_GATEWAY_URL=http://gateway:7700
-      - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - NODE_HEALTH_PORT=8081
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
       # ── Audio/Video transcription (Track 1) ──────────────────

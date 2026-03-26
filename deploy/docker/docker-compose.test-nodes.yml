@@ -43,7 +43,7 @@ services:
       - EMDEX_EMBEDDING_DIMS=3072
       - EMDEX_GEMINI_MODEL=models/gemini-embedding-2-preview
       - EMDEX_GATEWAY_URL=http://gateway:7700
-      - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     networks:
       - emdexer-net
@@ -83,7 +83,7 @@ services:
       - EMDEX_EMBEDDING_DIMS=3072
       - EMDEX_GEMINI_MODEL=models/gemini-embedding-2-preview
       - EMDEX_GATEWAY_URL=http://gateway:7700
-      - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     networks:
       - emdexer-net
@@ -122,7 +122,7 @@ services:
       - EMDEX_EMBEDDING_DIMS=3072
       - EMDEX_GEMINI_MODEL=models/gemini-embedding-2-preview
       - EMDEX_GATEWAY_URL=http://gateway:7700
-      - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     networks:
       - emdexer-net

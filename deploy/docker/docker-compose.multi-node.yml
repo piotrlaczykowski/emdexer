@@ -30,7 +30,7 @@ services:
       - emdexer-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      test: ["CMD-SHELL", "nc -z localhost 6333 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

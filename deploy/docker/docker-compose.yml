@@ -187,6 +187,9 @@ services:
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
       - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
+      # ── Chunking (Phase 31) — defaults shown, uncomment to override ──
+      # - EMDEX_CHUNK_SIZE=512
+      # - EMDEX_CHUNK_OVERLAP=50
     networks:
       - emdexer-net
     depends_on:

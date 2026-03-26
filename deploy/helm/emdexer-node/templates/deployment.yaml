@@ -88,6 +88,14 @@ spec:
               value: {{ .Values.config.qdrantTlsKey | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.config.chunkSize }}
+            - name: EMDEX_CHUNK_SIZE
+              value: {{ .Values.config.chunkSize | quote }}
+            {{- end }}
+            {{- if .Values.config.chunkOverlap }}
+            - name: EMDEX_CHUNK_OVERLAP
+              value: {{ .Values.config.chunkOverlap | quote }}
+            {{- end }}
             - name: EMDEX_GRAPH_MIGRATION
               value: {{ .Values.config.graphMigration | default "auto" | quote }}
             - name: EMDEX_PLUGIN_ENABLED

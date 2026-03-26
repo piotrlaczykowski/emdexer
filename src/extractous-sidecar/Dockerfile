@@ -11,7 +11,7 @@
 # Port: 8000
 # ─────────────────────────────────────────────────────────────────────────────
 
-FROM python:3.14-slim
+FROM python:3.13-slim
 
 # Tesseract is required for OCR support (extract?ocr=true).
 RUN apt-get update \

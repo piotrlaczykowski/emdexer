@@ -105,3 +105,39 @@ func TestCallGeminiStreamAt_contextCancellation(t *testing.T) {
 		t.Fatal("expected context cancellation error")
 	}
 }
+
+func TestCallGeminiStream_metricsAndChunks(t *testing.T) {
+	want := []string{"chunk1", "chunk2"}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		for _, c := range want {
+			fmt.Fprint(w, sseChunk(c))
+			flusher.Flush()
+		}
+	}))
+	defer srv.Close()
+
+	// Override the endpoint format so CallGeminiStream hits the test server.
+	// The format has two %s slots: model and apiKey (both ignored by the test server).
+	origFmt := geminiStreamEndpointFmt
+	geminiStreamEndpointFmt = srv.URL + "?model=%s&key=%s"
+	defer func() { geminiStreamEndpointFmt = origFmt }()
+
+	// Override the client factory to bypass the SSRF guard for the loopback address.
+	origClient := geminiStreamClientFn
+	geminiStreamClientFn = func() *http.Client { return http.DefaultClient }
+	defer func() { geminiStreamClientFn = origClient }()
+
+	var got []string
+	err := CallGeminiStream(context.Background(), "hello", "test-key", func(text string) error {
+		got = append(got, text)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Join(got, "") != strings.Join(want, "") {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}

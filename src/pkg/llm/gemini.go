@@ -39,6 +39,26 @@ var llmErrors = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Total number of LLM generation API errors",
 }, []string{"model"})
 
+var llmStreamTTFT = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "emdexer_gateway_llm_stream_ttft_ms",
+	Help:    "Time-to-first-token for LLM streaming calls in milliseconds",
+	Buckets: []float64{50, 100, 250, 500, 1000, 2000, 5000},
+}, []string{"model"})
+
+var llmStreamChunks = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_llm_stream_chunks_total",
+	Help: "Total number of token chunks received from LLM streaming calls",
+}, []string{"model"})
+
+// geminiStreamEndpointFmt is the URL format for Gemini's streaming API.
+// Two %s slots: model, apiKey.
+// Overridden in tests to point at a local httptest.Server.
+var geminiStreamEndpointFmt = "https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s"
+
+// geminiStreamClientFn returns the HTTP client used for streaming calls.
+// Overridden in tests to bypass the SSRF guard when hitting a local httptest.Server.
+var geminiStreamClientFn = func() *http.Client { return safenet.NewSafeClient(0) }
+
 type GeminiPart struct {
 	Text string `json:"text"`
 }
@@ -198,4 +218,47 @@ func callGeminiStreamAt(ctx context.Context, endpoint string, reqBody GeminiRequ
 		return fmt.Errorf("gemini stream: received %d lines but all failed to parse", unmarshalErrors)
 	}
 	return nil
+}
+
+func callGeminiStream(ctx context.Context, prompt, apiKey, model string, onChunk func(string) error) error {
+	endpoint := fmt.Sprintf(geminiStreamEndpointFmt, model, apiKey)
+	reqBody := GeminiRequest{
+		Contents: []GeminiContent{
+			{Role: "user", Parts: []GeminiPart{{Text: prompt}}},
+		},
+	}
+	// Timeout 0 means no client-level timeout — streaming responses must not be
+	// killed by a client timer; rely on the caller's context for cancellation.
+	return callGeminiStreamAt(ctx, endpoint, reqBody, geminiStreamClientFn(), onChunk)
+}
+
+// CallGeminiStream calls Gemini's streamGenerateContent SSE endpoint and invokes
+// onChunk for each token as it arrives. Use instead of CallGemini when req.Stream==true.
+func CallGeminiStream(ctx context.Context, prompt, apiKey string, onChunk func(string) error) error {
+	model := llmModel()
+
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.llm.stream")
+	span.SetAttributes(attribute.String("llm.model", model))
+	defer span.End()
+
+	start := time.Now()
+	firstToken := true
+	chunks := 0
+
+	wrapped := func(text string) error {
+		if firstToken {
+			llmStreamTTFT.WithLabelValues(model).Observe(float64(time.Since(start).Milliseconds()))
+			firstToken = false
+		}
+		chunks++
+		return onChunk(text)
+	}
+
+	err := callGeminiStream(ctx, prompt, apiKey, model, wrapped)
+	llmDuration.WithLabelValues(model).Observe(float64(time.Since(start).Milliseconds()))
+	llmStreamChunks.WithLabelValues(model).Add(float64(chunks))
+	if err != nil {
+		llmErrors.WithLabelValues(model).Inc()
+	}
+	return err
 }

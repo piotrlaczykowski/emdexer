@@ -75,7 +75,7 @@ config:
   # Leave empty to disable token auth (dev/local mode).
   # rerankToken: ""  — moved to secret.rerankToken
   # True LLM token streaming (Phase 37)
-  streamEnabled: true
+  streamEnabled: "true"
 
 # Node registry persistence — set enabled=true to keep the registry across pod restarts.
 # The registry file path inside the container is persistence.registryFile.

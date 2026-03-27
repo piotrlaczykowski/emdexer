@@ -159,7 +159,12 @@ func callGeminiWithConfig(prompt, apiKey, model string, genCfg *GeminiGeneration
 // callGeminiStreamAt POSTs to endpoint (a fully-formed URL) and calls onChunk
 // for every non-empty text token that arrives in the SSE stream.
 // Separated from callGeminiStream to allow URL injection in tests.
-// client must not be nil; production callers should pass safenet.NewSafeClient(0).
+// client must not be nil. Production callers pass safenet.NewSafeClient(0):
+//   - http.Client.Timeout=0 disables the whole-request deadline, allowing
+//     arbitrarily long streaming responses.
+//   - The transport's ResponseHeaderTimeout (30s) applies only to the wait for
+//     the first response header byte; it does NOT apply to body reads, so
+//     long-running token streams are unaffected.
 func callGeminiStreamAt(ctx context.Context, endpoint string, reqBody GeminiRequest, client *http.Client, onChunk func(string) error) error {
 	b, err := json.Marshal(reqBody)
 	if err != nil {

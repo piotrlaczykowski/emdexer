@@ -624,14 +624,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	if req.Stream && s.streamEnabled {
 		// Phase 37: true token streaming — Gemini tokens piped directly to the client.
-		var buf strings.Builder
 		streamErr := rag.StreamLLMResponse(w, req.Model, func(onChunk func(string) error) error {
-			return llm.CallGeminiStream(r.Context(), finalPrompt, s.apiKey, func(text string) error {
-				buf.WriteString(text)
-				return onChunk(text)
-			})
+			return llm.CallGeminiStream(r.Context(), finalPrompt, s.apiKey, onChunk)
 		})
-		eval = buf.String()
 		if streamErr != nil {
 			log.Printf("[chat] stream error: %v", streamErr)
 			audit.Log(audit.Entry{
@@ -665,7 +660,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 		if req.Stream {
 			// Deprecated: fake streaming (EMDEX_STREAM_ENABLED=false).
-			rag.StreamResponse(w, req.Model, eval)
+			rag.StreamResponse(w, req.Model, eval) //nolint:staticcheck
 		} else {
 			s.writeJSON(w, http.StatusOK, openai.ChatResponse{
 				ID:      "chatcmpl-rag",

@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -132,4 +134,68 @@ func callGeminiWithConfig(prompt, apiKey, model string, genCfg *GeminiGeneration
 	}
 
 	return gr.Candidates[0].Content.Parts[0].Text, nil
+}
+
+// callGeminiStreamAt POSTs to endpoint (a fully-formed URL) and calls onChunk
+// for every non-empty text token that arrives in the SSE stream.
+// Separated from callGeminiStream to allow URL injection in tests.
+// client must not be nil; production callers should pass safenet.NewSafeClient(0).
+func callGeminiStreamAt(ctx context.Context, endpoint string, reqBody GeminiRequest, client *http.Client, onChunk func(string) error) error {
+	b, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("marshal stream request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(b))
+	if err != nil {
+		return fmt.Errorf("create stream request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("stream request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("gemini stream API %d: %s", resp.StatusCode, string(body))
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 128*1024), 256*1024) // guard against large chunks
+
+	var chunks, unmarshalErrors int
+	for scanner.Scan() {
+		line := scanner.Text()
+		data, ok := strings.CutPrefix(line, "data: ")
+		if !ok || data == "" {
+			continue
+		}
+
+		var gr GeminiResponse
+		if err := json.Unmarshal([]byte(data), &gr); err != nil {
+			unmarshalErrors++
+			continue // skip malformed lines; detected below if all lines fail
+		}
+
+		if len(gr.Candidates) == 0 || len(gr.Candidates[0].Content.Parts) == 0 {
+			continue
+		}
+		if text := gr.Candidates[0].Content.Parts[0].Text; text != "" {
+			chunks++
+			if err := onChunk(text); err != nil {
+				return fmt.Errorf("chunk callback: %w", err)
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	if chunks == 0 && unmarshalErrors > 0 {
+		return fmt.Errorf("gemini stream: received %d lines but all failed to parse", unmarshalErrors)
+	}
+	return nil
 }

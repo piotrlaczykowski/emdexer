@@ -1,8 +1,10 @@
 package e2e
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -335,4 +337,72 @@ func TestHybridSearchScoresDescending(t *testing.T) {
 		}
 		prev = score
 	}
+}
+
+// TestChatCompletions_trueStreaming verifies that the gateway streams
+// chat completions as SSE when "stream":true is set, and that each
+// data chunk is a valid StreamChunk JSON object.
+func TestChatCompletions_trueStreaming(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+	if gatewayURL == "" {
+		t.Skip("EMDEX_GATEWAY_URL not set — skipping live streaming test")
+	}
+
+	body := `{"model":"gemini-3-flash-preview","stream":true,"messages":[{"role":"user","content":"say hi"}]}`
+	req, err := http.NewRequest(http.MethodPost, gatewayURL+"/v1/chat/completions", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+authKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status %d: %s", resp.StatusCode, string(b))
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	var chunks []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		data, ok := strings.CutPrefix(line, "data: ")
+		if !ok {
+			continue
+		}
+		if data == "[DONE]" {
+			break
+		}
+		// Validate it's a parseable StreamChunk.
+		var chunk struct {
+			Choices []struct {
+				Delta struct{ Content string } `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			t.Errorf("malformed chunk: %s", data)
+			continue
+		}
+		if len(chunk.Choices) > 0 {
+			chunks = append(chunks, chunk.Choices[0].Delta.Content)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scanner error: %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Error("no chunks received")
+	}
+	t.Logf("received %d chunks; assembled=%q", len(chunks), strings.Join(chunks, ""))
 }

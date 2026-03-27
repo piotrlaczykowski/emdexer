@@ -74,6 +74,8 @@ config:
   # Shared secret for gateway→sidecar auth. Must match RERANKER_TOKEN on the sidecar.
   # Leave empty to disable token auth (dev/local mode).
   # rerankToken: ""  — moved to secret.rerankToken
+  # True LLM token streaming (Phase 37)
+  streamEnabled: true
 
 # Node registry persistence — set enabled=true to keep the registry across pod restarts.
 # The registry file path inside the container is persistence.registryFile.

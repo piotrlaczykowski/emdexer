@@ -102,6 +102,8 @@ services:
       # - EMDEX_RERANK_TOP_K=20
       # - EMDEX_RERANK_THRESHOLD=0.0
       # - EMDEX_RERANK_TOKEN=${EMDEX_RERANK_TOKEN}
+      # ── True LLM token streaming (Phase 37) ────────────────
+      - EMDEX_STREAM_ENABLED=${EMDEX_STREAM_ENABLED:-true}
       # ── Raft health probe / audit buffer (Phase 29) ──────────
       # QDRANT_HTTP_HOST is derived automatically from QDRANT_HOST when unset.
       # Override only if the HTTP port differs from 6333.

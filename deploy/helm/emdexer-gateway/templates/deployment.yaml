@@ -150,6 +150,8 @@ spec:
             - name: EMDEX_REGISTRY_FILE
               value: {{ .Values.persistence.registryFile | quote }}
             {{- end }}
+            - name: EMDEX_STREAM_ENABLED
+              value: {{ .Values.config.streamEnabled | default "true" | quote }}
           {{- if .Values.persistence.enabled }}
           volumeMounts:
             - name: registry-storage

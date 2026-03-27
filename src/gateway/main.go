@@ -89,6 +89,9 @@ type Server struct {
 
 	// Indexing events (Phase 33)
 	events *eventBus
+
+	// True LLM token streaming (Phase 37)
+	streamEnabled bool
 }
 
 // GraphConfig holds feature-flag settings for the knowledge-graph expansion.
@@ -617,28 +620,53 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	} else {
 		finalPrompt = fmt.Sprintf("Answer the question using the consolidated context.\n\nContext:\n%s\n\nQuestion: %s", contextStr, question)
 	}
-	eval, err := llm.CallGemini(r.Context(), finalPrompt, s.apiKey)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("LLM error: %v", err), http.StatusBadGateway)
-		audit.Log(audit.Entry{
-			Action:    "chat",
-			User:      user,
-			Query:     question,
-			Namespace: requestedNamespace,
-			Results:   len(results),
-			LatencyMS: time.Since(start).Milliseconds(),
-			Status:    http.StatusBadGateway,
-		})
-		return
-	}
+	var eval string
 
-	if req.Stream {
-		rag.StreamResponse(w, req.Model, eval)
-	} else {
-		s.writeJSON(w, http.StatusOK, openai.ChatResponse{
-			ID: "chatcmpl-rag",
-			Choices: []openai.ChatChoice{{Message: openai.ChatMessage{Role: "assistant", Content: eval}}},
+	if req.Stream && s.streamEnabled {
+		// Phase 37: true token streaming — Gemini tokens piped directly to the client.
+		streamErr := rag.StreamLLMResponse(w, req.Model, func(onChunk func(string) error) error {
+			return llm.CallGeminiStream(r.Context(), finalPrompt, s.apiKey, onChunk)
 		})
+		if streamErr != nil {
+			log.Printf("[chat] stream error: %v", streamErr)
+			audit.Log(audit.Entry{
+				Action:    "chat",
+				User:      user,
+				Query:     question,
+				Namespace: requestedNamespace,
+				Results:   len(results),
+				LatencyMS: time.Since(start).Milliseconds(),
+				Status:    http.StatusBadGateway,
+				Metadata:  map[string]interface{}{"stream_error": streamErr.Error()},
+			})
+			return
+		}
+	} else {
+		var llmErr error
+		eval, llmErr = llm.CallGemini(r.Context(), finalPrompt, s.apiKey)
+		if llmErr != nil {
+			http.Error(w, fmt.Sprintf("LLM error: %v", llmErr), http.StatusBadGateway)
+			audit.Log(audit.Entry{
+				Action:    "chat",
+				User:      user,
+				Query:     question,
+				Namespace: requestedNamespace,
+				Results:   len(results),
+				LatencyMS: time.Since(start).Milliseconds(),
+				Status:    http.StatusBadGateway,
+			})
+			return
+		}
+
+		if req.Stream {
+			// Deprecated: fake streaming (EMDEX_STREAM_ENABLED=false).
+			rag.StreamResponse(w, req.Model, eval) //nolint:staticcheck
+		} else {
+			s.writeJSON(w, http.StatusOK, openai.ChatResponse{
+				ID:      "chatcmpl-rag",
+				Choices: []openai.ChatChoice{{Message: openai.ChatMessage{Role: "assistant", Content: eval}}},
+			})
+		}
 	}
 
 	chatEntry := audit.Entry{
@@ -904,6 +932,10 @@ func main() {
 	graphCfg := GraphConfig{Enabled: graphEnabled, Depth: graphDepth}
 	log.Printf("[gateway] graph-RAG: enabled=%v depth=%d", graphCfg.Enabled, graphCfg.Depth)
 
+	// True streaming — enabled by default; set EMDEX_STREAM_ENABLED=false to use deprecated fake streaming.
+	streamEnabled := os.Getenv("EMDEX_STREAM_ENABLED") != "false"
+	log.Printf("[gateway] true LLM streaming: enabled=%v", streamEnabled)
+
 	// Reranking — disabled by default; set EMDEX_RERANK_ENABLED=true to enable.
 	rerankEnabled := os.Getenv("EMDEX_RERANK_ENABLED") == "true"
 	rerankURL := os.Getenv("EMDEX_RERANK_URL")
@@ -951,6 +983,7 @@ func main() {
 		reranker:            reranker,
 		rerankTopK:          rerankTopK,
 		rerankThreshold:     rerankThreshold,
+		streamEnabled:       streamEnabled,
 	}
 
 	// Initial topology refresh + background ticker.

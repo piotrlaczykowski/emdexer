@@ -32,7 +32,10 @@ func BuildContext(results []search.Result) string {
 	return strings.Join(parts, "\n---\n")
 }
 
-// StreamResponse sends an OpenAI-compatible SSE stream to the client.
+// StreamResponse sends an OpenAI-compatible SSE stream by word-walking a completed answer string.
+//
+// Deprecated: this produces fake streaming — the full LLM latency is incurred before the first
+// token is sent. Use StreamLLMResponse with llm.CallGeminiStream instead.
 func StreamResponse(w http.ResponseWriter, model, answer string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -61,4 +64,48 @@ func StreamResponse(w http.ResponseWriter, model, answer string) {
 	}
 	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
+}
+
+// StreamLLMResponse sends an OpenAI-compatible SSE stream driven by a streaming LLM function.
+// streamFn receives an onChunk callback and should call it for each token as it arrives.
+// This replaces StreamResponse and delivers true token-level latency.
+func StreamLLMResponse(w http.ResponseWriter, model string, streamFn func(func(string) error) error) error {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return fmt.Errorf("streaming not supported: ResponseWriter does not implement http.Flusher")
+	}
+
+	// Clear write deadline so the connection stays open for the full generation.
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	id := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
+	created := time.Now().Unix()
+
+	onChunk := func(text string) error {
+		chunk := openai.StreamChunk{
+			ID:      id,
+			Object:  "chat.completion.chunk",
+			Created: created,
+			Model:   model,
+			Choices: []openai.StreamChoice{{Index: 0, Delta: openai.DeltaContent{Content: text}}},
+		}
+		b, _ := json.Marshal(chunk)
+		_, err := fmt.Fprintf(w, "data: %s\n\n", string(b))
+		flusher.Flush()
+		return err
+	}
+
+	if err := streamFn(onChunk); err != nil {
+		return err
+	}
+
+	_, err := fmt.Fprintf(w, "data: [DONE]\n\n")
+	flusher.Flush()
+	return err
 }

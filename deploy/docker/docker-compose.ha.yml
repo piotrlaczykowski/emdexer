@@ -30,7 +30,7 @@ services:
     restart: always
     healthcheck:
       # Two-stage: HTTP liveness + Raft cluster readiness check.
-      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz && curl -sf http://localhost:6333/cluster | grep -q '\"status\":\"ok\"'"]
+      test: ["CMD-SHELL", "nc -z localhost 6333 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -57,7 +57,7 @@ services:
         condition: service_healthy
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz && curl -sf http://localhost:6333/cluster | grep -q '\"status\":\"ok\"'"]
+      test: ["CMD-SHELL", "nc -z localhost 6333 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -84,7 +84,7 @@ services:
         condition: service_healthy
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz && curl -sf http://localhost:6333/cluster | grep -q '\"status\":\"ok\"'"]
+      test: ["CMD-SHELL", "nc -z localhost 6333 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

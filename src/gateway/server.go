@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -361,4 +362,15 @@ func (s *Server) Run() {
 	audit.Shutdown()
 	s.otelShutdown()
 	log.Printf("[gateway] Shutdown complete")
+}
+
+// logSafe strips ASCII control characters (including newlines) from s to
+// prevent log injection when user-supplied values appear in log entries.
+func logSafe(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
 }

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,16 @@ import (
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
 )
+
+// logSafe strips ASCII control characters from s to prevent log injection.
+func logSafe(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+}
 
 // ── Prometheus metrics ────────────────────────────────────────────────────────
 
@@ -181,7 +192,7 @@ func (g *Graph) Neighbors(ctx context.Context, pc PointsScroller, collection, na
 		graphCacheHitsTotal.Inc()
 	} else {
 		if err := g.BuildGraph(ctx, pc, collection, namespace); err != nil {
-			log.Printf("[graph] BuildGraph failed namespace=%q: %v — skipping expansion", namespace, err)
+			log.Printf("[graph] BuildGraph failed namespace=%q: %v — skipping expansion", logSafe(namespace), err)
 			return nil
 		}
 		e = g.cachedEntry(namespace)

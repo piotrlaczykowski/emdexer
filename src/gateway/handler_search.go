@@ -94,7 +94,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requestedNamespace := strings.TrimSpace(r.URL.Query().Get("namespace"))
+	requestedNamespace := logSafe(strings.TrimSpace(r.URL.Query().Get("namespace")))
 	if requestedNamespace == "" {
 		requestedNamespace = "default"
 	}
@@ -116,7 +116,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	query := r.URL.Query().Get("q")
+	query := logSafe(r.URL.Query().Get("q"))
 	if query == "" {
 		http.Error(w, "missing ?q=", http.StatusBadRequest)
 		return

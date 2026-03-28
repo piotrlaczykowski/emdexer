@@ -44,7 +44,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	var user string
 	if claims, ok := auth.GetUserClaims(r); ok {
-		user = claims.Subject
+		user = logSafe(claims.Subject)
 	}
 
 	var req openai.ChatRequest
@@ -53,9 +53,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requestedNamespace := strings.TrimSpace(r.Header.Get("X-Emdex-Namespace"))
+	requestedNamespace := logSafe(strings.TrimSpace(r.Header.Get("X-Emdex-Namespace")))
 	if requestedNamespace == "" {
-		requestedNamespace = strings.TrimSpace(r.URL.Query().Get("namespace"))
+		requestedNamespace = logSafe(strings.TrimSpace(r.URL.Query().Get("namespace")))
 	}
 	if requestedNamespace == "" {
 		requestedNamespace = "default"
@@ -79,7 +79,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	var question string
 	for i := len(req.Messages) - 1; i >= 0; i-- {
 		if req.Messages[i].Role == "user" {
-			question = req.Messages[i].Content
+			question = logSafe(req.Messages[i].Content)
 			break
 		}
 	}

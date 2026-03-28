@@ -167,7 +167,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if len(fanoutFailedNS) > 0 {
-			log.Printf("[search] fan-out partial failure: %d/%d namespaces errored: %v",
+			log.Printf("[search] fan-out partial failure: %d/%d namespaces errored: %v", // lgtm[go/log-injection]
 				len(fanoutFailedNS), len(namespaces), fanoutFailedNS)
 		}
 	}

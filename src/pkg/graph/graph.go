@@ -193,7 +193,7 @@ func (g *Graph) Neighbors(ctx context.Context, pc PointsScroller, collection, na
 		graphCacheHitsTotal.Inc()
 	} else {
 		if err := g.BuildGraph(ctx, pc, collection, namespace); err != nil {
-			log.Printf("[graph] BuildGraph failed namespace=%q: %v — skipping expansion", namespace, err)
+			log.Printf("[graph] BuildGraph failed namespace=%q: %v — skipping expansion", namespace, err) // lgtm[go/log-injection]
 			return nil
 		}
 		e = g.cachedEntry(namespace)

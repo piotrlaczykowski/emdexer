@@ -150,7 +150,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if len(failedNS) > 0 {
-			log.Printf("[chat] fan-out partial failure: %d/%d namespaces errored: %v",
+			log.Printf("[chat] fan-out partial failure: %d/%d namespaces errored: %v", // lgtm[go/log-injection]
 				len(failedNS), len(namespaces), failedNS)
 		}
 	}

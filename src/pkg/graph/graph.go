@@ -180,6 +180,7 @@ func (g *Graph) BuildGraph(ctx context.Context, pc PointsScroller, collection, n
 // It rebuilds the graph from Qdrant on a cold start or after TTL expiry.
 // On any error the function returns nil so callers can skip graph expansion silently.
 func (g *Graph) Neighbors(ctx context.Context, pc PointsScroller, collection, namespace, file string, depth int) []string {
+	namespace = logSafe(namespace)
 	if depth < 1 {
 		depth = 1
 	}
@@ -192,7 +193,7 @@ func (g *Graph) Neighbors(ctx context.Context, pc PointsScroller, collection, na
 		graphCacheHitsTotal.Inc()
 	} else {
 		if err := g.BuildGraph(ctx, pc, collection, namespace); err != nil {
-			log.Printf("[graph] BuildGraph failed namespace=%q: %v — skipping expansion", logSafe(namespace), err)
+			log.Printf("[graph] BuildGraph failed namespace=%q: %v — skipping expansion", namespace, err)
 			return nil
 		}
 		e = g.cachedEntry(namespace)

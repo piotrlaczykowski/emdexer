@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -61,9 +62,24 @@ func Shutdown() {
 	<-auditDone
 }
 
+// sanitize strips ASCII control characters (including newlines) from s to
+// prevent log-injection when string fields are written to structured logs.
+func sanitize(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // Log enqueues an audit entry for async disk write. It never blocks the caller.
+// User-supplied string fields are sanitized before enqueueing.
 func Log(entry Entry) {
 	entry.Timestamp = time.Now()
+	entry.User = sanitize(entry.User)
+	entry.Query = sanitize(entry.Query)
+	entry.Namespace = sanitize(entry.Namespace)
 	select {
 	case auditCh <- entry:
 	default:

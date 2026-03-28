@@ -31,6 +31,9 @@ test_dir_beta/
 AGENTS.md
 CLAUDE.md
 
+# AI-generated plans and specs (superpowers workflow)
+docs/superpowers/
+
 # Local/environment-specific compose overrides
 deploy/docker/docker-compose.nas-nodes.yml
 deploy/docker/docker-compose.local-*.yml

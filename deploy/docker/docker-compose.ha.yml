@@ -12,7 +12,7 @@ services:
   # ============================================================
 
   qdrant-1:
-    image: qdrant/qdrant:v1.13.0
+    image: qdrant/qdrant:v1.17.1
     environment:
       - QDRANT__CLUSTER__ENABLED=true
       - QDRANT__CLUSTER__P2P__PORT=6335
@@ -36,7 +36,7 @@ services:
       retries: 5
 
   qdrant-2:
-    image: qdrant/qdrant:v1.13.0
+    image: qdrant/qdrant:v1.17.1
     environment:
       - QDRANT__CLUSTER__ENABLED=true
       - QDRANT__CLUSTER__P2P__PORT=6335
@@ -63,7 +63,7 @@ services:
       retries: 5
 
   qdrant-3:
-    image: qdrant/qdrant:v1.13.0
+    image: qdrant/qdrant:v1.17.1
     environment:
       - QDRANT__CLUSTER__ENABLED=true
       - QDRANT__CLUSTER__P2P__PORT=6335

@@ -52,26 +52,6 @@ func main() {
 	printUsage()
 }
 
-func printUsage() {
-	fmt.Println()
-	fmt.Printf("  %s  %s\n", ui.Bold("📦 Emdexer CLI"), ui.Dim("v"+version.Version))
-	fmt.Println()
-	fmt.Printf("  %s emdex <command>\n", ui.Dim("Usage:"))
-	fmt.Println()
-	fmt.Printf("  %s\n", ui.Bold("Commands:"))
-	fmt.Printf("    %s      Initialize a new emdexer project (.env)\n", ui.Cyan("init"))
-	fmt.Printf("    %s     Start emdexer services via Docker Compose\n", ui.Cyan("start"))
-	fmt.Printf("    %s    Show status of emdexer services\n", ui.Cyan("status"))
-	fmt.Printf("    %s     List registered nodes and their status\n", ui.Cyan("nodes"))
-	fmt.Printf("    %s    Search indexed documents  %s\n", ui.Cyan("search"), ui.Dim("(--namespace, --global, --limit)"))
-	fmt.Printf("    %s      Chat with the LLM  %s\n", ui.Cyan("chat"), ui.Dim("(--stream, --namespace, --model)"))
-	fmt.Printf("    %s    Show current caller identity and authorized namespaces\n", ui.Cyan("whoami"))
-	fmt.Println()
-	fmt.Printf("  %s\n", ui.Bold("Flags:"))
-	fmt.Printf("    %s  Show version information\n", ui.Cyan("--version"))
-	fmt.Println()
-}
-
 // cmdInit prompts for configuration values and writes a .env file.
 func cmdInit() {
 	fmt.Printf("\n  %s  %s\n\n", "🚀", ui.Bold("Emdexer Project Init"))
@@ -199,11 +179,6 @@ func printStatusLine(name, url, status string, ok bool) {
 		coloredStatus = ui.Red(status)
 	}
 	fmt.Printf("  %s  %-10s %s  %s\n", emoji, ui.Bold(name), coloredStatus, ui.Dim(url))
-}
-
-type workerResult struct {
-	emoji  string
-	detail string
 }
 
 func checkHealth(url string) (string, bool) {

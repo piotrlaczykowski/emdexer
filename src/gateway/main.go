@@ -77,12 +77,6 @@ type Server struct {
 	streamEnabled bool
 }
 
-// GraphConfig holds feature-flag settings for the knowledge-graph expansion.
-type GraphConfig struct {
-	Enabled bool
-	Depth   int // BFS depth: 1–3
-}
-
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

@@ -1,6 +1,6 @@
 services:
   qdrant:
-    image: qdrant/qdrant:v1.13.0
+    image: qdrant/qdrant:v1.17.1
     # No host port mappings — Qdrant is internal only.
     # Access via the emdexer-net Docker network (qdrant:6333/6334).
     deploy:

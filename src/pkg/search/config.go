@@ -64,3 +64,8 @@ func loadRRFConfig() RRFConfig {
 	log.Printf("[search] RRF config: K=%.0f VectorWeight=%.2f BM25Weight=%.2f", cfg.K, cfg.VectorWeight, cfg.BM25Weight)
 	return cfg
 }
+
+// DefaultRRFConfig returns the loaded RRF configuration for inspection.
+func DefaultRRFConfig() RRFConfig {
+	return defaultRRFConfig
+}

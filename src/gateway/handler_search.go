@@ -228,6 +228,14 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			resp["partial_failures"] = fanoutFailedNS
 		}
 	}
+	if r.URL.Query().Get("debug") == "true" {
+		cfg := search.DefaultRRFConfig()
+		resp["rrf_config"] = map[string]any{
+			"k":             cfg.K,
+			"vector_weight": cfg.VectorWeight,
+			"bm25_weight":   cfg.BM25Weight,
+		}
+	}
 	s.writeJSON(w, http.StatusOK, resp)
 
 	auditEntry := audit.Entry{

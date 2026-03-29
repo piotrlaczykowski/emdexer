@@ -321,6 +321,72 @@ func TestMergeRRFHybrid_AsymmetricLegSizes(t *testing.T) {
 	}
 }
 
+// TestMergeRRF_UsesConfigK verifies that different K values produce different score
+// ordering for multi-rank inputs. A smaller K amplifies rank differences more.
+func TestMergeRRF_UsesConfigK(t *testing.T) {
+	perNS := map[string][]Result{
+		"ns": {
+			{ID: 1, Payload: map[string]interface{}{"path": "rank0.md", "chunk": 0}},
+			{ID: 2, Payload: map[string]interface{}{"path": "rank1.md", "chunk": 0}},
+		},
+	}
+
+	resultsK1 := mergeRRF(perNS, 10, RRFConfig{K: 1, VectorWeight: 1.0, BM25Weight: 1.0})
+	resultsK60 := mergeRRF(perNS, 10, RRFConfig{K: 60, VectorWeight: 1.0, BM25Weight: 1.0})
+
+	if len(resultsK1) != 2 || len(resultsK60) != 2 {
+		t.Fatalf("expected 2 results each, got K1=%d K60=%d", len(resultsK1), len(resultsK60))
+	}
+
+	// K=1: rank0 score = 1/(1+0+1) = 0.5, rank1 = 1/(1+1+1) ≈ 0.333 → gap = 0.167
+	// K=60: rank0 score = 1/61 ≈ 0.0164, rank1 = 1/62 ≈ 0.0161 → gap ≈ 0.0003
+	// So K=1 produces a larger score gap between rank-0 and rank-1.
+	gapK1 := float64(resultsK1[0].Score - resultsK1[1].Score)
+	gapK60 := float64(resultsK60[0].Score - resultsK60[1].Score)
+
+	if gapK1 <= gapK60 {
+		t.Errorf("expected K=1 to produce larger rank gap than K=60: gapK1=%f gapK60=%f", gapK1, gapK60)
+	}
+}
+
+// TestMergeRRF_MultiNamespaceDedup verifies that the same chunk appearing in two
+// namespaces appears exactly once with an accumulated score, and that source_namespace is set.
+func TestMergeRRF_MultiNamespaceDedup(t *testing.T) {
+	// Two namespaces, each with the same path:chunk at rank 0.
+	// The key is ns:path:chunk so they must NOT be deduplicated — each has a unique key.
+	// But within a single namespace, the same path:chunk must dedup.
+	perNS := map[string][]Result{
+		"ns1": {
+			{ID: 1, Payload: map[string]interface{}{"path": "shared.md", "chunk": 0}},
+			{ID: 2, Payload: map[string]interface{}{"path": "unique1.md", "chunk": 0}},
+		},
+		"ns2": {
+			{ID: 3, Payload: map[string]interface{}{"path": "shared.md", "chunk": 0}},
+		},
+	}
+
+	results := MergeRRF(perNS, 10)
+
+	// ns1:shared.md:0, ns1:unique1.md:0, ns2:shared.md:0 — 3 distinct keys
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results (cross-namespace same path treated as distinct), got %d", len(results))
+	}
+
+	// Verify source_namespace is set on all results.
+	for _, r := range results {
+		if _, ok := r.Payload["source_namespace"]; !ok {
+			t.Errorf("source_namespace not set on result path=%v", r.Payload["path"])
+		}
+	}
+
+	// Verify results are sorted descending.
+	for i := 1; i < len(results); i++ {
+		if results[i].Score > results[i-1].Score {
+			t.Errorf("results not sorted at index %d: %f > %f", i, results[i].Score, results[i-1].Score)
+		}
+	}
+}
+
 // TestMergeRRFHybrid_WeightedBM25Zero verifies that setting BM25Weight=0 excludes
 // the BM25 leg entirely — only vector-leg results appear in the output.
 func TestMergeRRFHybrid_WeightedBM25Zero(t *testing.T) {

@@ -134,6 +134,8 @@ func (g *GeminiProvider) embed(text, geminiModel string) ([]float32, error) {
 }
 
 // OllamaProvider
+const defaultOllamaModel = "nomic-embed-text:v2"
+
 type OllamaProvider struct {
 	Host  string
 	Model string
@@ -205,7 +207,7 @@ func New(apiKey, providerEnv, ollamaHost, ollamaModel, geminiModel string) Embed
 			ollamaHost = "http://localhost:11434"
 		}
 		if ollamaModel == "" {
-			ollamaModel = "nomic-embed-text"
+			ollamaModel = defaultOllamaModel
 		}
 
 		if err := validateOllamaHost(ollamaHost); err != nil {

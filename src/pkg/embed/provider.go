@@ -175,7 +175,9 @@ func (o *OllamaProvider) embed(text string) ([]float32, error) {
 		return nil, fmt.Errorf("ollama marshal: %w", err)
 	}
 
-	client := safenet.NewSafeClient(60 * time.Second)
+	// Ollama host is operator-configured (OLLAMA_HOST env var), not user-supplied input.
+	// SSRF guard is not applicable here — use a plain client with timeout.
+	client := &http.Client{Timeout: 60 * time.Second}
 	hresp, err := client.Post(endpoint, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("ollama HTTP: %w", err)

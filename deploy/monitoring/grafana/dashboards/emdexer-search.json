@@ -25,11 +25,11 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_vector_duration_ms_bucket[5m])) by (le, namespace))",
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_unified_query_duration_ms_bucket[5m])) by (le, namespace))",
           "legendFormat": "p50 {{namespace}}"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_vector_duration_ms_bucket[5m])) by (le, namespace))",
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_unified_query_duration_ms_bucket[5m])) by (le, namespace))",
           "legendFormat": "p95 {{namespace}}"
         }
       ],

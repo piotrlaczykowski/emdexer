@@ -106,7 +106,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(emdexer_node_vision_calls_total[5m])) by (status)",
+          "expr": "sum(rate(emdexer_node_vision_duration_ms_count[5m])) by (status)",
           "legendFormat": "{{status}}"
         }
       ],

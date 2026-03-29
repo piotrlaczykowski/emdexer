@@ -23,7 +23,7 @@ var evalFaithfulness = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Name:    "emdexer_gateway_eval_faithfulness",
 	Help:    "Faithfulness score from eval runs (0.0–1.0)",
 	Buckets: []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0},
-}, []string{"namespace", "verdict"})
+}, []string{"namespace"})
 
 var evalRunsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "emdexer_gateway_eval_runs_total",
@@ -101,7 +101,7 @@ func Run(ctx context.Context, req Request, searchFn SearchFn, llmFn LLMFn) Resul
 	}
 
 	evalContextRecall.WithLabelValues(req.Namespace).Observe(result.ContextRecall)
-	evalFaithfulness.WithLabelValues(req.Namespace, result.Verdict).Observe(result.Faithfulness)
+	evalFaithfulness.WithLabelValues(req.Namespace).Observe(result.Faithfulness)
 	evalRunsTotal.WithLabelValues(req.Namespace, result.Verdict).Inc()
 
 	return result

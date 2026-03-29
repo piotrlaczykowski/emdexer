@@ -80,7 +80,7 @@ func TestOpenAIProviderEmbedHTTP(t *testing.T) {
 
 	p := &OpenAIProvider{APIKey: "key", Model: "text-embedding-3-small"}
 	// embed() calls the hardcoded OpenAI URL, so we test the error path instead.
-	_, err := p.embed("hello")
+	_, err := p.embed(context.Background(), "hello")
 	// In unit tests there is no live OpenAI API — we expect a connection error, not a panic.
 	if err == nil {
 		t.Log("embed returned nil error — may be running with live API key")
@@ -98,7 +98,7 @@ func TestOpenAIProviderEmbedEmptyResponse(t *testing.T) {
 	defer srv.Close()
 
 	p := &OpenAIProvider{APIKey: "key", Model: "text-embedding-3-small"}
-	_, err := p.embed("hello")
+	_, err := p.embed(context.Background(), "hello")
 	// Expect either connection error (no live API) or "no data" error.
 	if err == nil {
 		t.Log("embed returned nil error — may be running with live API key")

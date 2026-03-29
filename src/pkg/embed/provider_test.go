@@ -176,6 +176,36 @@ func TestNewProviderDefault(t *testing.T) {
 	}
 }
 
+func TestOllamaProvider_AllowsPrivateIP(t *testing.T) {
+	want := []float32{0.1, 0.2, 0.3}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embed" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		type respBody struct {
+			Embeddings [][]float32 `json:"embeddings"`
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(respBody{Embeddings: [][]float32{want}})
+	}))
+	defer srv.Close()
+
+	p := &OllamaProvider{Host: srv.URL, Model: "nomic-embed-text:v2"}
+	got, err := p.Embed(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Embed returned unexpected SSRF or other error: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d embeddings, got %d", len(want), len(got))
+	}
+	for i, v := range want {
+		if got[i] != v {
+			t.Errorf("embedding[%d]: want %f, got %f", i, v, got[i])
+		}
+	}
+}
+
 func TestEmbedContext(t *testing.T) {
 	// Verify Embed propagates context cancellation.
 	ctx, cancel := context.WithCancel(context.Background())

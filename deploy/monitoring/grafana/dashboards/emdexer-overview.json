@@ -1,7 +1,7 @@
 {
   "id": null,
   "uid": "emdexer-overview",
-  "title": "Emdexer \u2014 Overview",
+  "title": "Emdexer — Overview",
   "tags": [
     "emdexer"
   ],
@@ -19,13 +19,22 @@
         "x": 0,
         "y": 0
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "sum(rate(emdexer_gateway_search_hybrid_total_ms_count[5m])) by (namespace)",
           "legendFormat": "{{namespace}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 2,
@@ -37,7 +46,10 @@
         "x": 12,
         "y": 0
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_hybrid_total_ms_bucket[5m])) by (le, namespace))",
@@ -47,7 +59,13 @@
           "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_hybrid_total_ms_bucket[5m])) by (le, namespace))",
           "legendFormat": "p95 {{namespace}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 3,
@@ -59,13 +77,22 @@
         "x": 0,
         "y": 8
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "sum(rate(emdexer_gateway_search_empty_results_total[5m])) by (namespace, mode)",
           "legendFormat": "{{namespace}} / {{mode}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 4,
@@ -77,13 +104,22 @@
         "x": 12,
         "y": 8
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "emdexer_gateway_topology_namespaces_known",
           "legendFormat": "namespaces"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 5,
@@ -95,13 +131,22 @@
         "x": 18,
         "y": 8
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "emdexer_gateway_topology_nodes_known",
           "legendFormat": "nodes"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 6,
@@ -113,13 +158,22 @@
         "x": 12,
         "y": 12
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_embed_duration_ms_bucket[5m])) by (le, provider, model))",
           "legendFormat": "p95 {{provider}}/{{model}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 7,
@@ -195,7 +249,9 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "unit": "ops"
+        },
         "overrides": []
       }
     },
@@ -226,7 +282,9 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "unit": "ops"
+        },
         "overrides": []
       }
     },

@@ -1,7 +1,7 @@
 {
   "id": null,
   "uid": "emdexer-rag",
-  "title": "Emdexer \u2014 RAG",
+  "title": "Emdexer — RAG",
   "tags": [
     "emdexer"
   ],
@@ -19,13 +19,22 @@
         "x": 0,
         "y": 0
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "sum(rate(emdexer_gateway_agentic_hops_total[5m])) by (namespace)",
           "legendFormat": "hops/s {{namespace}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 2,
@@ -37,13 +46,22 @@
         "x": 12,
         "y": 0
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "avg(emdexer_gateway_agentic_confidence_score) by (namespace)",
           "legendFormat": "avg confidence {{namespace}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 3,
@@ -55,7 +73,10 @@
         "x": 0,
         "y": 8
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_llm_duration_ms_bucket[5m])) by (le, model))",
@@ -65,7 +86,13 @@
           "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_llm_duration_ms_bucket[5m])) by (le, model))",
           "legendFormat": "p95 {{model}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 4,
@@ -77,13 +104,22 @@
         "x": 12,
         "y": 8
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "emdexer_gateway_topology_namespaces_known",
           "legendFormat": "namespaces"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 5,
@@ -106,7 +142,10 @@
         "x": 0,
         "y": 17
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "avg(emdexer_gateway_eval_context_recall_sum / emdexer_gateway_eval_context_recall_count)"
@@ -117,7 +156,8 @@
           "unit": "percentunit",
           "min": 0,
           "max": 1
-        }
+        },
+        "overrides": []
       }
     },
     {
@@ -130,7 +170,10 @@
         "x": 8,
         "y": 17
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "avg(emdexer_gateway_eval_faithfulness_sum / emdexer_gateway_eval_faithfulness_count)"
@@ -141,7 +184,8 @@
           "unit": "percentunit",
           "min": 0,
           "max": 1
-        }
+        },
+        "overrides": []
       }
     },
     {
@@ -154,13 +198,22 @@
         "x": 16,
         "y": 17
       },
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "sum(rate(emdexer_gateway_eval_runs_total[5m])) by (verdict)",
           "legendFormat": "{{verdict}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 9,
@@ -196,7 +249,9 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "unit": "ops"
+        },
         "overrides": []
       }
     },
@@ -222,7 +277,9 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "unit": "ms"
+        },
         "overrides": []
       }
     },

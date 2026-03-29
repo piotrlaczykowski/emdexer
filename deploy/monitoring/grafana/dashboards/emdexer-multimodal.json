@@ -2,7 +2,9 @@
   "id": null,
   "uid": "emdexer-multimodal",
   "title": "Emdexer — Multi-Modal (Phase 26)",
-  "tags": ["emdexer"],
+  "tags": [
+    "emdexer"
+  ],
   "timezone": "browser",
   "refresh": "30s",
   "schemaVersion": 38,
@@ -11,60 +13,124 @@
       "id": 1,
       "type": "timeseries",
       "title": "Whisper Transcription Retries",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
-      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "sum(rate(emdexer_node_whisper_retries_total[5m]))",
           "legendFormat": "retries/s"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 2,
       "type": "timeseries",
       "title": "Whisper Transcripts Skipped (too short)",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
-      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "sum(rate(emdexer_node_whisper_skipped_short_total[5m]))",
           "legendFormat": "skipped/s"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 3,
       "type": "timeseries",
       "title": "Audio Files Skipped (Whisper disabled)",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
-      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "sum(rate(emdexer_node_audio_skipped_total[5m]))",
           "legendFormat": "skipped/s"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 4,
       "type": "timeseries",
       "title": "Vision API Calls by Status",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
-          "expr": "sum(rate(emdexer_node_vision_calls_total[5m])) by (status)",
+          "expr": "sum(rate(emdexer_node_vision_duration_ms_count[5m])) by (status)",
           "legendFormat": "{{status}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 5,
       "type": "timeseries",
       "title": "Vision API Latency P50 / P95 (ms)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.50, sum(rate(emdexer_node_vision_duration_ms_bucket[5m])) by (le))",
@@ -74,27 +140,55 @@
           "expr": "histogram_quantile(0.95, sum(rate(emdexer_node_vision_duration_ms_bucket[5m])) by (le))",
           "legendFormat": "p95"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 6,
       "type": "timeseries",
       "title": "FFmpeg Frames Extracted",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
-      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "sum(rate(emdexer_node_frames_extracted_total[5m]))",
           "legendFormat": "frames/s"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 7,
       "type": "timeseries",
       "title": "FFmpeg Sidecar Latency P50 / P95 (ms)",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
-      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.50, sum(rate(emdexer_node_frames_duration_ms_bucket[5m])) by (le))",
@@ -104,20 +198,40 @@
           "expr": "histogram_quantile(0.95, sum(rate(emdexer_node_frames_duration_ms_bucket[5m])) by (le))",
           "legendFormat": "p95"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
     },
     {
       "id": 8,
       "type": "timeseries",
       "title": "Videos Skipped (no extractor enabled)",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
-      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
         {
           "expr": "sum(rate(emdexer_node_video_skipped_total[5m]))",
           "legendFormat": "skipped/s"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
     }
   ]
 }

@@ -29,6 +29,11 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 	}
 	// Refresh topology immediately so new namespaces are discoverable.
 	go s.refreshTopology()
+	// Update Prometheus SD file asynchronously — non-blocking.
+	go func() {
+		nodes, _ := s.reg.List(r.Context())
+		s.sdWriter.Write(nodes)
+	}()
 	s.writeJSON(w, http.StatusOK, map[string]interface{}{"status": "registered", "id": node.ID})
 }
 

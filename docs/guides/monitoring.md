@@ -47,6 +47,38 @@ records the following counters:
 | `emdexer_gateway_node_indexing_complete_total` | `namespace`, `node_id`, `status` | Walk completions |
 | `emdexer_gateway_node_last_files_indexed` | `namespace`, `node_id` | Files in most recent walk (gauge) |
 
+## Automatic Node Discovery (Prometheus file_sd)
+
+Set `EMDEX_SD_FILE=/path/to/emdexer_nodes.json` on the gateway.
+The gateway writes this file whenever a node registers or the topology refreshes (every 30s).
+
+Add to your Prometheus config:
+
+```yaml
+- job_name: "emdexer-node"
+  file_sd_configs:
+    - files:
+        - /etc/prometheus/targets/emdexer_nodes.json
+      refresh_interval: 5m
+  metrics_path: /metrics
+```
+
+The file contains targets in standard Prometheus file_sd format:
+
+```json
+[
+  {
+    "targets": ["node-abc123:8081"],
+    "labels": {
+      "job": "emdexer-node",
+      "node_id": "node-abc123",
+      "namespace": "private",
+      "protocol": "nfs"
+    }
+  }
+]
+```
+
 ## Grafana Dashboards
 
 Pre-built dashboards are in `deploy/monitoring/grafana/dashboards/`:

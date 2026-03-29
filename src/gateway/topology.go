@@ -29,6 +29,7 @@ func (s *Server) refreshTopology() {
 	topologyNamespacesKnown.Set(float64(len(topo)))
 	topologyNodesKnown.Set(float64(len(nodes)))
 	log.Printf("[topology] Refreshed: %d namespaces across %d nodes", len(topo), len(nodes))
+	s.sdWriter.Write(nodes)
 }
 
 // knownNamespaces returns all namespace strings from the topology map.

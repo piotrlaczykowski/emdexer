@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // ── Event bus tests ──────────────────────────────────────────
@@ -88,6 +90,55 @@ func TestHandleNodeIndexed_MethodNotAllowed(t *testing.T) {
 	srv.handleNodeIndexed(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestHandleNodeIndexed_RecordsMetrics(t *testing.T) {
+	bus := newEventBus()
+	srv := &Server{events: bus}
+
+	body := `{"namespace":"prod","files_indexed":100,"files_skipped":5,"status":"complete"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/nodes/test-node/indexed", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.handleNodeIndexed(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", w.Code)
+	}
+
+	// Verify files_indexed counter incremented by 100.
+	got := testutil.ToFloat64(nodeFilesIndexedTotal.WithLabelValues("prod", "test-node"))
+	if got < 100 {
+		t.Errorf("expected nodeFilesIndexedTotal >= 100, got %f", got)
+	}
+
+	// Verify indexing_complete counter incremented.
+	gotComplete := testutil.ToFloat64(nodeIndexingCompleteTotal.WithLabelValues("prod", "test-node", "complete"))
+	if gotComplete < 1 {
+		t.Errorf("expected nodeIndexingCompleteTotal >= 1, got %f", gotComplete)
+	}
+}
+
+func TestHandleNodeIndexed_StatusError(t *testing.T) {
+	bus := newEventBus()
+	srv := &Server{events: bus}
+
+	body := `{"namespace":"prod","files_indexed":0,"files_skipped":0,"status":"error"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/nodes/err-node/indexed", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.handleNodeIndexed(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", w.Code)
+	}
+
+	got := testutil.ToFloat64(nodeIndexingCompleteTotal.WithLabelValues("prod", "err-node", "error"))
+	if got < 1 {
+		t.Errorf("expected nodeIndexingCompleteTotal{status=error} >= 1, got %f", got)
 	}
 }
 

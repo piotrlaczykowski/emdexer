@@ -222,7 +222,7 @@ func (o *OpenAIProvider) Embed(ctx context.Context, text string) ([]float32, err
 	defer span.End()
 
 	start := time.Now()
-	result, err := o.embed(text)
+	result, err := o.embed(ctx, text)
 	embedDuration.WithLabelValues("openai", o.Model).Observe(float64(time.Since(start).Milliseconds()))
 	if err != nil {
 		embedErrors.WithLabelValues("openai", o.Model).Inc()
@@ -230,7 +230,7 @@ func (o *OpenAIProvider) Embed(ctx context.Context, text string) ([]float32, err
 	return result, err
 }
 
-func (o *OpenAIProvider) embed(text string) ([]float32, error) {
+func (o *OpenAIProvider) embed(ctx context.Context, text string) ([]float32, error) {
 	type req struct {
 		Input string `json:"input"`
 		Model string `json:"model"`
@@ -248,7 +248,7 @@ func (o *OpenAIProvider) embed(text string) ([]float32, error) {
 		return nil, fmt.Errorf("openai embed marshal: %w", err)
 	}
 
-	httpReq, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/embeddings", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/embeddings", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("openai embed new request: %w", err)
 	}

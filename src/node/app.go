@@ -308,7 +308,14 @@ func newApp() *App {
 	checkRelationsMigration(globalCtx, globalPointsClient, globalCfg.CollectionName,
 		globalCfg.Namespace, cacheDir, globalCfg.NodeType, migrationMode)
 
-	startIndexing(root, cwd, pipelineCfg)
+	indexWorkers := 1
+	if v := os.Getenv("EMDEX_INDEX_WORKERS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 16 {
+			indexWorkers = n
+		}
+	}
+	log.Printf("[node] indexing workers: %d", indexWorkers)
+	startIndexing(root, cwd, pipelineCfg, indexWorkers)
 
 	// Self-register with the gateway and start periodic heartbeat.
 	nodeCfg := nodereg.NodeConfig{

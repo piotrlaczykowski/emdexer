@@ -27,16 +27,16 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "BM25 Search Latency P50 / P95 (ms)",
+      "title": "Unified Search Latency P50 / P95 (ms)",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_bm25_duration_ms_bucket[5m])) by (le, namespace))",
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_unified_query_duration_ms_bucket[5m])) by (le, namespace))",
           "legendFormat": "p50 {{namespace}}"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_bm25_duration_ms_bucket[5m])) by (le, namespace))",
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_unified_query_duration_ms_bucket[5m])) by (le, namespace))",
           "legendFormat": "p95 {{namespace}}"
         }
       ]
@@ -44,17 +44,17 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "RRF — Vector-Only Hits vs BM25-Only Hits",
+      "title": "Search Health (Empty Results + BM25 Fallback)",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "sum(rate(emdexer_gateway_rrf_top_vector_hits_total[5m])) by (namespace)",
-          "legendFormat": "vector-only {{namespace}}"
+          "expr": "sum(rate(emdexer_gateway_search_empty_results_total[5m])) by (namespace)",
+          "legendFormat": "empty results {{namespace}}"
         },
         {
-          "expr": "sum(rate(emdexer_gateway_rrf_top_bm25_hits_total[5m])) by (namespace)",
-          "legendFormat": "bm25-only {{namespace}}"
+          "expr": "sum(rate(emdexer_gateway_bm25_fallback_total[5m])) by (namespace)",
+          "legendFormat": "bm25 fallback {{namespace}}"
         }
       ]
     },
@@ -76,6 +76,42 @@
         {
           "expr": "histogram_quantile(0.99, sum(rate(emdexer_gateway_search_hybrid_total_ms_bucket[5m])) by (le, namespace))",
           "legendFormat": "p99 {{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Streaming (Phase 37)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Time-to-First-Token P50/P95 (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_llm_stream_ttft_ms_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_llm_stream_ttft_ms_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Stream Chunks/sec",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(emdexer_gateway_llm_stream_chunks_total[5m]))",
+          "legendFormat": "chunks/s"
         }
       ]
     }

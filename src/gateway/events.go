@@ -91,6 +91,11 @@ func (s *Server) handleNodeIndexed(w http.ResponseWriter, r *http.Request) {
 		body.Status = "complete"
 	}
 
+	nodeFilesIndexedTotal.WithLabelValues(body.Namespace, nodeID).Add(float64(body.FilesIndexed))
+	nodeFilesSkippedTotal.WithLabelValues(body.Namespace, nodeID).Add(float64(body.FilesSkipped))
+	nodeIndexingCompleteTotal.WithLabelValues(body.Namespace, nodeID, body.Status).Inc()
+	nodeIndexingLastFilesIndexed.WithLabelValues(body.Namespace, nodeID).Set(float64(body.FilesIndexed))
+
 	s.events.publish(IndexingEvent{
 		Namespace:    body.Namespace,
 		NodeID:       nodeID,

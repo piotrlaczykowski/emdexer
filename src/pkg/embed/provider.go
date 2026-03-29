@@ -199,8 +199,86 @@ func (o *OllamaProvider) embed(text string) ([]float32, error) {
 	return or.Embeddings[0], nil
 }
 
+// OpenAIProvider — OpenAI Embeddings API
+const defaultOpenAIModel = "text-embedding-3-small"
+
+type OpenAIProvider struct {
+	APIKey string
+	Model  string
+}
+
+func NewOpenAIProvider(apiKey, model string) *OpenAIProvider {
+	if model == "" {
+		model = defaultOpenAIModel
+	}
+	return &OpenAIProvider{APIKey: apiKey, Model: model}
+}
+
+func (o *OpenAIProvider) Name() string { return "openai:" + o.Model }
+
+func (o *OpenAIProvider) Embed(ctx context.Context, text string) ([]float32, error) {
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.embed")
+	span.SetAttributes(attribute.String("embed.provider", "openai"), attribute.String("embed.model", o.Model))
+	defer span.End()
+
+	start := time.Now()
+	result, err := o.embed(text)
+	embedDuration.WithLabelValues("openai", o.Model).Observe(float64(time.Since(start).Milliseconds()))
+	if err != nil {
+		embedErrors.WithLabelValues("openai", o.Model).Inc()
+	}
+	return result, err
+}
+
+func (o *OpenAIProvider) embed(text string) ([]float32, error) {
+	type req struct {
+		Input string `json:"input"`
+		Model string `json:"model"`
+	}
+	type embeddingItem struct {
+		Embedding []float32 `json:"embedding"`
+		Index     int       `json:"index"`
+	}
+	type resp struct {
+		Data []embeddingItem `json:"data"`
+	}
+
+	body, err := json.Marshal(req{Input: text, Model: o.Model})
+	if err != nil {
+		return nil, fmt.Errorf("openai embed marshal: %w", err)
+	}
+
+	httpReq, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/embeddings", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("openai embed new request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+o.APIKey)
+
+	client := safenet.NewSafeClient(30 * time.Second)
+	hresp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("openai embed HTTP: %w", err)
+	}
+	defer hresp.Body.Close()
+
+	if hresp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(hresp.Body)
+		return nil, fmt.Errorf("openai embed %d: %s", hresp.StatusCode, string(b))
+	}
+
+	var er resp
+	if err := json.NewDecoder(hresp.Body).Decode(&er); err != nil {
+		return nil, fmt.Errorf("openai embed decode: %w", err)
+	}
+	if len(er.Data) == 0 {
+		return nil, fmt.Errorf("openai embed returned no data")
+	}
+	return er.Data[0].Embedding, nil
+}
+
 // New returns the EmbedProvider selected by the EMBED_PROVIDER environment variable.
-func New(apiKey, providerEnv, ollamaHost, ollamaModel, geminiModel string) EmbedProvider {
+func New(apiKey, providerEnv, ollamaHost, ollamaModel, geminiModel, openaiAPIKey, openaiModel string) EmbedProvider {
 	switch strings.ToLower(providerEnv) {
 	case "ollama":
 		if ollamaHost == "" {
@@ -215,6 +293,11 @@ func New(apiKey, providerEnv, ollamaHost, ollamaModel, geminiModel string) Embed
 		}
 
 		return &OllamaProvider{Host: ollamaHost, Model: ollamaModel}
+	case "openai":
+		if openaiAPIKey == "" {
+			log.Fatalf("[embed] FATAL: EMBED_PROVIDER=openai requires OPENAI_API_KEY")
+		}
+		return NewOpenAIProvider(openaiAPIKey, openaiModel)
 	default:
 		return NewGeminiProvider(apiKey, geminiModel)
 	}

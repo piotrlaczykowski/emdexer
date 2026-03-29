@@ -168,6 +168,8 @@ func newApp() *App {
 		os.Getenv("OLLAMA_HOST"),
 		os.Getenv("OLLAMA_EMBED_MODEL"),
 		os.Getenv("EMDEX_GEMINI_MODEL"),
+		os.Getenv("OPENAI_API_KEY"),
+		os.Getenv("OPENAI_EMBED_MODEL"),
 	)
 
 	collectionsClient := qdrant.NewCollectionsClient(conn)

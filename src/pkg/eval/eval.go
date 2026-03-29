@@ -7,8 +7,28 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	"github.com/piotrlaczykowski/emdexer/search"
 )
+
+var evalContextRecall = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "emdexer_gateway_eval_context_recall",
+	Help:    "Context recall score from eval runs (0.0–1.0)",
+	Buckets: []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0},
+}, []string{"namespace"})
+
+var evalFaithfulness = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "emdexer_gateway_eval_faithfulness",
+	Help:    "Faithfulness score from eval runs (0.0–1.0)",
+	Buckets: []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0},
+}, []string{"namespace"})
+
+var evalRunsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_eval_runs_total",
+	Help: "Total number of eval runs",
+}, []string{"namespace", "verdict"})
 
 // Request is the input for an eval run.
 type Request struct {
@@ -72,13 +92,19 @@ func Run(ctx context.Context, req Request, searchFn SearchFn, llmFn LLMFn) Resul
 
 	verdict := computeVerdict(recallScore, faithScore)
 
-	return Result{
+	result := Result{
 		ContextRecall:   recallScore,
 		Faithfulness:    faithScore,
 		RetrievedChunks: len(results),
 		LatencyMs:       ms(start),
 		Verdict:         verdict,
 	}
+
+	evalContextRecall.WithLabelValues(req.Namespace).Observe(result.ContextRecall)
+	evalFaithfulness.WithLabelValues(req.Namespace).Observe(result.Faithfulness)
+	evalRunsTotal.WithLabelValues(req.Namespace, result.Verdict).Inc()
+
+	return result
 }
 
 func ms(start time.Time) int64 { return time.Since(start).Milliseconds() }

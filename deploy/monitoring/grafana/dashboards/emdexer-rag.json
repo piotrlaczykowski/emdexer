@@ -62,6 +62,51 @@
           "legendFormat": "namespaces"
         }
       ]
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Eval Quality",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Eval Context Recall (avg)",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 17 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "avg(emdexer_gateway_eval_context_recall_sum / emdexer_gateway_eval_context_recall_count)"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Eval Faithfulness (avg)",
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 17 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "avg(emdexer_gateway_eval_faithfulness_sum / emdexer_gateway_eval_faithfulness_count)"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Eval Runs by Verdict",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 17 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(emdexer_gateway_eval_runs_total[5m])) by (verdict)",
+          "legendFormat": "{{verdict}}"
+        }
+      ]
     }
   ]
 }

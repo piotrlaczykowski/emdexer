@@ -248,6 +248,8 @@ services:
   #     context: ../../src/reranker-sidecar
   #     dockerfile: Dockerfile
   #   environment:
+  #     # Options: cross-encoder/ms-marco-MiniLM-L-6-v2 (default, English),
+  #     #          BAAI/bge-reranker-v2-m3 (BGE-M3, multilingual)
   #     - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
   #     - RERANKER_DEVICE=${RERANKER_DEVICE:-cpu}
   #     - MAX_TEXTS=${MAX_TEXTS:-100}

@@ -141,6 +141,10 @@ spec:
             - name: EMDEX_CONTEXT_MODEL
               value: {{ .Values.config.contextModel | quote }}
             {{- end }}
+            {{- if .Values.config.excludePaths }}
+            - name: EMDEX_EXCLUDE_PATHS
+              value: {{ .Values.config.excludePaths | quote }}
+            {{- end }}
             - name: EMDEX_GRAPH_MIGRATION
               value: {{ .Values.config.graphMigration | default "auto" | quote }}
             - name: EMDEX_PLUGIN_ENABLED

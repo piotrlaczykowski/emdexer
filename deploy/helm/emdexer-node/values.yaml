@@ -50,6 +50,9 @@ config:
   contextModel: ""             # model for context generation; leave empty to use EMDEX_LLM_MODEL
   # Graph-RAG migration (Phase 24)
   graphMigration: "auto"
+  # Walk-time path exclusions — comma-separated dir names or glob patterns.
+  # Skip before any file I/O. Example: "#recycle,.Trash,.DS_Store"
+  excludePaths: ""
   # Extractor plugins (Phase 25)
   pluginEnabled: "true"
   # pluginSidecarUrl: "http://plugin-sidecar:8003/extract"

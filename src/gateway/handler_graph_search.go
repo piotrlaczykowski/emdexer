@@ -132,6 +132,10 @@ func (s *Server) handleGraphSearch(w http.ResponseWriter, r *http.Request) {
 	// Graph expansion — collect nodes and edges alongside expanded results.
 	graphNodes, graphEdges := s.collectGraphStructure(r.Context(), results, namespace, depth)
 
+	if len(results) == 0 {
+		graphSearchEmptyResults.WithLabelValues(namespace).Inc()
+	}
+
 	// Merge neighbour results using graph expansion (reuses existing RRF logic).
 	if len(results) > 0 {
 		results = s.graphExpandResultsWithDepth(r.Context(), results, query, vector, namespace, 10, depth)

@@ -322,6 +322,7 @@ func (s *Server) Run() {
 	mux.HandleFunc("/nodes/deregister/", middleware.Instrument("/nodes/deregister", s.authCfg.Middleware(s.handleDeregisterNode)))
 	mux.HandleFunc("/nodes", middleware.Instrument("/nodes", s.authCfg.Middleware(s.handleListNodes)))
 	mux.HandleFunc("/v1/search", middleware.Instrument("/v1/search", s.authCfg.Middleware(s.handleSearch)))
+	mux.HandleFunc("/v1/search/graph", middleware.Instrument("/v1/search/graph", s.authCfg.Middleware(s.handleGraphSearch)))
 	mux.HandleFunc("/v1/chat/completions", middleware.Instrument("/v1/chat/completions", s.authCfg.Middleware(s.handleChatCompletions)))
 	mux.HandleFunc("/v1/whoami", middleware.Instrument("/v1/whoami", s.authCfg.Middleware(s.handleWhoami)))
 	mux.HandleFunc("/v1/events/indexing", middleware.Instrument("/v1/events/indexing", s.authCfg.Middleware(s.handleIndexingEvents)))

@@ -63,8 +63,17 @@ config:
   s3UseSsl: "true"
   s3Prefix: ""
 
+  # Embedding provider (QW-1/2). Options: gemini (default) | ollama | openai.
+  embedProvider: "gemini"
+  # ollamaHost: "http://ollama:11434"
+  # ollamaEmbedModel: "nomic-embed-text:v2"
+  # geminiModel: "gemini-embedding-2-preview"
+  # openaiEmbedModel: "text-embedding-3-small"
+  # openaiApiKey is in secret.openaiApiKey
+
 secret:
   googleApiKey: ""
+  openaiApiKey: "" # required when config.embedProvider=openai
 
 persistence:
   enabled: false

@@ -67,6 +67,13 @@ config:
   # auditBufferSize: "1000"
   # Late-interaction reranking (Phase 30). Disabled by default.
   # Enable with a BGE-Reranker sidecar (see src/reranker-sidecar/).
+  # Embedding provider (QW-1/2). Options: gemini (default) | ollama | openai.
+  embedProvider: "gemini"
+  # ollamaHost: "http://ollama:11434"
+  # ollamaEmbedModel: "nomic-embed-text:v2"
+  # geminiModel: "gemini-embedding-2-preview"
+  # openaiEmbedModel: "text-embedding-3-small"
+  # openaiApiKey is in secret.openaiApiKey
   rerankEnabled: "false"
   # rerankUrl: "http://reranker:8005"
   # rerankTopK: "20"          # Candidates fed into the reranker (default: 20).
@@ -91,6 +98,7 @@ secret:
   googleApiKey: ""
   authKey: "" # Set via: helm upgrade --set secret.authKey=<value> or values override
   rerankToken: ""
+  openaiApiKey: "" # required when config.embedProvider=openai
 
 resources:
   requests:

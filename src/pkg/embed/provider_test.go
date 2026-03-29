@@ -9,14 +9,14 @@ import (
 )
 
 func TestOpenAIProviderName(t *testing.T) {
-	p := NewOpenAIProvider("key", "text-embedding-3-small")
+	p := NewOpenAIProvider("key", "text-embedding-3-small", "")
 	if p.Name() != "openai:text-embedding-3-small" {
 		t.Fatalf("unexpected name: %s", p.Name())
 	}
 }
 
 func TestOpenAIProviderDefaultModel(t *testing.T) {
-	p := NewOpenAIProvider("key", "")
+	p := NewOpenAIProvider("key", "", "")
 	if p.Model != defaultOpenAIModel {
 		t.Fatalf("expected default model %q, got %q", defaultOpenAIModel, p.Model)
 	}

@@ -45,6 +45,7 @@ services:
       - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
       # - OPENAI_API_KEY=${OPENAI_API_KEY}
       # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - EMDEX_GATEWAY_URL=http://gateway:7700
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
@@ -88,6 +89,7 @@ services:
       - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
       # - OPENAI_API_KEY=${OPENAI_API_KEY}
       # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - EMDEX_GATEWAY_URL=http://gateway:7700
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
@@ -130,6 +132,7 @@ services:
       - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
       # - OPENAI_API_KEY=${OPENAI_API_KEY}
       # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - EMDEX_GATEWAY_URL=http://gateway:7700
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract

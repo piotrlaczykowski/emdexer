@@ -203,15 +203,19 @@ func (o *OllamaProvider) embed(text string) ([]float32, error) {
 const defaultOpenAIModel = "text-embedding-3-small"
 
 type OpenAIProvider struct {
-	APIKey string
-	Model  string
+	APIKey  string
+	Model   string
+	BaseURL string // defaults to https://api.openai.com/v1; override for Azure/proxy
 }
 
-func NewOpenAIProvider(apiKey, model string) *OpenAIProvider {
+func NewOpenAIProvider(apiKey, model, baseURL string) *OpenAIProvider {
 	if model == "" {
 		model = defaultOpenAIModel
 	}
-	return &OpenAIProvider{APIKey: apiKey, Model: model}
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
+	return &OpenAIProvider{APIKey: apiKey, Model: model, BaseURL: baseURL}
 }
 
 func (o *OpenAIProvider) Name() string { return "openai:" + o.Model }
@@ -248,7 +252,7 @@ func (o *OpenAIProvider) embed(ctx context.Context, text string) ([]float32, err
 		return nil, fmt.Errorf("openai embed marshal: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/embeddings", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, o.BaseURL+"/embeddings", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("openai embed new request: %w", err)
 	}
@@ -297,7 +301,7 @@ func New(apiKey, providerEnv, ollamaHost, ollamaModel, geminiModel, openaiAPIKey
 		if openaiAPIKey == "" {
 			log.Fatalf("[embed] FATAL: EMBED_PROVIDER=openai requires OPENAI_API_KEY")
 		}
-		return NewOpenAIProvider(openaiAPIKey, openaiModel)
+		return NewOpenAIProvider(openaiAPIKey, openaiModel, os.Getenv("OPENAI_BASE_URL"))
 	default:
 		return NewGeminiProvider(apiKey, geminiModel)
 	}

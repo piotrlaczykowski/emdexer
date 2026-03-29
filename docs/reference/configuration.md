@@ -145,6 +145,7 @@ See [docs/reference/multimodal.md](multimodal.md) for full details on all three 
 | `EMDEX_FFMPEG_URL` | — | FFmpeg sidecar address |
 | `EMDEX_FRAME_INTERVAL_SEC` | `30` | Seconds between extracted frames |
 | `EMDEX_MAX_FRAMES` | `10` | Maximum frames per video |
+| `EMDEX_EXCLUDE_PATHS` | — | Comma-separated dir names or glob patterns skipped before any file I/O (e.g. `#recycle,.Trash,.DS_Store`) |
 
 ---
 

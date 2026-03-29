@@ -114,7 +114,21 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig) {
 
 	go func() {
 		log.Printf("[node] Startup walk starting: root=%s vfs=%s", root, globalCfg.NodeType)
-		idx := indexer.NewIndexer(globalFS)
+		walkCfg := indexer.BuildWalkConfig(
+			globalCfg.WhisperEnabled,
+			globalCfg.VisionEnabled,
+			globalCfg.FrameEnabled,
+			globalCfg.EnableOCR,
+		)
+		log.Printf("[node] walk skip extensions: %d types (audio=%v vision=%v frame=%v ocr=%v)",
+			len(walkCfg.SkipExts),
+			!globalCfg.WhisperEnabled, !globalCfg.VisionEnabled,
+			!globalCfg.FrameEnabled, globalCfg.EnableOCR,
+		)
+		if len(walkCfg.ExcludePaths) > 0 {
+			log.Printf("[node] walk exclude paths: %v", walkCfg.ExcludePaths)
+		}
+		idx := indexer.NewIndexer(globalFS, walkCfg)
 		var batch []*qdrant.PointStruct
 		flush := func() {
 			if len(batch) == 0 { return }

@@ -125,6 +125,31 @@ spec:
             - name: EMDEX_AUDIT_BUFFER_SIZE
               value: {{ .Values.config.auditBufferSize | quote }}
             {{- end }}
+            - name: EMBED_PROVIDER
+              value: {{ .Values.config.embedProvider | default "gemini" | quote }}
+            {{- if .Values.config.ollamaHost }}
+            - name: OLLAMA_HOST
+              value: {{ .Values.config.ollamaHost | quote }}
+            {{- end }}
+            {{- if .Values.config.ollamaEmbedModel }}
+            - name: OLLAMA_EMBED_MODEL
+              value: {{ .Values.config.ollamaEmbedModel | quote }}
+            {{- end }}
+            {{- if .Values.config.geminiModel }}
+            - name: EMDEX_GEMINI_MODEL
+              value: {{ .Values.config.geminiModel | quote }}
+            {{- end }}
+            {{- if .Values.config.openaiEmbedModel }}
+            - name: OPENAI_EMBED_MODEL
+              value: {{ .Values.config.openaiEmbedModel | quote }}
+            {{- end }}
+            {{- if .Values.secret.openaiApiKey }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "emdexer-gateway.fullname" . }}-secret
+                  key: openai-api-key
+            {{- end }}
             - name: EMDEX_RERANK_ENABLED
               value: {{ .Values.config.rerankEnabled | default "false" | quote }}
             {{- if .Values.config.rerankUrl }}

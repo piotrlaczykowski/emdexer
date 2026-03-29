@@ -101,6 +101,68 @@ def search_files(query: str, namespace: str = "default", ctx: Context = None) ->
 
 
 @mcp.tool()
+def search_graph(query: str, namespace: str = "default", depth: int = 1, ctx: Context = None) -> str | PrefabApp:
+    """Search files using graph-augmented RAG. Returns results enriched with knowledge-graph
+    nodes and edges showing structural relationships between files.
+    depth controls BFS hop depth [1-3]. namespace='*' is not supported on this endpoint."""
+    url = f"{GATEWAY_URL}/v1/search/graph"
+    params = {"q": query, "namespace": namespace, "depth": max(1, min(3, depth))}
+
+    try:
+        resp = requests.get(url, params=params, headers=get_headers(), timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        results = data.get("results", [])
+        graph_nodes = data.get("graph_nodes", [])
+        graph_edges = data.get("graph_edges", [])
+        query_time_ms = data.get("query_time_ms", 0)
+    except Exception as e:
+        msg = f"Error in graph search: {str(e)}"
+        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
+
+    if not results:
+        msg = f"No results found for **{query}** in namespace `{namespace}` (depth={depth})."
+        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
+
+    table_data = []
+    for r in results:
+        payload = r.get("payload", {})
+        path = payload.get("path", "N/A")
+        tag = media_tag(path)
+        preview = payload.get("text", "")[:100] + "..." if payload.get("text") else ""
+        table_data.append({
+            "Path": path,
+            "Score": round(float(r.get("score", 0)), 4),
+            "Preview": tag + preview,
+        })
+
+    if is_gui(ctx):
+        return PrefabApp(
+            children=[
+                DataTable(
+                    columns=[
+                        DataTableColumn(key="Path", header="Path"),
+                        DataTableColumn(key="Score", header="Score"),
+                        DataTableColumn(key="Preview", header="Preview"),
+                    ],
+                    rows=table_data,
+                )
+            ]
+        )
+
+    lines = [f"### Graph search results for **{query}** in `{namespace}` (depth={depth}, {query_time_ms}ms)\n"]
+    lines.append("| # | Path | Score | Preview |")
+    lines.append("|---|---|---|---|")
+    for i, row in enumerate(table_data, 1):
+        lines.append(f"| {i} | `{row['Path']}` | {row['Score']} | {row['Preview']} |")
+    if graph_nodes:
+        lines.append(f"\n**Graph nodes explored:** {len(graph_nodes)}")
+    if graph_edges:
+        lines.append(f"**Graph edges found:** {len(graph_edges)}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
 def get_file(path: str, ctx: Context = None) -> str | PrefabApp:
     """Retrieve file content from EMDEX."""
     url = f"{GATEWAY_URL}/v1/search"

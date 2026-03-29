@@ -196,6 +196,11 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBED_MODEL=nomic-embed-text:v2
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
       - POSTGRES_URL=postgres://emdexer:${POSTGRES_PASSWORD:-emdexer_secret}@postgres:5432/emdexer?sslmode=disable
       - EMDEX_HA_MODE=true
       - EMDEX_GLOBAL_SEARCH_TIMEOUT=${EMDEX_GLOBAL_SEARCH_TIMEOUT:-500}
@@ -252,6 +257,11 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBED_MODEL=nomic-embed-text:v2
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
       - POSTGRES_URL=postgres://emdexer:${POSTGRES_PASSWORD:-emdexer_secret}@postgres:5432/emdexer?sslmode=disable
       - EMDEX_HA_MODE=true
       - EMDEX_GLOBAL_SEARCH_TIMEOUT=${EMDEX_GLOBAL_SEARCH_TIMEOUT:-500}
@@ -356,6 +366,11 @@ services:
       # - EMDEX_MAX_FRAMES=10
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBED_MODEL=nomic-embed-text:v2
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
       - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
@@ -416,6 +431,11 @@ services:
       # - EMDEX_MAX_FRAMES=10
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBED_MODEL=nomic-embed-text:v2
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
       - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
@@ -475,6 +495,11 @@ services:
       # - EMDEX_MAX_FRAMES=10
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBED_MODEL=nomic-embed-text:v2
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
       - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract

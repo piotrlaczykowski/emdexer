@@ -137,12 +137,13 @@ func (s *Server) handleGraphSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Merge neighbour results using graph expansion (reuses existing RRF logic).
+	initialCount := len(results)
 	if len(results) > 0 {
 		results = s.graphExpandResultsWithDepth(r.Context(), results, query, vector, namespace, 10, depth)
 	}
 
 	log.Printf("[graph-search] namespace=%q depth=%d initial=%d expanded=%d nodes=%d edges=%d",
-		namespace, depth, len(results), len(results), len(graphNodes), len(graphEdges))
+		namespace, depth, initialCount, len(results), len(graphNodes), len(graphEdges))
 
 	resp := map[string]interface{}{
 		"query":         query,

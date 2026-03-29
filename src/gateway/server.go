@@ -66,6 +66,9 @@ type Server struct {
 	// Indexing events (Phase 33)
 	events *eventBus
 
+	// Prometheus file_sd service discovery writer.
+	sdWriter *SDWriter
+
 	// True LLM token streaming (Phase 37)
 	streamEnabled bool
 
@@ -288,6 +291,14 @@ func newServer() *Server {
 
 	srv.stopTopology = make(chan struct{})
 	srv.events = newEventBus()
+
+	sdPath := os.Getenv("EMDEX_SD_FILE")
+	srv.sdWriter = NewSDWriter(sdPath)
+	if sdPath != "" {
+		log.Printf("[gateway] Prometheus SD file: %s", sdPath)
+	} else {
+		log.Printf("[gateway] Prometheus SD file: disabled (set EMDEX_SD_FILE to enable)")
+	}
 
 	return srv
 }

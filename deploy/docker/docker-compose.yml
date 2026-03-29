@@ -86,6 +86,7 @@ services:
       # - OPENAI_API_KEY=${OPENAI_API_KEY}
       # - OPENAI_EMBED_MODEL=text-embedding-3-small
       # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      # - EMDEX_SD_FILE=/etc/prometheus/targets/emdexer_nodes.json
       - EMDEX_BM25_ENABLED=${EMDEX_BM25_ENABLED:-true}
       - EMDEX_RRF_K=${EMDEX_RRF_K:-60}
       - EMDEX_RRF_VECTOR_WEIGHT=${EMDEX_RRF_VECTOR_WEIGHT:-1.0}

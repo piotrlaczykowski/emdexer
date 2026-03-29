@@ -90,7 +90,7 @@ func TestOpenAIProviderEmbedHTTP(t *testing.T) {
 func TestOpenAIProviderEmbedEmptyResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		type respBody struct {
-			Data []interface{} `json:"data"`
+			Data []any `json:"data"`
 		}
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(respBody{Data: nil})

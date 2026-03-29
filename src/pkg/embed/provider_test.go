@@ -3,6 +3,7 @@ package embed
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -203,6 +204,69 @@ func TestOllamaProvider_AllowsPrivateIP(t *testing.T) {
 		if got[i] != v {
 			t.Errorf("embedding[%d]: want %f, got %f", i, v, got[i])
 		}
+	}
+}
+
+func TestOllamaProvider_TruncateDim_PassedInRequest(t *testing.T) {
+	want := []float32{0.1, 0.2, 0.3}
+
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		type respBody struct {
+			Embeddings [][]float32 `json:"embeddings"`
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(respBody{Embeddings: [][]float32{want}})
+	}))
+	defer srv.Close()
+
+	p := &OllamaProvider{Host: srv.URL, Model: "qwen3-embedding:8b", TruncateDim: 1024}
+	if _, err := p.embed("hello"); err != nil {
+		t.Fatalf("embed failed: %v", err)
+	}
+
+	var parsed struct {
+		Options *struct {
+			TruncateDim int `json:"truncate_dim"`
+		} `json:"options"`
+	}
+	if err := json.Unmarshal(capturedBody, &parsed); err != nil {
+		t.Fatalf("failed to parse request body: %v", err)
+	}
+	if parsed.Options == nil {
+		t.Fatal("expected options field in request, got none")
+	}
+	if parsed.Options.TruncateDim != 1024 {
+		t.Errorf("expected truncate_dim=1024, got %d", parsed.Options.TruncateDim)
+	}
+}
+
+func TestOllamaProvider_NoTruncateDim_OmitsOptions(t *testing.T) {
+	want := []float32{0.1, 0.2, 0.3}
+
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		type respBody struct {
+			Embeddings [][]float32 `json:"embeddings"`
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(respBody{Embeddings: [][]float32{want}})
+	}))
+	defer srv.Close()
+
+	p := &OllamaProvider{Host: srv.URL, Model: "nomic-embed-text:v2", TruncateDim: 0}
+	if _, err := p.embed("hello"); err != nil {
+		t.Fatalf("embed failed: %v", err)
+	}
+
+	var parsed map[string]json.RawMessage
+	if err := json.Unmarshal(capturedBody, &parsed); err != nil {
+		t.Fatalf("failed to parse request body: %v", err)
+	}
+	if _, exists := parsed["options"]; exists {
+		t.Error("expected options field to be absent (omitempty), but it was present")
 	}
 }
 

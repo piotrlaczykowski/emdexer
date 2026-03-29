@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -137,8 +138,9 @@ func (g *GeminiProvider) embed(text, geminiModel string) ([]float32, error) {
 const defaultOllamaModel = "nomic-embed-text:v2"
 
 type OllamaProvider struct {
-	Host  string
-	Model string
+	Host        string
+	Model       string
+	TruncateDim int // 0 means no truncation (use model default)
 }
 
 func (o *OllamaProvider) Name() string { return "ollama:" + o.Model }
@@ -159,18 +161,25 @@ func (o *OllamaProvider) Embed(ctx context.Context, text string) ([]float32, err
 
 func (o *OllamaProvider) embed(text string) ([]float32, error) {
 	endpoint := fmt.Sprintf("%s/api/embed", o.Host)
+
+	type options struct {
+		TruncateDim int `json:"truncate_dim"`
+	}
 	type req struct {
-		Model string `json:"model"`
-		Input string `json:"input"`
+		Model   string   `json:"model"`
+		Input   string   `json:"input"`
+		Options *options `json:"options,omitempty"`
 	}
 	type resp struct {
 		Embeddings [][]float32 `json:"embeddings"`
 	}
 
-	body, err := json.Marshal(req{
-		Model: o.Model,
-		Input: text,
-	})
+	r := req{Model: o.Model, Input: text}
+	if o.TruncateDim > 0 {
+		r.Options = &options{TruncateDim: o.TruncateDim}
+	}
+
+	body, err := json.Marshal(r)
 	if err != nil {
 		return nil, fmt.Errorf("ollama marshal: %w", err)
 	}
@@ -298,7 +307,18 @@ func New(apiKey, providerEnv, ollamaHost, ollamaModel, geminiModel, openaiAPIKey
 			log.Fatalf("[embed] CRITICAL SECURITY ERROR: %v", err)
 		}
 
-		return &OllamaProvider{Host: ollamaHost, Model: ollamaModel}
+		truncateDim := 0
+		if v := os.Getenv("OLLAMA_EMBED_DIMS"); v != "" {
+			d, err := strconv.Atoi(v)
+			if err != nil || d < 32 || d > 4096 {
+				log.Printf("[embed] WARN: OLLAMA_EMBED_DIMS=%q invalid (must be int 32–4096), ignoring", v)
+			} else {
+				truncateDim = d
+				log.Printf("[embed] ollama truncate_dim=%d", truncateDim)
+			}
+		}
+
+		return &OllamaProvider{Host: ollamaHost, Model: ollamaModel, TruncateDim: truncateDim}
 	case "openai":
 		if openaiAPIKey == "" {
 			log.Fatalf("[embed] FATAL: EMBED_PROVIDER=openai requires OPENAI_API_KEY")

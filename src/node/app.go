@@ -30,6 +30,7 @@ import (
 
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 var EmbeddingDims uint64 = DefaultEmbedDims
@@ -157,7 +158,16 @@ func newApp() *App {
 	if err != nil {
 		log.Fatalf("qdrant TLS config: %v", err)
 	}
-	conn, err := grpc.NewClient(globalCfg.QdrantHost, qdrantDialOpt)
+	conn, err := grpc.NewClient(globalCfg.QdrantHost, qdrantDialOpt,
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                10 * time.Second,
+			Timeout:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(32*1024*1024),
+		),
+	)
 	if err != nil {
 		panic(err)
 	}

@@ -44,6 +44,8 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig, indexWo
 		}
 	}
 
+	pipelineCfg.Ctx = globalCtx
+
 	// Closure that delegates to the extracted search.DeletePointsByPath,
 	// capturing the global context, client, and collection name.
 	deletePoints := func(path string) error {

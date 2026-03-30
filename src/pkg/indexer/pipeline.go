@@ -42,6 +42,9 @@ type PipelineConfig struct {
 	// payload.text remains the original chunk. Off by default.
 	ContextualRetrieval bool
 	ContextLLM          func(prompt string) (string, error) // nil = disabled
+	// Ctx is the walk/request context passed to EmbedBatch. Falls back to
+	// context.Background() if nil, so callers that don't set it are unaffected.
+	Ctx context.Context
 }
 
 // IndexDataToPoints converts file content into Qdrant points via extraction, chunking, and embedding.
@@ -163,7 +166,11 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 	for i, e := range entries {
 		embedTexts[i] = e.embedText
 	}
-	vectors, embErr := cfg.Embedder.EmbedBatch(context.Background(), embedTexts)
+	ctx := cfg.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	vectors, embErr := cfg.Embedder.EmbedBatch(ctx, embedTexts)
 	if embErr != nil {
 		log.Printf("[node] Embedding batch failed for %s: %v", path, embErr)
 		return nil

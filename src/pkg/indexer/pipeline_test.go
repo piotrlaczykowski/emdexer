@@ -59,3 +59,53 @@ func TestIndexDataToPoints_UsesBatchEmbed(t *testing.T) {
 		t.Errorf("expected EmbedBatch called with ≥2 texts (multiple chunks), got %d", embedder.batchCount)
 	}
 }
+
+// ctxAwareEmbedder returns ctx.Err() from EmbedBatch when the context is done.
+type ctxAwareEmbedder struct {
+	dims int
+}
+
+func (e *ctxAwareEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
+	v := make([]float32, e.dims)
+	v[0] = 0.1
+	return v, nil
+}
+
+func (e *ctxAwareEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	results := make([][]float32, len(texts))
+	for i := range texts {
+		v := make([]float32, e.dims)
+		v[0] = 0.1
+		results[i] = v
+	}
+	return results, nil
+}
+
+func (e *ctxAwareEmbedder) Name() string { return "ctx-aware-mock" }
+
+func TestIndexDataToPoints_RespectsCtxCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel
+
+	embedder := &ctxAwareEmbedder{dims: 4}
+	cfg := PipelineConfig{
+		Namespace:    "test",
+		ChunkSize:    10,
+		ChunkOverlap: 0,
+		Embedder:     embedder,
+		Ctx:          ctx,
+		Extract: func(path string, content []byte, host string) (string, map[string]string, error) {
+			return "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 " +
+				"word11 word12 word13 word14 word15", nil, nil
+		},
+	}
+
+	// With a pre-cancelled context, EmbedBatch returns ctx.Err(), so no points are produced.
+	points := IndexDataToPoints("test/file.txt", []byte("content"), cfg)
+	if len(points) != 0 {
+		t.Errorf("expected empty points with cancelled context, got %d", len(points))
+	}
+}

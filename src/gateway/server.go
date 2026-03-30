@@ -331,6 +331,7 @@ func (s *Server) Run() {
 	// Initial topology refresh + background ticker.
 	s.refreshTopology()
 	s.startTopologyLoop()
+	go s.prewarmGraphs()
 
 	// Metrics server on internal port 9090 (Fix R5).
 	metricsMux := http.NewServeMux()

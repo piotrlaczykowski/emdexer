@@ -43,6 +43,31 @@ func (s *Server) knownNamespaces() []string {
 	return out
 }
 
+// prewarmGraphs builds the in-memory knowledge graph for every known namespace
+// at startup so the first search query doesn't pay the build cost.
+func (s *Server) prewarmGraphs() {
+	if !s.graphCfg.Enabled {
+		return
+	}
+	namespaces := s.knownNamespaces()
+	if len(namespaces) == 0 {
+		return
+	}
+	log.Printf("[graph] pre-warming %d namespace(s): %v", len(namespaces), namespaces)
+	for _, ns := range namespaces {
+		ns := ns // capture loop variable
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			if err := s.knowledgeGraph.BuildGraph(ctx, s.pointsClient, s.collection, ns); err != nil {
+				log.Printf("[graph] pre-warm failed for namespace %q: %v", ns, err)
+			} else {
+				log.Printf("[graph] pre-warm complete for namespace %q", ns)
+			}
+		}()
+	}
+}
+
 func (s *Server) startTopologyLoop() {
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)

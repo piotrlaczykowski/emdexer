@@ -177,8 +177,9 @@ func (s *Server) handleGraphSearch(w http.ResponseWriter, r *http.Request) {
 		results = s.graphExpandResultsWithDepth(r.Context(), results, query, vector, namespace, 10, depth)
 	}
 
-	log.Printf("[graph-search] namespace=%q depth=%d initial=%d expanded=%d nodes=%d edges=%d",
-		namespace, depth, initialCount, len(results), len(graphNodes), len(graphEdges))
+	log.Printf("[graph-search] namespace=%s depth=%d initial=%d expanded=%d nodes=%d edges=%d",
+		strings.NewReplacer("\n", "", "\r", "").Replace(namespace),
+		depth, initialCount, len(results), len(graphNodes), len(graphEdges))
 
 	resp := map[string]interface{}{
 		"query":         query,

@@ -169,7 +169,7 @@ func TestSDWriter_NoOverride(t *testing.T) {
 	path := filepath.Join(dir, "targets.json")
 
 	w := NewSDWriter(path, "")
-	w.Write(makeNodes("http://192.168.0.156:8082"))
+	w.Write(makeNodes("http://10.0.0.2:8082"))
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -183,7 +183,7 @@ func TestSDWriter_NoOverride(t *testing.T) {
 	if len(targets) != 1 {
 		t.Fatalf("expected 1 target, got %d", len(targets))
 	}
-	if targets[0].Targets[0] != "192.168.0.156:8082" {
-		t.Errorf("expected 192.168.0.156:8082, got %q", targets[0].Targets[0])
+	if targets[0].Targets[0] != "10.0.0.2:8082" {
+		t.Errorf("expected 10.0.0.2:8082, got %q", targets[0].Targets[0])
 	}
 }

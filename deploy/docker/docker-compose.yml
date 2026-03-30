@@ -119,6 +119,9 @@ services:
       # Override only if the HTTP port differs from 6333.
       # - QDRANT_HTTP_HOST=qdrant:6333
       - EMDEX_AUDIT_BUFFER_SIZE=${EMDEX_AUDIT_BUFFER_SIZE:-1000}
+      # ── Query embedding cache + timeout ───────────────────────────────
+      # - EMDEX_EMBED_CACHE_SIZE=1000
+      # - EMDEX_EMBED_TIMEOUT=30000
     volumes:
       - ../../logs:/app/logs
     networks:
@@ -211,6 +214,10 @@ services:
       # Skip dirs/files before opening them — comma-separated names or glob patterns.
       # Recommended: #recycle,.Trash,.DS_Store,Thumbs.db
       # - EMDEX_EXCLUDE_PATHS=#recycle,.Trash,.DS_Store
+      # ── Parallel indexing workers ─────────────────────────────────────
+      # Increase for faster bulk indexing (each worker: extract+embed+prepare).
+      # Recommended for local Ollama: 2-4. Default: 1 (safe for all setups).
+      # - EMDEX_INDEX_WORKERS=2
       # ── Chunking (Phase 31) — defaults shown, uncomment to override ──
       # - EMDEX_CHUNK_SIZE=512
       # - EMDEX_CHUNK_OVERLAP=50

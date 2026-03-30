@@ -27,8 +27,11 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	// Refresh topology immediately so new namespaces are discoverable.
-	go s.refreshTopology()
+	// Signal the debounced topology loop — safe under burst registrations.
+	select {
+	case s.topologyRefreshCh <- struct{}{}:
+	default:
+	}
 	// Update Prometheus SD file asynchronously — non-blocking.
 	go func() {
 		nodes, _ := s.reg.List(r.Context())

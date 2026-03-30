@@ -42,6 +42,9 @@ type PipelineConfig struct {
 	// payload.text remains the original chunk. Off by default.
 	ContextualRetrieval bool
 	ContextLLM          func(prompt string) (string, error) // nil = disabled
+	// Ctx is the walk/request context passed to EmbedBatch. Falls back to
+	// context.Background() if nil, so callers that don't set it are unaffected.
+	Ctx context.Context
 }
 
 // IndexDataToPoints converts file content into Qdrant points via extraction, chunking, and embedding.
@@ -137,43 +140,71 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 		relationsJSON = RelationsToJSON(ExtractRelations(path, text))
 	}
 
-	var points []*qdrant.PointStruct
+	// Collect valid chunks with their original indices and embed texts.
+	type chunkEntry struct {
+		origIdx   int
+		chunk     string
+		embedText string
+	}
+	var entries []chunkEntry
 	for i, chunk := range chunks {
 		if strings.TrimSpace(chunk) == "" {
 			continue
 		}
+		entries = append(entries, chunkEntry{
+			origIdx:   i,
+			chunk:     chunk,
+			embedText: EnrichChunkWithContext(chunk, docContext),
+		})
+	}
+	if len(entries) == 0 {
+		return nil
+	}
 
-		embedText := EnrichChunkWithContext(chunk, docContext)
-		vector, embErr := cfg.Embedder.Embed(context.Background(), embedText)
-		if embErr != nil {
-			LogEmbeddingError(path, i, embErr)
+	// Single batch call instead of N sequential Embed calls.
+	embedTexts := make([]string, len(entries))
+	for i, e := range entries {
+		embedTexts[i] = e.embedText
+	}
+	ctx := cfg.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	vectors, embErr := cfg.Embedder.EmbedBatch(ctx, embedTexts)
+	if embErr != nil {
+		log.Printf("[node] Embedding batch failed for %s: %v", path, embErr)
+		return nil
+	}
+
+	ns := uuid.MustParse(ProjectNamespace)
+	var points []*qdrant.PointStruct
+	for i, e := range entries {
+		if i >= len(vectors) || vectors[i] == nil {
+			continue
+		}
+		if IsZeroVector(vectors[i]) {
+			log.Printf("[node] WARN: Skipping %s (chunk %d) — embedding returned zero-vector", path, e.origIdx)
 			continue
 		}
 
-		if IsZeroVector(vector) {
-			log.Printf("[node] WARN: Skipping %s (chunk %d) — embedding returned zero-vector", path, i)
-			continue
-		}
-
-		ns := uuid.MustParse(ProjectNamespace)
-		idInput := fmt.Sprintf("%s:%d", path, i)
+		idInput := fmt.Sprintf("%s:%d", path, e.origIdx)
 		u := uuid.NewSHA1(ns, []byte(idInput))
 
 		payload := map[string]*qdrant.Value{
 			"path":       {Kind: &qdrant.Value_StringValue{StringValue: path}},
-			"chunk":      {Kind: &qdrant.Value_IntegerValue{IntegerValue: int64(i)}},
-			"text":       {Kind: &qdrant.Value_StringValue{StringValue: chunk}},
+			"chunk":      {Kind: &qdrant.Value_IntegerValue{IntegerValue: int64(e.origIdx)}},
+			"text":       {Kind: &qdrant.Value_StringValue{StringValue: e.chunk}},
 			"indexed_at": {Kind: &qdrant.Value_IntegerValue{IntegerValue: time.Now().UnixNano()}},
 		}
 		if cfg.Namespace != "" {
 			payload["namespace"] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: cfg.Namespace}}
 		}
 		// Attach relations to chunk 0 only — the graph builder only needs one point per file.
-		if i == 0 && relationsJSON != "" {
+		if e.origIdx == 0 && relationsJSON != "" {
 			payload["relations"] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: relationsJSON}}
 		}
 		// Merge extractor-provided metadata (e.g. whisper segments, extraction_method) into chunk 0.
-		if i == 0 {
+		if e.origIdx == 0 {
 			for k, v := range extraMeta {
 				payload[k] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: v}}
 			}
@@ -181,7 +212,7 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 
 		points = append(points, &qdrant.PointStruct{
 			Id:      &qdrant.PointId{PointIdOptions: &qdrant.PointId_Uuid{Uuid: u.String()}},
-			Vectors: &qdrant.Vectors{VectorsOptions: &qdrant.Vectors_Vector{Vector: &qdrant.Vector{Data: vector}}},
+			Vectors: &qdrant.Vectors{VectorsOptions: &qdrant.Vectors_Vector{Vector: &qdrant.Vector{Data: vectors[i]}}},
 			Payload: payload,
 		})
 	}

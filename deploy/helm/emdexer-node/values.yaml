@@ -66,6 +66,12 @@ config:
   s3UseSsl: "true"
   s3Prefix: ""
 
+  # Parallel indexing workers (feat/batch-embed-workers)
+  # Each worker independently extracts text, embeds, and prepares Qdrant points.
+  # Default: 1 (safe for all setups). Recommended for local Ollama: 2-4.
+  indexWorkers: ""   # leave empty to use default (1)
+  batchSize: ""      # Qdrant flush threshold; leave empty to use default (500)
+
   # Embedding provider (QW-1/2). Options: gemini (default) | ollama | openai.
   embedProvider: "gemini"
   # ollamaHost: "http://ollama:11434"

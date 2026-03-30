@@ -29,6 +29,7 @@ import (
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 )
 
 type Server struct {
@@ -48,6 +49,7 @@ type Server struct {
 	nsTopology map[string][]string // namespace -> []nodeID
 
 	globalSearchTimeout time.Duration
+	embedTimeout        time.Duration
 	bm25Enabled         bool
 	agenticCfg          rag.AgenticConfig
 
@@ -62,6 +64,9 @@ type Server struct {
 
 	// Topology shutdown (Fix R1)
 	stopTopology chan struct{}
+	// topologyRefreshCh debounces burst registrations — signals a refresh without
+	// spawning unbounded goroutines when many nodes register simultaneously.
+	topologyRefreshCh chan struct{}
 
 	// Indexing events (Phase 33)
 	events *eventBus
@@ -162,7 +167,16 @@ func newServer() *Server {
 	if err != nil {
 		log.Fatalf("qdrant TLS config: %v", err)
 	}
-	conn, err := grpc.NewClient(qdrantHost, qdrantDialOpt)
+	conn, err := grpc.NewClient(qdrantHost, qdrantDialOpt,
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                10 * time.Second,
+			Timeout:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(32*1024*1024),
+		),
+	)
 	if err != nil {
 		log.Fatalf("Failed to connect to Qdrant: %v", err)
 	}
@@ -184,12 +198,35 @@ func newServer() *Server {
 		os.Getenv("OPENAI_EMBED_MODEL"),
 	)
 
+	// Query vector LRU cache — avoids redundant embed calls for repeated queries.
+	embedCacheSize := 1000
+	if v := os.Getenv("EMDEX_EMBED_CACHE_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			embedCacheSize = n
+		}
+	}
+	embedCacheTTL := 5 * time.Minute
+	embedder = newCachedEmbedProvider(embedder, embedCacheSize, embedCacheTTL)
+	if embedCacheSize > 0 {
+		log.Printf("[gateway] query embed cache: enabled (maxEntries=%d ttl=%v)", embedCacheSize, embedCacheTTL)
+	} else {
+		log.Printf("[gateway] query embed cache: disabled (EMDEX_EMBED_CACHE_SIZE=0)")
+	}
+
 	globalSearchTimeout := 500 * time.Millisecond
 	if t := os.Getenv("EMDEX_GLOBAL_SEARCH_TIMEOUT"); t != "" {
 		if ms, err := strconv.Atoi(t); err == nil && ms > 0 {
 			globalSearchTimeout = time.Duration(ms) * time.Millisecond
 		}
 	}
+
+	embedTimeout := 30 * time.Second
+	if t := os.Getenv("EMDEX_EMBED_TIMEOUT"); t != "" {
+		if ms, err := strconv.Atoi(t); err == nil && ms > 0 {
+			embedTimeout = time.Duration(ms) * time.Millisecond
+		}
+	}
+	log.Printf("[gateway] embed timeout: %v, search fan-out timeout: %v", embedTimeout, globalSearchTimeout)
 
 	// BM25 hybrid search is enabled by default; set EMDEX_BM25_ENABLED=false to use vector-only.
 	bm25Enabled := os.Getenv("EMDEX_BM25_ENABLED") != "false"
@@ -278,6 +315,7 @@ func newServer() *Server {
 		startTime:           time.Now(),
 		nsTopology:          make(map[string][]string),
 		globalSearchTimeout: globalSearchTimeout,
+		embedTimeout:        embedTimeout,
 		bm25Enabled:         bm25Enabled,
 		agenticCfg:          agenticCfg,
 		graphCfg:            graphCfg,
@@ -290,6 +328,7 @@ func newServer() *Server {
 	}
 
 	srv.stopTopology = make(chan struct{})
+	srv.topologyRefreshCh = make(chan struct{}, 1)
 	srv.events = newEventBus()
 
 	sdPath := os.Getenv("EMDEX_SD_FILE")
@@ -307,6 +346,7 @@ func (s *Server) Run() {
 	// Initial topology refresh + background ticker.
 	s.refreshTopology()
 	s.startTopologyLoop()
+	go s.prewarmGraphs()
 
 	// Metrics server on internal port 9090 (Fix R5).
 	metricsMux := http.NewServeMux()

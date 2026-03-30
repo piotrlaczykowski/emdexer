@@ -4,6 +4,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/piotrlaczykowski/emdexer/indexer"
@@ -15,7 +17,7 @@ import (
 	"github.com/qdrant/go-client/qdrant"
 )
 
-func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig) {
+func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig, indexWorkers int) {
 	queuePath := os.Getenv("EMDEX_QUEUE_DB")
 	if queuePath == "" {
 		queuePath = filepath.Join(cwd, "cache", "queue.db")
@@ -42,6 +44,8 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig) {
 		}
 	}
 
+	pipelineCfg.Ctx = globalCtx
+
 	// Closure that delegates to the extracted search.DeletePointsByPath,
 	// capturing the global context, client, and collection name.
 	deletePoints := func(path string) error {
@@ -56,6 +60,19 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig) {
 	_ = os.MkdirAll(cacheDir, 0700)
 
 	if globalCfg.NodeType == "local" {
+		upsertFn := func(pts []*qdrant.PointStruct) {
+			_, uErr := globalPointsClient.Upsert(globalCtx, &qdrant.UpsertPoints{
+				CollectionName: globalCfg.CollectionName,
+				Points:         pts,
+			})
+			if uErr != nil && globalQueue != nil {
+				_ = globalQueue.Enqueue(pts)
+			}
+		}
+		batcher := &microBatcher{
+			flushFn:  upsertFn,
+			window: 200 * time.Millisecond,
+		}
 		w, _ := watcher.New(root, func(ev watcher.FileEvent) error {
 			// During the startup walk, skip files the walker already indexed
 			// to prevent duplicate work from the watcher firing on the same paths.
@@ -68,14 +85,7 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig) {
 			content, _ := os.ReadFile(ev.Path)
 			points := indexer.IndexDataToPoints(ev.Path, content, pipelineCfg)
 			if len(points) > 0 {
-				_, err = globalPointsClient.Upsert(globalCtx, &qdrant.UpsertPoints{
-					CollectionName: globalCfg.CollectionName,
-					Points:         points,
-				})
-				if err != nil && globalQueue != nil {
-					_ = globalQueue.Enqueue(points)
-				}
-				return err
+				batcher.add(points)
 			}
 			return nil
 		}, deletePoints)
@@ -113,7 +123,18 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig) {
 	}
 
 	go func() {
-		log.Printf("[node] Startup walk starting: root=%s vfs=%s", root, globalCfg.NodeType)
+		// Read Qdrant flush batch size — default 500 (up from 100) to reduce gRPC overhead.
+		batchSize := 500
+		if v := os.Getenv("EMDEX_BATCH_SIZE"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n >= 10 && n <= 5000 {
+				batchSize = n
+			}
+		}
+
+		log.Printf("[node] Startup walk starting: root=%s vfs=%s workers=%d batchSize=%d",
+			root, globalCfg.NodeType, indexWorkers, batchSize)
+
+		// Build walk config with feature flags
 		walkCfg := indexer.BuildWalkConfig(
 			globalCfg.WhisperEnabled,
 			globalCfg.VisionEnabled,
@@ -128,39 +149,76 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig) {
 		if len(walkCfg.ExcludePaths) > 0 {
 			log.Printf("[node] walk exclude paths: %v", walkCfg.ExcludePaths)
 		}
+
 		idx := indexer.NewIndexer(globalFS, walkCfg)
+
+		// Worker pool for parallel file processing.
+		type workItem struct {
+			path    string
+			content []byte
+		}
+
+		jobs := make(chan workItem, indexWorkers*4)
+		var mu sync.Mutex
 		var batch []*qdrant.PointStruct
+
 		flush := func() {
-			if len(batch) == 0 { return }
+			mu.Lock()
+			if len(batch) == 0 {
+				mu.Unlock()
+				return
+			}
+			toFlush := batch
+			batch = nil
+			mu.Unlock()
+
 			_, err := globalPointsClient.Upsert(globalCtx, &qdrant.UpsertPoints{
 				CollectionName: globalCfg.CollectionName,
-				Points:         batch,
+				Points:         toFlush,
 			})
 			if err != nil {
 				if globalQueue != nil {
-					if qerr := globalQueue.Enqueue(batch); qerr != nil {
-						log.Printf("[node] Walk flush: Qdrant upsert failed and queue enqueue failed: upsert_err=%v queue_err=%v (batch_size=%d — points lost)", err, qerr, len(batch))
+					if qerr := globalQueue.Enqueue(toFlush); qerr != nil {
+						log.Printf("[node] Walk flush: Qdrant upsert failed and queue enqueue failed: upsert_err=%v queue_err=%v (batch_size=%d — points lost)", err, qerr, len(toFlush))
 					} else {
-						log.Printf("[node] Walk flush: Qdrant upsert failed, queued for retry: err=%v (batch_size=%d)", err, len(batch))
+						log.Printf("[node] Walk flush: Qdrant upsert failed, queued for retry: err=%v (batch_size=%d)", err, len(toFlush))
 					}
 				} else {
-					log.Printf("[node] Walk flush: Qdrant upsert failed and no queue available: err=%v (batch_size=%d — points lost)", err, len(batch))
+					log.Printf("[node] Walk flush: Qdrant upsert failed and no queue available: err=%v (batch_size=%d — points lost)", err, len(toFlush))
 				}
 			}
-			batch = nil
+		}
+
+		var wg sync.WaitGroup
+		for w := 0; w < indexWorkers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for item := range jobs {
+					points := indexer.IndexDataToPoints(item.path, item.content, pipelineCfg)
+					if len(points) == 0 {
+						continue
+					}
+					mu.Lock()
+					batch = append(batch, points...)
+					shouldFlush := len(batch) >= batchSize
+					mu.Unlock()
+					if shouldFlush {
+						flush()
+					}
+				}
+			}()
 		}
 
 		stats, walkErr := idx.Walk(root, func(path string, isDir bool, content []byte) error {
 			// Record the path so the watcher won't re-index it during startup.
 			walkSeen.Store(path, struct{}{})
-
-			points := indexer.IndexDataToPoints(path, content, pipelineCfg)
-			for _, p := range points {
-				batch = append(batch, p)
-				if len(batch) >= 100 { flush() }
-			}
+			jobs <- workItem{path: path, content: content}
 			return nil
 		})
+
+		close(jobs)
+		wg.Wait()
 		flush()
 
 		if walkErr != nil {
@@ -180,4 +238,34 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig) {
 		go reportIndexingComplete(globalCfg.GatewayURL, globalCfg.NodeID,
 			globalCfg.Namespace, globalCfg.GatewayAuthKey, stats)
 	}()
+}
+
+// microBatcher coalesces rapid single-file watcher events into small batches
+// before upserting to Qdrant. A timer fires after window of inactivity.
+type microBatcher struct {
+	mu      sync.Mutex
+	pending []*qdrant.PointStruct
+	timer   *time.Timer
+	flushFn func([]*qdrant.PointStruct)
+	window  time.Duration
+}
+
+func (mb *microBatcher) add(points []*qdrant.PointStruct) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+	mb.pending = append(mb.pending, points...)
+	if mb.timer == nil {
+		mb.timer = time.AfterFunc(mb.window, mb.flush)
+	}
+}
+
+func (mb *microBatcher) flush() {
+	mb.mu.Lock()
+	batch := mb.pending
+	mb.pending = nil
+	mb.timer = nil
+	mb.mu.Unlock()
+	if len(batch) > 0 {
+		mb.flushFn(batch)
+	}
 }

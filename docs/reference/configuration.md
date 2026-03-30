@@ -118,7 +118,8 @@ All Qdrant TLS settings are opt-in. The default is plaintext gRPC (unchanged beh
 | `NODE_ROOT` | — | Root path for local/NFS/SMB VFS |
 | `NODE_HEALTH_PORT` | `8081` | Node health endpoint port |
 | `EMDEX_EXTRACTOUS_URL` | `http://localhost:8000/extract` | Extractous sidecar URL |
-| `EMDEX_BATCH_SIZE` | `100` | Indexing batch size |
+| `EMDEX_BATCH_SIZE` | `500` | Qdrant upsert flush threshold (points per batch) |
+| `EMDEX_INDEX_WORKERS` | `1` | Parallel workers for startup walk (1–16); increase for faster bulk indexing with local Ollama |
 | `EMDEX_MAX_FILE_SIZE` | `50MB` | Skip files larger than this |
 | `EMDEX_MAX_ARCHIVE_ENTRY_SIZE` | `10MB` | Skip archive entries larger than this |
 | `EMDEX_DELTA_ENABLED` | `1` | Enable checksum-based delta detection |
@@ -146,6 +147,15 @@ See [docs/reference/multimodal.md](multimodal.md) for full details on all three 
 | `EMDEX_FRAME_INTERVAL_SEC` | `30` | Seconds between extracted frames |
 | `EMDEX_MAX_FRAMES` | `10` | Maximum frames per video |
 | `EMDEX_EXCLUDE_PATHS` | — | Comma-separated dir names or glob patterns skipped before any file I/O (e.g. `#recycle,.Trash,.DS_Store`) |
+
+---
+
+## Query Embedding Cache & Timeout
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMDEX_EMBED_CACHE_SIZE` | `1000` | Number of query-embedding entries held in the gateway LRU+TTL cache (TTL: 5 min). Set to `0` to disable. |
+| `EMDEX_EMBED_TIMEOUT` | `30000` | Timeout (ms) for each embedding call in search, chat, and graph-search handlers. |
 
 ---
 

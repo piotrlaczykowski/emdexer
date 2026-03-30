@@ -30,6 +30,7 @@ import (
 
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 var EmbeddingDims uint64 = DefaultEmbedDims
@@ -157,7 +158,16 @@ func newApp() *App {
 	if err != nil {
 		log.Fatalf("qdrant TLS config: %v", err)
 	}
-	conn, err := grpc.NewClient(globalCfg.QdrantHost, qdrantDialOpt)
+	conn, err := grpc.NewClient(globalCfg.QdrantHost, qdrantDialOpt,
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                10 * time.Second,
+			Timeout:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(32*1024*1024),
+		),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -246,6 +256,9 @@ func newApp() *App {
 			Embedder: func(text string) ([]float32, error) {
 				return embedderForChunking.Embed(context.Background(), text)
 			},
+			BatchEmbedder: func(texts []string) ([][]float32, error) {
+				return embedderForChunking.EmbedBatch(context.Background(), texts)
+			},
 		}
 		log.Printf("[node] chunk strategy: semantic (threshold=%.2f max_words=%d)",
 			semanticThreshold, semanticMaxSize)
@@ -308,7 +321,14 @@ func newApp() *App {
 	checkRelationsMigration(globalCtx, globalPointsClient, globalCfg.CollectionName,
 		globalCfg.Namespace, cacheDir, globalCfg.NodeType, migrationMode)
 
-	startIndexing(root, cwd, pipelineCfg)
+	indexWorkers := 1
+	if v := os.Getenv("EMDEX_INDEX_WORKERS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 16 {
+			indexWorkers = n
+		}
+	}
+	log.Printf("[node] indexing workers: %d", indexWorkers)
+	startIndexing(root, cwd, pipelineCfg, indexWorkers)
 
 	// Self-register with the gateway and start periodic heartbeat.
 	nodeCfg := nodereg.NodeConfig{

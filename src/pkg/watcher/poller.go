@@ -56,6 +56,19 @@ func NewMetadataCache(dbPath string) (*MetadataCache, error) {
 		log.Printf("[cache] Warning: Failed to set 0600 permissions on %s: %v", dbPath, err)
 	}
 
+	// Performance tuning: WAL mode + memory-mapped I/O for faster delta cache access.
+	for _, pragma := range []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
+		"PRAGMA cache_size=10000",
+		"PRAGMA mmap_size=134217728",
+		"PRAGMA temp_store=MEMORY",
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			log.Printf("[cache] PRAGMA warning (%s): %v", pragma, err)
+		}
+	}
+
 	// Base table — create if not present.
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS file_cache (
 		path         TEXT PRIMARY KEY,

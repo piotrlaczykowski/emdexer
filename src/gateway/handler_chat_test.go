@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
 )
@@ -73,5 +74,53 @@ func TestChat_LLMAuthError_NoContext_Returns503(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503 when LLM returns 403 and no context available, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestChat_StreamingIncrementsChunkCounter(t *testing.T) {
+	s := newTestServer()
+	s.pointsClient = &mockPointsClientWithResult{}
+	s.streamEnabled = true
+	s.streamCallFn = func(_ context.Context, _, _ string, onChunk func(string) error) error {
+		_ = onChunk("tok1")
+		_ = onChunk("tok2")
+		_ = onChunk("tok3")
+		return nil
+	}
+
+	before := testutil.ToFloat64(chatStreamChunksTotal)
+
+	body := `{"messages":[{"role":"user","content":"what is emdexer?"}],"stream":true}`
+	r := postWithNamespace("/v1/chat/completions", body, []string{"*"})
+	w := httptest.NewRecorder()
+	s.handleChatCompletions(w, r)
+
+	after := testutil.ToFloat64(chatStreamChunksTotal)
+	if after-before != 3 {
+		t.Errorf("expected 3 chunk increments, got %.0f", after-before)
+	}
+}
+
+func TestChat_StreamingTTFTRecordedOnce(t *testing.T) {
+	s := newTestServer()
+	s.pointsClient = &mockPointsClientWithResult{}
+	s.streamEnabled = true
+	// Deliver 5 chunks — TTFT must still be observed exactly once.
+	s.streamCallFn = func(_ context.Context, _, _ string, onChunk func(string) error) error {
+		for i := 0; i < 5; i++ {
+			_ = onChunk(fmt.Sprintf("tok%d", i))
+		}
+		return nil
+	}
+
+	body := `{"messages":[{"role":"user","content":"what is emdexer?"}],"stream":true}`
+	r := postWithNamespace("/v1/chat/completions", body, []string{"*"})
+	w := httptest.NewRecorder()
+	s.handleChatCompletions(w, r)
+
+	// Collect the histogram and verify exactly 1 observation was recorded.
+	count := testutil.CollectAndCount(chatStreamTTFT)
+	if count != 1 {
+		t.Errorf("expected TTFT histogram to have exactly 1 observation, got %d", count)
 	}
 }

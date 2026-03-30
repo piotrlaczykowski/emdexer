@@ -84,6 +84,10 @@ type Server struct {
 	// llmCallFn is the non-streaming LLM completion function. Defaults to llm.CallGemini;
 	// overridden in tests to avoid real network calls.
 	llmCallFn func(ctx context.Context, prompt, apiKey string) (string, error)
+
+	// streamCallFn is the streaming LLM call function. Defaults to llm.CallGeminiStream;
+	// overridden in tests to avoid real network calls.
+	streamCallFn func(ctx context.Context, prompt, apiKey string, onChunk func(string) error) error
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -333,6 +337,7 @@ func newServer() *Server {
 	}
 
 	srv.llmCallFn = llm.CallGemini
+	srv.streamCallFn = llm.CallGeminiStream
 	srv.stopTopology = make(chan struct{})
 	srv.topologyRefreshCh = make(chan struct{}, 1)
 	srv.events = newEventBus()

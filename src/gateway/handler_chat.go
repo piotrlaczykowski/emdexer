@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/piotrlaczykowski/emdexer/audit"
@@ -231,8 +232,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	if req.Stream && s.streamEnabled {
 		// Phase 37: true token streaming — Gemini tokens piped directly to the client.
+		var ttftOnce sync.Once
+		streamStart := time.Now()
+		callStream := s.streamCallFn
+		if callStream == nil {
+			callStream = llm.CallGeminiStream
+		}
 		streamErr := rag.StreamLLMResponse(w, req.Model, func(onChunk func(string) error) error {
-			return llm.CallGeminiStream(r.Context(), finalPrompt, s.apiKey, onChunk)
+			return callStream(r.Context(), finalPrompt, s.apiKey, func(chunk string) error {
+				ttftOnce.Do(func() {
+					chatStreamTTFT.Observe(float64(time.Since(streamStart).Milliseconds()))
+				})
+				chatStreamChunksTotal.Inc()
+				return onChunk(chunk)
+			})
 		})
 		if streamErr != nil {
 			log.Printf("[chat] stream error: %v", streamErr)

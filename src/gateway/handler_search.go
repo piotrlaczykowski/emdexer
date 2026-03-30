@@ -178,6 +178,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		mode := "vector"
 		if s.bm25Enabled {
 			mode = "hybrid"
+			bm25FallbackTotal.WithLabelValues(requestedNamespace).Inc()
 		}
 		searchEmptyResults.WithLabelValues(requestedNamespace, mode).Inc()
 	}

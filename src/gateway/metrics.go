@@ -44,3 +44,23 @@ var nodeIndexingLastFilesIndexed = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Name: "emdexer_gateway_node_last_files_indexed",
 	Help: "Files indexed in the most recent walk (gauge, per node/namespace)",
 }, []string{"namespace", "node_id"})
+
+// bm25FallbackTotal counts hybrid searches that returned zero results to the client.
+// The metric name uses _empty_results_ rather than _fallback_ because
+// emdexer_gateway_bm25_fallback_total is already registered in
+// src/pkg/search/search.go (counts Qdrant API errors, not empty result sets).
+var bm25FallbackTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_bm25_empty_results_total",
+	Help: "Number of hybrid searches that returned zero results to the client",
+}, []string{"namespace"})
+
+var chatStreamTTFT = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "emdexer_gateway_chat_stream_ttft_ms",
+	Help:    "Time-to-first-token for LLM streaming responses in milliseconds, measured at the chat handler",
+	Buckets: []float64{100, 200, 500, 1000, 2000, 5000, 10000},
+})
+
+var chatStreamChunksTotal = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "emdexer_gateway_chat_stream_chunks_total",
+	Help: "Total SSE token chunks delivered to clients via the chat handler",
+})

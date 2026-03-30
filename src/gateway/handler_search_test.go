@@ -9,6 +9,7 @@ import (
 
 	"github.com/piotrlaczykowski/emdexer/auth"
 	"github.com/piotrlaczykowski/emdexer/rerank"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
 )
@@ -109,5 +110,21 @@ func TestHandleSearch_MissingQuery_Returns400(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 Bad Request, got %d", w.Code)
+	}
+}
+
+func TestHandleSearch_BM25FallbackCounterIncrements(t *testing.T) {
+	s := newTestServer()
+	s.bm25Enabled = true // trigger hybrid path; mockPointsClient returns 0 results
+
+	before := testutil.ToFloat64(bm25FallbackTotal.WithLabelValues("default"))
+
+	w := httptest.NewRecorder()
+	r := requestWithNamespace("/v1/search?q=hello&namespace=default", []string{"*"})
+	s.handleSearch(w, r)
+
+	after := testutil.ToFloat64(bm25FallbackTotal.WithLabelValues("default"))
+	if after-before != 1 {
+		t.Errorf("expected bm25FallbackTotal to increment by 1, got delta=%.0f", after-before)
 	}
 }

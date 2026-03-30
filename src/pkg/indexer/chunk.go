@@ -33,6 +33,9 @@ func SmartChunk(text string, size, overlap int) []string {
 // EmbedFn is a function that embeds a text string into a dense vector.
 type EmbedFn func(text string) ([]float32, error)
 
+// EmbedBatchFn is a function that embeds multiple texts in one call.
+type EmbedBatchFn func(texts []string) ([][]float32, error)
+
 // ChunkStrategy splits a document into chunks for embedding.
 type ChunkStrategy interface {
 	Chunk(text string) []string
@@ -63,9 +66,10 @@ func (f FixedChunker) Chunk(text string) []string {
 // by embedding similarity. Falls back to FixedChunker if the embedder is
 // nil, the text has ≤ 3 sentences, or any embedding call fails.
 type SemanticChunker struct {
-	MaxChunkWords int     // max words per chunk (default 512)
-	Embedder      EmbedFn
-	Threshold     float32 // cosine similarity threshold (default 0.7)
+	MaxChunkWords int          // max words per chunk (default 512)
+	Embedder      EmbedFn      // used when BatchEmbedder is nil
+	BatchEmbedder EmbedBatchFn // preferred; uses Embedder serial fallback if nil
+	Threshold     float32      // cosine similarity threshold (default 0.7)
 }
 
 func (s SemanticChunker) Chunk(text string) []string {
@@ -80,7 +84,7 @@ func (s SemanticChunker) Chunk(text string) []string {
 
 	fallback := FixedChunker{Size: maxWords}.Chunk
 
-	if s.Embedder == nil {
+	if s.Embedder == nil && s.BatchEmbedder == nil {
 		return fallback(text)
 	}
 
@@ -89,34 +93,61 @@ func (s SemanticChunker) Chunk(text string) []string {
 		return fallback(text)
 	}
 
-	// Embed each sentence.
-	vecs := make([][]float32, 0, len(sentences))
-	for _, sent := range sentences {
-		v, err := s.Embedder(sent)
+	// Embed all sentences — use batch path when available, serial otherwise.
+	var vecs [][]float32
+	if s.BatchEmbedder != nil {
+		var err error
+		vecs, err = s.BatchEmbedder(sentences)
 		if err != nil {
-			log.Printf("[indexer] semantic-chunker: embedding failed, falling back: %v", err)
+			log.Printf("[indexer] semantic-chunker: batch embedding failed, falling back: %v", err)
 			return fallback(text)
 		}
-		vecs = append(vecs, v)
+	} else {
+		for _, sent := range sentences {
+			v, err := s.Embedder(sent)
+			if err != nil {
+				log.Printf("[indexer] semantic-chunker: embedding failed, falling back: %v", err)
+				return fallback(text)
+			}
+			vecs = append(vecs, v)
+		}
 	}
 
-	// Greedily group sentences into chunks.
-	var chunks []string
+	if len(vecs) != len(sentences) {
+		log.Printf("[indexer] semantic-chunker: vector count mismatch (%d vecs, %d sentences), falling back", len(vecs), len(sentences))
+		return fallback(text)
+	}
+
+	// Greedily group sentences using an O(n) running sum as centroid.
+	dims := len(vecs[0])
+	runSum := make([]float32, dims)
+	copy(runSum, vecs[0])
+	groupLen := 1
 	groupStart := 0
 
+	var chunks []string
+
 	for i := 1; i < len(sentences); i++ {
-		// Compute centroid of current group.
-		centroid := meanVec(vecs[groupStart:i])
+		// centroid = runSum / groupLen
+		centroid := make([]float32, dims)
+		for d := range centroid {
+			centroid[d] = runSum[d] / float32(groupLen)
+		}
 		sim := CosineSimilarity(centroid, vecs[i])
 
 		groupWords := wordCount(sentences[groupStart:i])
 		nextWords := len(strings.Fields(sentences[i]))
 
-		// Start new chunk if: similarity drops below threshold OR adding next
-		// sentence would exceed MaxChunkWords.
 		if sim < threshold || groupWords+nextWords > maxWords {
 			chunks = append(chunks, strings.Join(sentences[groupStart:i], " "))
 			groupStart = i
+			copy(runSum, vecs[i])
+			groupLen = 1
+		} else {
+			for d := range runSum {
+				runSum[d] += vecs[i][d]
+			}
+			groupLen++
 		}
 	}
 	// Flush remaining sentences.

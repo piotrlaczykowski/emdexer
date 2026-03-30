@@ -19,6 +19,7 @@ import (
 	"github.com/piotrlaczykowski/emdexer/config"
 	"github.com/piotrlaczykowski/emdexer/embed"
 	"github.com/piotrlaczykowski/emdexer/graph"
+	"github.com/piotrlaczykowski/emdexer/llm"
 	"github.com/piotrlaczykowski/emdexer/middleware"
 	"github.com/piotrlaczykowski/emdexer/qdrantcreds"
 	"github.com/piotrlaczykowski/emdexer/rag"
@@ -79,6 +80,10 @@ type Server struct {
 
 	// otelShutdown is the teardown function returned by telemetry.InitTracer.
 	otelShutdown func()
+
+	// llmCallFn is the non-streaming LLM completion function. Defaults to llm.CallGemini;
+	// overridden in tests to avoid real network calls.
+	llmCallFn func(ctx context.Context, prompt, apiKey string) (string, error)
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -327,6 +332,7 @@ func newServer() *Server {
 		otelShutdown:        otelShutdown,
 	}
 
+	srv.llmCallFn = llm.CallGemini
 	srv.stopTopology = make(chan struct{})
 	srv.topologyRefreshCh = make(chan struct{}, 1)
 	srv.events = newEventBus()

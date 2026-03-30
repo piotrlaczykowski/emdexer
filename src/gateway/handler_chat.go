@@ -19,6 +19,20 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 )
 
+// isAuthError returns true when err looks like an LLM authentication failure
+// (403, 401, PERMISSION_DENIED, API_KEY_INVALID). Used to distinguish
+// misconfiguration (→ 503) from transient upstream failures (→ 502).
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "403") ||
+		strings.Contains(s, "401") ||
+		strings.Contains(s, "PERMISSION_DENIED") ||
+		strings.Contains(s, "API_KEY_INVALID")
+}
+
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Extract W3C Trace Context from incoming headers and create root span.
 	ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
@@ -196,6 +210,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if agErr == nil {
 			results = agResults
 			agenticHops = totalHops
+		} else if isAuthError(agErr) {
+			log.Printf("[agentic] WARN: LLM unavailable for hop assessment — returning accumulated results")
 		}
 	}
 
@@ -234,19 +250,44 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		var llmErr error
-		eval, llmErr = llm.CallGemini(r.Context(), finalPrompt, s.apiKey)
+		callLLM := s.llmCallFn
+		if callLLM == nil {
+			callLLM = llm.CallGemini
+		}
+		eval, llmErr = callLLM(r.Context(), finalPrompt, s.apiKey)
 		if llmErr != nil {
-			http.Error(w, fmt.Sprintf("LLM error: %v", llmErr), http.StatusBadGateway)
-			audit.Log(audit.Entry{
-				Action:    "chat",
-				User:      user,
-				Query:     question,
-				Namespace: requestedNamespace,
-				Results:   len(results),
-				LatencyMS: time.Since(start).Milliseconds(),
-				Status:    http.StatusBadGateway,
-			})
-			return
+			if isAuthError(llmErr) {
+				// LLM is misconfigured — return top retrieved context as best-effort answer.
+				if len(results) > 0 {
+					path, _ := results[0].Payload["path"].(string)
+					text, _ := results[0].Payload["text"].(string)
+					eval = fmt.Sprintf("[LLM unavailable — showing top retrieved context]\n\n%s\n\n(source: %s)", text, path)
+					// Fall through to write the response below.
+				} else {
+					http.Error(w, "LLM unavailable: invalid or missing API key", http.StatusServiceUnavailable)
+					audit.Log(audit.Entry{
+						Action:    "chat",
+						User:      user,
+						Query:     question,
+						Namespace: requestedNamespace,
+						LatencyMS: time.Since(start).Milliseconds(),
+						Status:    http.StatusServiceUnavailable,
+					})
+					return
+				}
+			} else {
+				http.Error(w, fmt.Sprintf("LLM error: %v", llmErr), http.StatusBadGateway)
+				audit.Log(audit.Entry{
+					Action:    "chat",
+					User:      user,
+					Query:     question,
+					Namespace: requestedNamespace,
+					Results:   len(results),
+					LatencyMS: time.Since(start).Milliseconds(),
+					Status:    http.StatusBadGateway,
+				})
+				return
+			}
 		}
 
 		if req.Stream {

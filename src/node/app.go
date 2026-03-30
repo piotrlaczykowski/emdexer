@@ -256,6 +256,9 @@ func newApp() *App {
 			Embedder: func(text string) ([]float32, error) {
 				return embedderForChunking.Embed(context.Background(), text)
 			},
+			BatchEmbedder: func(texts []string) ([][]float32, error) {
+				return embedderForChunking.EmbedBatch(context.Background(), texts)
+			},
 		}
 		log.Printf("[node] chunk strategy: semantic (threshold=%.2f max_words=%d)",
 			semanticThreshold, semanticMaxSize)

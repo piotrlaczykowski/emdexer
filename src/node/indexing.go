@@ -60,6 +60,19 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig, indexWo
 	_ = os.MkdirAll(cacheDir, 0700)
 
 	if globalCfg.NodeType == "local" {
+		upsertFn := func(pts []*qdrant.PointStruct) {
+			_, uErr := globalPointsClient.Upsert(globalCtx, &qdrant.UpsertPoints{
+				CollectionName: globalCfg.CollectionName,
+				Points:         pts,
+			})
+			if uErr != nil && globalQueue != nil {
+				_ = globalQueue.Enqueue(pts)
+			}
+		}
+		batcher := &microBatcher{
+			flushFn:  upsertFn,
+			windowMs: 200 * time.Millisecond,
+		}
 		w, _ := watcher.New(root, func(ev watcher.FileEvent) error {
 			// During the startup walk, skip files the walker already indexed
 			// to prevent duplicate work from the watcher firing on the same paths.
@@ -72,14 +85,7 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig, indexWo
 			content, _ := os.ReadFile(ev.Path)
 			points := indexer.IndexDataToPoints(ev.Path, content, pipelineCfg)
 			if len(points) > 0 {
-				_, err = globalPointsClient.Upsert(globalCtx, &qdrant.UpsertPoints{
-					CollectionName: globalCfg.CollectionName,
-					Points:         points,
-				})
-				if err != nil && globalQueue != nil {
-					_ = globalQueue.Enqueue(points)
-				}
-				return err
+				batcher.add(points)
 			}
 			return nil
 		}, deletePoints)
@@ -232,4 +238,34 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig, indexWo
 		go reportIndexingComplete(globalCfg.GatewayURL, globalCfg.NodeID,
 			globalCfg.Namespace, globalCfg.GatewayAuthKey, stats)
 	}()
+}
+
+// microBatcher coalesces rapid single-file watcher events into small batches
+// before upserting to Qdrant. A timer fires after windowMs of inactivity.
+type microBatcher struct {
+	mu       sync.Mutex
+	pending  []*qdrant.PointStruct
+	timer    *time.Timer
+	flushFn  func([]*qdrant.PointStruct)
+	windowMs time.Duration
+}
+
+func (mb *microBatcher) add(points []*qdrant.PointStruct) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+	mb.pending = append(mb.pending, points...)
+	if mb.timer == nil {
+		mb.timer = time.AfterFunc(mb.windowMs, mb.flush)
+	}
+}
+
+func (mb *microBatcher) flush() {
+	mb.mu.Lock()
+	batch := mb.pending
+	mb.pending = nil
+	mb.timer = nil
+	mb.mu.Unlock()
+	if len(batch) > 0 {
+		mb.flushFn(batch)
+	}
 }

@@ -105,7 +105,9 @@ func (s *Server) handleGraphSearch(w http.ResponseWriter, r *http.Request) {
 		attribute.Int("graph.depth", depth),
 	)
 
-	vector, err := s.embedder.Embed(r.Context(), query)
+	embedCtx, embedCancel := context.WithTimeout(r.Context(), s.embedTimeout)
+	defer embedCancel()
+	vector, err := s.embedder.Embed(embedCtx, query)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("embedding error: %v", err), http.StatusInternalServerError)
 		return

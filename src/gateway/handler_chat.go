@@ -88,7 +88,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vector, err := s.embedder.Embed(r.Context(), question)
+	embedCtx, embedCancel := context.WithTimeout(r.Context(), s.embedTimeout)
+	defer embedCancel()
+	vector, err := s.embedder.Embed(embedCtx, question)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("embedding error: %v", err), http.StatusBadGateway)
 		audit.Log(audit.Entry{

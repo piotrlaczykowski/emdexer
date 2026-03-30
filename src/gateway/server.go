@@ -49,6 +49,7 @@ type Server struct {
 	nsTopology map[string][]string // namespace -> []nodeID
 
 	globalSearchTimeout time.Duration
+	embedTimeout        time.Duration
 	bm25Enabled         bool
 	agenticCfg          rag.AgenticConfig
 
@@ -201,6 +202,14 @@ func newServer() *Server {
 		}
 	}
 
+	embedTimeout := 30 * time.Second
+	if t := os.Getenv("EMDEX_EMBED_TIMEOUT"); t != "" {
+		if ms, err := strconv.Atoi(t); err == nil && ms > 0 {
+			embedTimeout = time.Duration(ms) * time.Millisecond
+		}
+	}
+	log.Printf("[gateway] embed timeout: %v, search fan-out timeout: %v", embedTimeout, globalSearchTimeout)
+
 	// BM25 hybrid search is enabled by default; set EMDEX_BM25_ENABLED=false to use vector-only.
 	bm25Enabled := os.Getenv("EMDEX_BM25_ENABLED") != "false"
 	log.Printf("[gateway] hybrid search (BM25+vector): enabled=%v", bm25Enabled)
@@ -288,6 +297,7 @@ func newServer() *Server {
 		startTime:           time.Now(),
 		nsTopology:          make(map[string][]string),
 		globalSearchTimeout: globalSearchTimeout,
+		embedTimeout:        embedTimeout,
 		bm25Enabled:         bm25Enabled,
 		agenticCfg:          agenticCfg,
 		graphCfg:            graphCfg,

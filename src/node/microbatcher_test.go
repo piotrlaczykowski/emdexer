@@ -13,7 +13,7 @@ func TestMicroBatcher_FlushesAfterWindow(t *testing.T) {
 	var flushed [][]*qdrant.PointStruct
 
 	mb := &microBatcher{
-		windowMs: 50 * time.Millisecond,
+		window: 50 * time.Millisecond,
 		flushFn: func(pts []*qdrant.PointStruct) {
 			mu.Lock()
 			flushed = append(flushed, pts)
@@ -38,7 +38,7 @@ func TestMicroBatcher_FlushesAfterWindow(t *testing.T) {
 func TestMicroBatcher_NoFlushWhenEmpty(t *testing.T) {
 	called := false
 	mb := &microBatcher{
-		windowMs: 20 * time.Millisecond,
+		window: 20 * time.Millisecond,
 		flushFn: func(pts []*qdrant.PointStruct) {
 			called = true
 		},

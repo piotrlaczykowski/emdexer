@@ -71,7 +71,7 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig, indexWo
 		}
 		batcher := &microBatcher{
 			flushFn:  upsertFn,
-			windowMs: 200 * time.Millisecond,
+			window: 200 * time.Millisecond,
 		}
 		w, _ := watcher.New(root, func(ev watcher.FileEvent) error {
 			// During the startup walk, skip files the walker already indexed
@@ -241,13 +241,13 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig, indexWo
 }
 
 // microBatcher coalesces rapid single-file watcher events into small batches
-// before upserting to Qdrant. A timer fires after windowMs of inactivity.
+// before upserting to Qdrant. A timer fires after window of inactivity.
 type microBatcher struct {
-	mu       sync.Mutex
-	pending  []*qdrant.PointStruct
-	timer    *time.Timer
-	flushFn  func([]*qdrant.PointStruct)
-	windowMs time.Duration
+	mu      sync.Mutex
+	pending []*qdrant.PointStruct
+	timer   *time.Timer
+	flushFn func([]*qdrant.PointStruct)
+	window  time.Duration
 }
 
 func (mb *microBatcher) add(points []*qdrant.PointStruct) {
@@ -255,7 +255,7 @@ func (mb *microBatcher) add(points []*qdrant.PointStruct) {
 	defer mb.mu.Unlock()
 	mb.pending = append(mb.pending, points...)
 	if mb.timer == nil {
-		mb.timer = time.AfterFunc(mb.windowMs, mb.flush)
+		mb.timer = time.AfterFunc(mb.window, mb.flush)
 	}
 }
 

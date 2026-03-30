@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -23,13 +24,61 @@ type GraphEdge struct {
 	Target string `json:"target"`
 }
 
-// handleGraphSearch implements GET /v1/search/graph.
+// parseGraphSearchRequest reads query/depth/namespace from a JSON body (POST)
+// or URL query parameters (GET), whichever is present.
+// Defaults: depth=1, namespace="default".
+func parseGraphSearchRequest(r *http.Request) (query, namespace string, depth int, err error) {
+	depth = 1
+	namespace = "default"
+
+	if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		var body struct {
+			Query     string `json:"query"`
+			Q         string `json:"q"` // alias
+			Depth     int    `json:"depth"`
+			Namespace string `json:"namespace"`
+		}
+		if err = json.NewDecoder(r.Body).Decode(&body); err != nil {
+			return
+		}
+		query = body.Query
+		if query == "" {
+			query = body.Q
+		}
+		if body.Depth > 0 {
+			depth = body.Depth
+		}
+		if body.Namespace != "" {
+			namespace = body.Namespace
+		}
+	} else {
+		query = r.URL.Query().Get("q")
+		if d := r.URL.Query().Get("depth"); d != "" {
+			if n, atoiErr := strconv.Atoi(d); atoiErr == nil {
+				depth = n
+			}
+		}
+		if ns := r.URL.Query().Get("namespace"); ns != "" {
+			namespace = ns
+		}
+	}
+
+	if depth < 1 {
+		depth = 1
+	}
+	if depth > 3 {
+		depth = 3
+	}
+
+	if query == "" {
+		err = fmt.Errorf("missing query — use ?q= or JSON body {\"query\":\"...\"}")
+	}
+	return
+}
+
+// handleGraphSearch implements GET and POST /v1/search/graph.
 //
-// Query parameters:
-//
-//	q         — search query (required)
-//	depth     — BFS hop depth [1-3], default 1
-//	namespace — target namespace, default "default"
+// Accepts query via URL param (?q=) or JSON body ({"query":"..."}).
 //
 // Response:
 //
@@ -59,16 +108,13 @@ func (s *Server) handleGraphSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := logSafe(r.URL.Query().Get("q"))
-	if query == "" {
-		http.Error(w, "missing ?q=", http.StatusBadRequest)
+	rawQuery, namespace, depth, parseErr := parseGraphSearchRequest(r)
+	if parseErr != nil {
+		http.Error(w, parseErr.Error(), http.StatusBadRequest)
 		return
 	}
-
-	namespace := logSafe(strings.TrimSpace(r.URL.Query().Get("namespace")))
-	if namespace == "" {
-		namespace = "default"
-	}
+	query := logSafe(rawQuery)
+	namespace = logSafe(strings.TrimSpace(namespace))
 
 	isAllowed := false
 	for _, ns := range allowedNamespaces {
@@ -80,19 +126,6 @@ func (s *Server) handleGraphSearch(w http.ResponseWriter, r *http.Request) {
 	if !isAllowed {
 		http.Error(w, "Forbidden: Namespace not authorized", http.StatusForbidden)
 		return
-	}
-
-	depth := 1
-	if d := r.URL.Query().Get("depth"); d != "" {
-		if n, err := strconv.Atoi(d); err == nil {
-			if n < 1 {
-				n = 1
-			}
-			if n > 3 {
-				n = 3
-			}
-			depth = n
-		}
 	}
 
 	if !s.graphCfg.Enabled {

@@ -40,6 +40,17 @@ func NewPersistentQueue(dbPath string) (*PersistentQueue, error) {
 		return nil, fmt.Errorf("failed to open sqlite: %w", err)
 	}
 
+	// Additional performance PRAGMAs (WAL already set via DSN).
+	for _, pragma := range []string{
+		"PRAGMA synchronous=NORMAL",
+		"PRAGMA cache_size=5000",
+		"PRAGMA temp_store=MEMORY",
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			log.Printf("[queue] PRAGMA warning (%s): %v", pragma, err)
+		}
+	}
+
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS queue (id INTEGER PRIMARY KEY AUTOINCREMENT, data BLOB, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create table: %w", err)

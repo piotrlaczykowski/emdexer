@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/piotrlaczykowski/emdexer/indexer"
@@ -13,9 +14,21 @@ import (
 	"github.com/piotrlaczykowski/emdexer/queue"
 	"github.com/piotrlaczykowski/emdexer/search"
 	"github.com/piotrlaczykowski/emdexer/watcher"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/qdrant/go-client/qdrant"
 )
+
+var nodeFilesIndexedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_node_files_indexed_total",
+	Help: "Total files successfully indexed by this node since startup.",
+}, []string{"namespace"})
+
+var nodeFilesSkippedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_node_files_skipped_total",
+	Help: "Total files skipped (too short, error, zero-vector) by this node since startup.",
+}, []string{"namespace"})
 
 func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig, indexWorkers int) {
 	queuePath := os.Getenv("EMDEX_QUEUE_DB")
@@ -189,6 +202,9 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig, indexWo
 			}
 		}
 
+		var progressCounter atomic.Int64
+		const progressInterval = 500
+
 		var wg sync.WaitGroup
 		for w := 0; w < indexWorkers; w++ {
 			wg.Add(1)
@@ -197,14 +213,21 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig, indexWo
 				for item := range jobs {
 					points := indexer.IndexDataToPoints(item.path, item.content, pipelineCfg)
 					if len(points) == 0 {
+						nodeFilesSkippedTotal.WithLabelValues(pipelineCfg.Namespace).Inc()
 						continue
 					}
+					nodeFilesIndexedTotal.WithLabelValues(pipelineCfg.Namespace).Add(float64(len(points)))
 					mu.Lock()
 					batch = append(batch, points...)
 					shouldFlush := len(batch) >= batchSize
 					mu.Unlock()
 					if shouldFlush {
 						flush()
+					}
+					n := progressCounter.Add(1)
+					if n%progressInterval == 0 {
+						go reportIndexingProgress(globalCfg.GatewayURL, globalCfg.NodeID,
+							globalCfg.Namespace, globalCfg.GatewayAuthKey, int(n), 0)
 					}
 				}
 			}()

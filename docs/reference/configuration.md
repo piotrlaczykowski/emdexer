@@ -150,6 +150,15 @@ See [docs/reference/multimodal.md](multimodal.md) for full details on all three 
 
 ---
 
+## Query Embedding Cache & Timeout
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMDEX_EMBED_CACHE_SIZE` | `1000` | Number of query-embedding entries held in the gateway LRU+TTL cache (TTL: 5 min). Set to `0` to disable. |
+| `EMDEX_EMBED_TIMEOUT` | `30000` | Timeout (ms) for each embedding call in search, chat, and graph-search handlers. |
+
+---
+
 ## Chunking (Phase 31 / Phase 35)
 
 | Variable | Default | Description |

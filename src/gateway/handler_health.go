@@ -14,10 +14,15 @@ import (
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	llmStatus := "ok"
+	if os.Getenv("GOOGLE_API_KEY") == "" && os.Getenv("OPENAI_API_KEY") == "" {
+		llmStatus = "degraded (no API key configured)"
+	}
 	s.writeJSON(w, http.StatusOK, map[string]string{
-		"status":      "ok",
-		"version":     version.Version,
-		"collection":  s.collection,
+		"status":     "ok",
+		"version":    version.Version,
+		"collection": s.collection,
+		"llm":        llmStatus,
 	})
 }
 

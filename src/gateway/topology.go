@@ -51,6 +51,18 @@ func (s *Server) startTopologyLoop() {
 			select {
 			case <-ticker.C:
 				s.refreshTopology()
+			case <-s.topologyRefreshCh:
+				// Drain any burst of signals, then wait 2s to coalesce.
+				time.Sleep(2 * time.Second)
+				for {
+					select {
+					case <-s.topologyRefreshCh:
+					default:
+						goto debounceDone
+					}
+				}
+			debounceDone:
+				s.refreshTopology()
 			case <-s.stopTopology:
 				return
 			}

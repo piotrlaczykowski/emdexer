@@ -64,6 +64,9 @@ type Server struct {
 
 	// Topology shutdown (Fix R1)
 	stopTopology chan struct{}
+	// topologyRefreshCh debounces burst registrations — signals a refresh without
+	// spawning unbounded goroutines when many nodes register simultaneously.
+	topologyRefreshCh chan struct{}
 
 	// Indexing events (Phase 33)
 	events *eventBus
@@ -310,6 +313,7 @@ func newServer() *Server {
 	}
 
 	srv.stopTopology = make(chan struct{})
+	srv.topologyRefreshCh = make(chan struct{}, 1)
 	srv.events = newEventBus()
 
 	sdPath := os.Getenv("EMDEX_SD_FILE")

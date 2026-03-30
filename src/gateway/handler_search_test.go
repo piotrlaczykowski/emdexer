@@ -35,6 +35,14 @@ func (m *mockEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
 
 func (m *mockEmbedder) Name() string { return "mock" }
 
+func (m *mockEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i := range texts {
+		out[i] = []float32{0.1, 0.2, 0.3}
+	}
+	return out, nil
+}
+
 // newTestServer creates a minimal Server wired with mock dependencies.
 func newTestServer() *Server {
 	return &Server{

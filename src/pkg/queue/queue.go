@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/qdrant/go-client/qdrant"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type BatchItem struct {
@@ -35,13 +35,14 @@ func NewPersistentQueue(dbPath string) (*PersistentQueue, error) {
 		log.Printf("[queue] Warning: Failed to set 0700 permissions on %s: %v", dbDir, err)
 	}
 
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL")
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite: %w", err)
 	}
 
-	// Additional performance PRAGMAs (WAL already set via DSN).
+	// Performance PRAGMAs — WAL mode first, then tuning.
 	for _, pragma := range []string{
+		"PRAGMA journal_mode=WAL",
 		"PRAGMA synchronous=NORMAL",
 		"PRAGMA cache_size=5000",
 		"PRAGMA temp_store=MEMORY",
@@ -50,6 +51,7 @@ func NewPersistentQueue(dbPath string) (*PersistentQueue, error) {
 			log.Printf("[queue] PRAGMA warning (%s): %v", pragma, err)
 		}
 	}
+	log.Printf("[queue] SQLite pragmas applied (driver: modernc)")
 
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS queue (id INTEGER PRIMARY KEY AUTOINCREMENT, data BLOB, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
 	if err != nil {

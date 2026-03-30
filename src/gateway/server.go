@@ -332,9 +332,13 @@ func newServer() *Server {
 	srv.events = newEventBus()
 
 	sdPath := os.Getenv("EMDEX_SD_FILE")
-	srv.sdWriter = NewSDWriter(sdPath)
+	sdHostOverride := os.Getenv("EMDEX_SD_HOST_OVERRIDE")
+	srv.sdWriter = NewSDWriter(sdPath, sdHostOverride)
 	if sdPath != "" {
 		log.Printf("[gateway] Prometheus SD file: %s", sdPath)
+		if sdHostOverride != "" {
+			log.Printf("[gateway] Prometheus SD host override: %s", sdHostOverride)
+		}
 	} else {
 		log.Printf("[gateway] Prometheus SD file: disabled (set EMDEX_SD_FILE to enable)")
 	}

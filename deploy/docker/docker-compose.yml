@@ -87,6 +87,8 @@ services:
       # - OPENAI_EMBED_MODEL=text-embedding-3-small
       # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       # - EMDEX_SD_FILE=/etc/prometheus/targets/emdexer_nodes.json
+      # Override hostname in Prometheus SD targets (use host IP so external Prometheus can scrape)
+      # - EMDEX_SD_HOST_OVERRIDE=${EMDEX_SD_HOST_OVERRIDE}
       - EMDEX_BM25_ENABLED=${EMDEX_BM25_ENABLED:-true}
       - EMDEX_RRF_K=${EMDEX_RRF_K:-60}
       - EMDEX_RRF_VECTOR_WEIGHT=${EMDEX_RRF_VECTOR_WEIGHT:-1.0}
@@ -168,7 +170,7 @@ services:
           cpus: '1.0'
           memory: 512M
     ports:
-      - "8081:8081"
+      - "8083:8081"   # metrics — use 8083 to avoid conflict with node-private (8082)
     volumes:
       - ../../test_dir:/app/test_dir
     environment:
@@ -176,6 +178,7 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_NAMESPACE=default
       - EMDEX_GATEWAY_URL=http://gateway:7700
+      # - EMDEX_NODE_URL=${EMDEX_NODE_URL}  # Set to http://<host-ip>:8083 for external Prometheus scraping
       # ── Embedding provider (Phase QW-1/2) — must match gateway ──
       - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
       # - OLLAMA_HOST=http://ollama:11434

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,14 +20,18 @@ type SDTarget struct {
 
 // SDWriter writes a Prometheus file_sd JSON file from the node registry.
 type SDWriter struct {
-	path string
-	mu   sync.Mutex
+	path         string
+	hostOverride string // when non-empty, replace hostname in all targets
+	mu           sync.Mutex
 }
 
 // NewSDWriter creates an SDWriter. path is the output file path.
+// hostOverride, when non-empty, replaces the hostname portion of every target
+// address (preserving the port). Use this when nodes register with Docker-internal
+// hostnames that are unreachable from an external Prometheus.
 // It is a no-op if path is empty.
-func NewSDWriter(path string) *SDWriter {
-	return &SDWriter{path: path}
+func NewSDWriter(path, hostOverride string) *SDWriter {
+	return &SDWriter{path: path, hostOverride: hostOverride}
 }
 
 // Write atomically writes the current node list as a Prometheus file_sd JSON.
@@ -54,8 +59,19 @@ func (w *SDWriter) Write(nodes []registry.NodeInfo) {
 			ns = n.Namespaces[0]
 		}
 
+		host := u.Host
+		if w.hostOverride != "" {
+			// Replace hostname, keep port so Prometheus uses the reachable IP.
+			_, port, err := net.SplitHostPort(u.Host)
+			if err == nil && port != "" {
+				host = net.JoinHostPort(w.hostOverride, port)
+			} else {
+				host = w.hostOverride
+			}
+		}
+
 		targets = append(targets, SDTarget{
-			Targets: []string{u.Host}, // "host:port" — Prometheus appends metrics_path
+			Targets: []string{host}, // "host:port" — Prometheus appends metrics_path
 			Labels: map[string]string{
 				"job":       "emdexer-node",
 				"node_id":   n.ID,

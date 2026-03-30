@@ -28,7 +28,7 @@ func TestSDWriter_Write_CreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "targets.json")
 
-	w := NewSDWriter(path)
+	w := NewSDWriter(path, "")
 	nodes := makeNodes("http://host-a:8081", "http://host-b:8081")
 	w.Write(nodes)
 
@@ -61,7 +61,7 @@ func TestSDWriter_Write_EmptyNodes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "targets.json")
 
-	w := NewSDWriter(path)
+	w := NewSDWriter(path, "")
 	w.Write([]registry.NodeInfo{})
 
 	data, err := os.ReadFile(path)
@@ -88,7 +88,7 @@ func TestSDWriter_Write_SkipsInvalidURL(t *testing.T) {
 		{ID: "no-host", URL: "not-a-url", Namespaces: []string{"ns"}, Protocol: "nfs"},
 	}
 
-	w := NewSDWriter(path)
+	w := NewSDWriter(path, "")
 	w.Write(nodes)
 
 	data, _ := os.ReadFile(path)
@@ -107,7 +107,7 @@ func TestSDWriter_Write_SkipsInvalidURL(t *testing.T) {
 func TestSDWriter_Write_Atomic(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "targets.json")
-	w := NewSDWriter(path)
+	w := NewSDWriter(path, "")
 	nodes := makeNodes("http://host-a:8081")
 
 	var wg sync.WaitGroup
@@ -134,8 +134,56 @@ func TestSDWriter_Write_Atomic(t *testing.T) {
 }
 
 func TestSDWriter_NoOp_WhenPathEmpty(t *testing.T) {
-	w := NewSDWriter("")
+	w := NewSDWriter("", "")
 	// Must not panic and must not create any file.
 	w.Write(makeNodes("http://host-a:8081"))
 	// No assertion needed — the test passing without panic is the success condition.
+}
+
+func TestSDWriter_HostOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "targets.json")
+
+	w := NewSDWriter(path, "10.0.0.1")
+	w.Write(makeNodes("http://abc123:8081"))
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("file not created: %v", err)
+	}
+
+	var targets []SDTarget
+	if err := json.Unmarshal(data, &targets); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(targets))
+	}
+	if targets[0].Targets[0] != "10.0.0.1:8081" {
+		t.Errorf("expected 10.0.0.1:8081, got %q", targets[0].Targets[0])
+	}
+}
+
+func TestSDWriter_NoOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "targets.json")
+
+	w := NewSDWriter(path, "")
+	w.Write(makeNodes("http://10.0.0.2:8082"))
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("file not created: %v", err)
+	}
+
+	var targets []SDTarget
+	if err := json.Unmarshal(data, &targets); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(targets))
+	}
+	if targets[0].Targets[0] != "10.0.0.2:8082" {
+		t.Errorf("expected 10.0.0.2:8082, got %q", targets[0].Targets[0])
+	}
 }

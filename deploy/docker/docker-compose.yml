@@ -178,7 +178,7 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_NAMESPACE=default
       - EMDEX_GATEWAY_URL=http://gateway:7700
-      # - EMDEX_NODE_URL=${EMDEX_NODE_URL}  # Set to http://<host-ip>:8083 for external Prometheus scraping
+      - EMDEX_NODE_URL=${EMDEX_NODE_URL_NODE:-http://localhost:8083}
       # ── Embedding provider (Phase QW-1/2) — must match gateway ──
       - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
       # - OLLAMA_HOST=http://ollama:11434

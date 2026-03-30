@@ -118,7 +118,8 @@ All Qdrant TLS settings are opt-in. The default is plaintext gRPC (unchanged beh
 | `NODE_ROOT` | — | Root path for local/NFS/SMB VFS |
 | `NODE_HEALTH_PORT` | `8081` | Node health endpoint port |
 | `EMDEX_EXTRACTOUS_URL` | `http://localhost:8000/extract` | Extractous sidecar URL |
-| `EMDEX_BATCH_SIZE` | `100` | Indexing batch size |
+| `EMDEX_BATCH_SIZE` | `500` | Qdrant upsert flush threshold (points per batch) |
+| `EMDEX_INDEX_WORKERS` | `1` | Parallel workers for startup walk (1–16); increase for faster bulk indexing with local Ollama |
 | `EMDEX_MAX_FILE_SIZE` | `50MB` | Skip files larger than this |
 | `EMDEX_MAX_ARCHIVE_ENTRY_SIZE` | `10MB` | Skip archive entries larger than this |
 | `EMDEX_DELTA_ENABLED` | `1` | Enable checksum-based delta detection |

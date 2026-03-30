@@ -119,6 +119,9 @@ services:
       # Override only if the HTTP port differs from 6333.
       # - QDRANT_HTTP_HOST=qdrant:6333
       - EMDEX_AUDIT_BUFFER_SIZE=${EMDEX_AUDIT_BUFFER_SIZE:-1000}
+      # ── Query embedding cache + timeout ───────────────────────────────
+      # - EMDEX_EMBED_CACHE_SIZE=1000
+      # - EMDEX_EMBED_TIMEOUT=30000
     volumes:
       - ../../logs:/app/logs
     networks:

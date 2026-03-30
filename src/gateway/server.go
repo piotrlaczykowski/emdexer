@@ -198,6 +198,21 @@ func newServer() *Server {
 		os.Getenv("OPENAI_EMBED_MODEL"),
 	)
 
+	// Query vector LRU cache — avoids redundant embed calls for repeated queries.
+	embedCacheSize := 1000
+	if v := os.Getenv("EMDEX_EMBED_CACHE_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			embedCacheSize = n
+		}
+	}
+	embedCacheTTL := 5 * time.Minute
+	embedder = newCachedEmbedProvider(embedder, embedCacheSize, embedCacheTTL)
+	if embedCacheSize > 0 {
+		log.Printf("[gateway] query embed cache: enabled (maxEntries=%d ttl=%v)", embedCacheSize, embedCacheTTL)
+	} else {
+		log.Printf("[gateway] query embed cache: disabled (EMDEX_EMBED_CACHE_SIZE=0)")
+	}
+
 	globalSearchTimeout := 500 * time.Millisecond
 	if t := os.Getenv("EMDEX_GLOBAL_SEARCH_TIMEOUT"); t != "" {
 		if ms, err := strconv.Atoi(t); err == nil && ms > 0 {

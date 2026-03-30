@@ -14,7 +14,7 @@ import (
 	"github.com/piotrlaczykowski/emdexer/indexer"
 	"github.com/piotrlaczykowski/emdexer/vfs"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // deltaConfig holds runtime delta-detection settings derived from env vars.
@@ -38,7 +38,7 @@ func NewMetadataCache(dbPath string) (*MetadataCache, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +68,7 @@ func NewMetadataCache(dbPath string) (*MetadataCache, error) {
 			log.Printf("[cache] PRAGMA warning (%s): %v", pragma, err)
 		}
 	}
+	log.Printf("[cache] SQLite pragmas applied (driver: modernc)")
 
 	// Base table — create if not present.
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS file_cache (

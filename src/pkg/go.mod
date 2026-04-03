@@ -9,7 +9,7 @@ require (
 	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/jhillyerd/enmime v1.3.0
 	github.com/lib/pq v1.12.1
-	github.com/minio/minio-go/v7 v7.0.99
+	github.com/minio/minio-go/v7 v7.0.100
 	github.com/pkg/sftp v1.13.10
 	github.com/prometheus/client_golang v1.23.2
 	github.com/qdrant/go-client v1.17.1

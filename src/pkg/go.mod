@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/jhillyerd/enmime v1.3.0
-	github.com/lib/pq v1.12.2
+	github.com/lib/pq v1.12.3
 	github.com/minio/minio-go/v7 v7.0.99
 	github.com/pkg/sftp v1.13.10
 	github.com/prometheus/client_golang v1.23.2

@@ -336,8 +336,26 @@ func newServer() *Server {
 		otelShutdown:        otelShutdown,
 	}
 
+	ollamaURL := os.Getenv("EMDEX_OLLAMA_URL")
+	ollamaModel := os.Getenv("EMDEX_OLLAMA_MODEL")
+
 	srv.llmCallFn = llm.CallGemini
 	srv.streamCallFn = llm.CallGeminiStream
+
+	if ollamaURL != "" {
+		capturedURL := ollamaURL
+		capturedModel := ollamaModel
+		srv.llmCallFn = func(ctx context.Context, prompt, _ string) (string, error) {
+			return llm.CallOllama(ctx, prompt, capturedURL, capturedModel)
+		}
+		srv.streamCallFn = func(ctx context.Context, prompt, _ string, onChunk func(string) error) error {
+			return llm.CallOllamaStream(ctx, prompt, capturedURL, capturedModel, onChunk)
+		}
+		log.Printf("[gateway] LLM provider: ollama url=%s model=%s", logSafe(ollamaURL), logSafe(ollamaModel))
+	} else {
+		log.Printf("[gateway] LLM provider: gemini")
+	}
+
 	srv.stopTopology = make(chan struct{})
 	srv.topologyRefreshCh = make(chan struct{}, 1)
 	srv.events = newEventBus()

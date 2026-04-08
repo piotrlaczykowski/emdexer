@@ -173,6 +173,30 @@ See [docs/reference/multimodal.md](multimodal.md) for full details on all three 
 
 ---
 
+## Ollama LLM Provider (Phase 40)
+
+Set `EMDEX_OLLAMA_URL` to switch the gateway's LLM backend from Gemini to a local or remote Ollama instance. When set, `GOOGLE_API_KEY` is no longer used for LLM calls (embedding is unaffected).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMDEX_OLLAMA_URL` | — | Base URL of the Ollama server (e.g. `http://192.168.0.157:11434`). Unset = use Gemini. |
+| `EMDEX_OLLAMA_MODEL` | `gemma4:26b` | Ollama model tag to use for chat completions (e.g. `llama3.2`, `mistral`). |
+
+**Example** — air-gap / local setup:
+
+```env
+EMDEX_OLLAMA_URL=http://192.168.0.157:11434
+EMDEX_OLLAMA_MODEL=gemma4:26b
+```
+
+The gateway logs which provider is active at startup:
+
+```
+[gateway] LLM provider: ollama url=http://192.168.0.157:11434 model=gemma4:26b
+```
+
+---
+
 ## Contextual Retrieval (Phase 32)
 
 | Variable | Default | Description |

@@ -9,6 +9,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type ollamaChatRequest struct {
@@ -35,6 +39,20 @@ type ollamaChoice struct {
 // ollamaURL is the base URL e.g. "http://localhost:11434".
 // model is the Ollama model name e.g. "gemma4:26b".
 func CallOllama(ctx context.Context, prompt, ollamaURL, model string) (string, error) {
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.llm.ollama.generate")
+	span.SetAttributes(attribute.String("llm.model", model), attribute.String("llm.provider", "ollama"))
+	defer span.End()
+
+	start := time.Now()
+	result, err := callOllama(ctx, prompt, ollamaURL, model)
+	llmDuration.WithLabelValues(model).Observe(float64(time.Since(start).Milliseconds()))
+	if err != nil {
+		llmErrors.WithLabelValues(model).Inc()
+	}
+	return result, err
+}
+
+func callOllama(ctx context.Context, prompt, ollamaURL, model string) (string, error) {
 	reqBody := ollamaChatRequest{
 		Model:    model,
 		Messages: []ollamaMessage{{Role: "user", Content: prompt}},
@@ -76,6 +94,33 @@ func CallOllama(ctx context.Context, prompt, ollamaURL, model string) (string, e
 // CallOllamaStream streams tokens from Ollama's OpenAI-compatible SSE endpoint.
 // Calls onChunk for each content token. Returns on stream end or error.
 func CallOllamaStream(ctx context.Context, prompt, ollamaURL, model string, onChunk func(string) error) error {
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.llm.ollama.stream")
+	span.SetAttributes(attribute.String("llm.model", model), attribute.String("llm.provider", "ollama"))
+	defer span.End()
+
+	start := time.Now()
+	firstToken := true
+	chunks := 0
+
+	wrapped := func(text string) error {
+		if firstToken {
+			llmStreamTTFT.WithLabelValues(model).Observe(float64(time.Since(start).Milliseconds()))
+			firstToken = false
+		}
+		chunks++
+		return onChunk(text)
+	}
+
+	err := callOllamaStream(ctx, prompt, ollamaURL, model, wrapped)
+	llmDuration.WithLabelValues(model).Observe(float64(time.Since(start).Milliseconds()))
+	llmStreamChunks.WithLabelValues(model).Add(float64(chunks))
+	if err != nil {
+		llmErrors.WithLabelValues(model).Inc()
+	}
+	return err
+}
+
+func callOllamaStream(ctx context.Context, prompt, ollamaURL, model string, onChunk func(string) error) error {
 	reqBody := ollamaChatRequest{
 		Model:    model,
 		Messages: []ollamaMessage{{Role: "user", Content: prompt}},

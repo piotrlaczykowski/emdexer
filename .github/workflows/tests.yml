@@ -25,7 +25,7 @@ jobs:
       run: make all
 
     - name: Run Search Unit Tests
-      run: cd src/pkg && go test -v ./search/... ./auth/... ./qdrantcreds/... ./registry/... ./audit/...
+      run: cd src/pkg && go test -v ./search/... ./auth/... ./qdrantcreds/... ./registry/... ./audit/... ./llm/...
 
     - name: Verify server-side RRF — build smoke test
       run: |

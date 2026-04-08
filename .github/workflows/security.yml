@@ -2,9 +2,9 @@ name: Security
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main ]
   schedule:
     - cron: '0 0 * * 1' # Weekly scan on Monday midnight
 

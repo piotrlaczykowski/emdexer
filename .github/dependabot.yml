@@ -4,7 +4,7 @@ updates:
   # Docker updates for all Dockerfiles in deploy/docker
   - package-ecosystem: "docker"
     directory: "/deploy/docker"
-    target-branch: "develop"
+    target-branch: "main"
     schedule:
       interval: "weekly"
     labels:
@@ -14,7 +14,7 @@ updates:
   # Go updates for Gateway
   - package-ecosystem: "gomod"
     directory: "/src/gateway"
-    target-branch: "develop"
+    target-branch: "main"
     schedule:
       interval: "daily"
     labels:
@@ -24,7 +24,7 @@ updates:
   # Go updates for Node
   - package-ecosystem: "gomod"
     directory: "/src/node"
-    target-branch: "develop"
+    target-branch: "main"
     schedule:
       interval: "daily"
     labels:
@@ -34,7 +34,7 @@ updates:
   # Go updates for MCP
   - package-ecosystem: "gomod"
     directory: "/src/mcp"
-    target-branch: "develop"
+    target-branch: "main"
     schedule:
       interval: "daily"
     labels:
@@ -44,7 +44,7 @@ updates:
   # Go updates for Shared Pkgs
   - package-ecosystem: "gomod"
     directory: "/src/pkg"
-    target-branch: "develop"
+    target-branch: "main"
     schedule:
       interval: "daily"
     labels:
@@ -54,7 +54,7 @@ updates:
   # GitHub Actions updates
   - package-ecosystem: "github-actions"
     directory: "/"
-    target-branch: "develop"
+    target-branch: "main"
     schedule:
       interval: "weekly"
     labels:

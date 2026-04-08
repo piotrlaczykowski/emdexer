@@ -1,20 +1,25 @@
 package indexer
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/piotrlaczykowski/emdexer/embed"
+	"github.com/piotrlaczykowski/emdexer/plugin"
 	"github.com/qdrant/go-client/qdrant"
 )
 
 const ProjectNamespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 
 // Extractor is a function that extracts text from file content.
-type Extractor func(path string, content []byte, host string) (string, error)
+// The second return value carries optional extra metadata (e.g. whisper segments,
+// extraction_method) to be merged into the Qdrant point payload on chunk 0.
+type Extractor func(path string, content []byte, host string) (string, map[string]string, error)
 
 // PipelineConfig holds injected dependencies for the indexing pipeline.
 type PipelineConfig struct {
@@ -23,21 +28,66 @@ type PipelineConfig struct {
 	NodeType       string
 	Embedder       embed.EmbedProvider
 	Extract        Extractor
+	// Plugins is the list of loaded extractor plugins (may be nil).
+	// A plugin whose Extensions() list includes a file's extension takes
+	// priority over the default Extractous/Whisper extraction path.
+	Plugins      []plugin.ExtractorPlugin
+	ChunkSize    int // words per chunk; default 512 if zero
+	ChunkOverlap int // overlapping words between chunks; default 50 if zero
+	// Chunker is the chunking strategy (Phase 35). If nil, falls back to
+	// FixedChunker{ChunkSize, ChunkOverlap}.
+	Chunker ChunkStrategy
+	// ContextualRetrieval enables Phase 32 contextual retrieval: a short LLM-generated
+	// document summary is prepended to each chunk's embedding input. The stored
+	// payload.text remains the original chunk. Off by default.
+	ContextualRetrieval bool
+	ContextLLM          func(prompt string) (string, error) // nil = disabled
+	// Ctx is the walk/request context passed to EmbedBatch. Falls back to
+	// context.Background() if nil, so callers that don't set it are unaffected.
+	Ctx context.Context
 }
 
 // IndexDataToPoints converts file content into Qdrant points via extraction, chunking, and embedding.
 func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdrant.PointStruct {
 	var text string
 	var err error
-	if len(content) > 0 {
-		text, err = cfg.Extract(path, content, cfg.ExtractousHost)
-	} else {
-		text, err = cfg.Extract(path, nil, cfg.ExtractousHost)
+	var pluginRels []plugin.Relation
+	var extraMeta map[string]string
+
+	// Check whether a loaded plugin handles this file extension.
+	// Plugins take priority over the default Extractous/Whisper path.
+	ext := strings.ToLower(filepath.Ext(path))
+	var matched plugin.ExtractorPlugin
+	for _, p := range cfg.Plugins {
+		for _, pe := range p.Extensions() {
+			if pe == ext {
+				matched = p
+				break
+			}
+		}
+		if matched != nil {
+			break
+		}
 	}
 
-	if err != nil {
-		log.Printf("[node] Extraction failed for %s: %v", path, err)
-		text = ""
+	if matched != nil && len(content) > 0 {
+		text, pluginRels, err = matched.Extract(context.Background(), filepath.Base(path), content)
+		if err != nil {
+			log.Printf("[plugin] %s failed for %s: %v", matched.Name(), path, err)
+			text = ""
+		}
+	} else if len(content) > 0 {
+		text, extraMeta, err = cfg.Extract(path, content, cfg.ExtractousHost)
+		if err != nil {
+			log.Printf("[node] Extraction failed for %s: %v", path, err)
+			text = ""
+		}
+	} else {
+		text, extraMeta, err = cfg.Extract(path, nil, cfg.ExtractousHost)
+		if err != nil {
+			log.Printf("[node] Extraction failed for %s: %v", path, err)
+			text = ""
+		}
 	}
 
 	text = strings.TrimSpace(text)
@@ -46,46 +96,123 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 		return nil
 	}
 
-	chunks := SmartChunk(text, 512, 50)
+	// Generate document-level context once per document (Phase 32).
+	var docContext string
+	if cfg.ContextualRetrieval && cfg.ContextLLM != nil {
+		docContext = BuildDocContext(text, cfg.ContextLLM)
+		if docContext != "" {
+			log.Printf("[node] contextual-retrieval: enriched %s (%d chars context)", path, len(docContext))
+		}
+	}
+
+	// Resolve chunking strategy (Phase 35).
+	chunker := cfg.Chunker
+	if chunker == nil {
+		size := cfg.ChunkSize
+		if size <= 0 {
+			size = 512
+		}
+		overlap := cfg.ChunkOverlap
+		if overlap <= 0 {
+			overlap = 50
+		}
+		if overlap >= size {
+			overlap = size / 10
+		}
+		chunker = FixedChunker{Size: size, Overlap: overlap}
+	}
+	chunks := chunker.Chunk(text)
 	if len(chunks) == 0 {
 		log.Printf("[node] WARN: Skipping %s — chunking produced no segments", path)
 		return nil
 	}
 
-	var points []*qdrant.PointStruct
+	// Compute structural relations for chunk 0.
+	// If the plugin returned relations, use those; otherwise derive them from the extracted text.
+	var relationsJSON string
+	if len(pluginRels) > 0 {
+		rels := make([]Relation, len(pluginRels))
+		for i, r := range pluginRels {
+			rels[i] = Relation{Type: r.Type, Target: r.Target, Name: r.Name}
+		}
+		relationsJSON = RelationsToJSON(rels)
+	} else {
+		relationsJSON = RelationsToJSON(ExtractRelations(path, text))
+	}
+
+	// Collect valid chunks with their original indices and embed texts.
+	type chunkEntry struct {
+		origIdx   int
+		chunk     string
+		embedText string
+	}
+	var entries []chunkEntry
 	for i, chunk := range chunks {
 		if strings.TrimSpace(chunk) == "" {
 			continue
 		}
+		entries = append(entries, chunkEntry{
+			origIdx:   i,
+			chunk:     chunk,
+			embedText: EnrichChunkWithContext(chunk, docContext),
+		})
+	}
+	if len(entries) == 0 {
+		return nil
+	}
 
-		vector, embErr := cfg.Embedder.Embed(chunk)
-		if embErr != nil {
-			LogEmbeddingError(path, i, embErr)
+	// Single batch call instead of N sequential Embed calls.
+	embedTexts := make([]string, len(entries))
+	for i, e := range entries {
+		embedTexts[i] = e.embedText
+	}
+	ctx := cfg.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	vectors, embErr := cfg.Embedder.EmbedBatch(ctx, embedTexts)
+	if embErr != nil {
+		log.Printf("[node] Embedding batch failed for %s: %v", path, embErr)
+		return nil
+	}
+
+	ns := uuid.MustParse(ProjectNamespace)
+	var points []*qdrant.PointStruct
+	for i, e := range entries {
+		if i >= len(vectors) || vectors[i] == nil {
+			continue
+		}
+		if IsZeroVector(vectors[i]) {
+			log.Printf("[node] WARN: Skipping %s (chunk %d) — embedding returned zero-vector", path, e.origIdx)
 			continue
 		}
 
-		if IsZeroVector(vector) {
-			log.Printf("[node] WARN: Skipping %s (chunk %d) — embedding returned zero-vector", path, i)
-			continue
-		}
-
-		ns := uuid.MustParse(ProjectNamespace)
-		idInput := fmt.Sprintf("%s:%d", path, i)
+		idInput := fmt.Sprintf("%s:%d", path, e.origIdx)
 		u := uuid.NewSHA1(ns, []byte(idInput))
 
 		payload := map[string]*qdrant.Value{
 			"path":       {Kind: &qdrant.Value_StringValue{StringValue: path}},
-			"chunk":      {Kind: &qdrant.Value_IntegerValue{IntegerValue: int64(i)}},
-			"text":       {Kind: &qdrant.Value_StringValue{StringValue: chunk}},
+			"chunk":      {Kind: &qdrant.Value_IntegerValue{IntegerValue: int64(e.origIdx)}},
+			"text":       {Kind: &qdrant.Value_StringValue{StringValue: e.chunk}},
 			"indexed_at": {Kind: &qdrant.Value_IntegerValue{IntegerValue: time.Now().UnixNano()}},
 		}
 		if cfg.Namespace != "" {
 			payload["namespace"] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: cfg.Namespace}}
 		}
+		// Attach relations to chunk 0 only — the graph builder only needs one point per file.
+		if e.origIdx == 0 && relationsJSON != "" {
+			payload["relations"] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: relationsJSON}}
+		}
+		// Merge extractor-provided metadata (e.g. whisper segments, extraction_method) into chunk 0.
+		if e.origIdx == 0 {
+			for k, v := range extraMeta {
+				payload[k] = &qdrant.Value{Kind: &qdrant.Value_StringValue{StringValue: v}}
+			}
+		}
 
 		points = append(points, &qdrant.PointStruct{
 			Id:      &qdrant.PointId{PointIdOptions: &qdrant.PointId_Uuid{Uuid: u.String()}},
-			Vectors: &qdrant.Vectors{VectorsOptions: &qdrant.Vectors_Vector{Vector: &qdrant.Vector{Data: vector}}},
+			Vectors: &qdrant.Vectors{VectorsOptions: &qdrant.Vectors_Vector{Vector: &qdrant.Vector{Data: vectors[i]}}},
 			Payload: payload,
 		})
 	}

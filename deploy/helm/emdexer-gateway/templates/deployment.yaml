@@ -28,7 +28,10 @@ spec:
             - name: QDRANT_COLLECTION
               value: {{ .Values.config.qdrantCollection | quote }}
             - name: EMDEX_AUTH_KEY
-              value: {{ .Values.config.authKey | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "emdexer-gateway.fullname" . }}-secret
+                  key: authKey
             - name: GOOGLE_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -48,16 +51,132 @@ spec:
             {{- end }}
             - name: EMDEX_GLOBAL_SEARCH_TIMEOUT
               value: {{ .Values.config.globalSearchTimeout | default "500" | quote }}
+            - name: EMDEX_BM25_ENABLED
+              value: {{ .Values.config.bm25Enabled | default "true" | quote }}
+            {{- if .Values.config.rrfK }}
+            - name: EMDEX_RRF_K
+              value: {{ .Values.config.rrfK | quote }}
+            {{- end }}
+            {{- if .Values.config.rrfVectorWeight }}
+            - name: EMDEX_RRF_VECTOR_WEIGHT
+              value: {{ .Values.config.rrfVectorWeight | quote }}
+            {{- end }}
+            {{- if .Values.config.rrfBm25Weight }}
+            - name: EMDEX_RRF_BM25_WEIGHT
+              value: {{ .Values.config.rrfBm25Weight | quote }}
+            {{- end }}
+            - name: EMDEX_AGENTIC_ENABLED
+              value: {{ .Values.config.agenticEnabled | default "true" | quote }}
+            {{- if .Values.config.maxHops }}
+            - name: EMDEX_MAX_HOPS
+              value: {{ .Values.config.maxHops | quote }}
+            {{- end }}
+            {{- if .Values.config.hopConfidenceThreshold }}
+            - name: EMDEX_HOP_CONFIDENCE_THRESHOLD
+              value: {{ .Values.config.hopConfidenceThreshold | quote }}
+            {{- end }}
+            - name: EMDEX_GRAPH_ENABLED
+              value: {{ .Values.config.graphEnabled | default "true" | quote }}
+            {{- if .Values.config.graphDepth }}
+            - name: EMDEX_GRAPH_DEPTH
+              value: {{ .Values.config.graphDepth | quote }}
+            {{- end }}
+            {{- if .Values.config.otelEndpoint }}
+            - name: EMDEX_OTEL_ENDPOINT
+              value: {{ .Values.config.otelEndpoint | quote }}
+            {{- end }}
+            {{- if .Values.config.otelServiceName }}
+            - name: EMDEX_OTEL_SERVICE_NAME
+              value: {{ .Values.config.otelServiceName | quote }}
+            {{- end }}
+            {{- if .Values.config.otelSamplingRatio }}
+            - name: EMDEX_OTEL_SAMPLING_RATIO
+              value: {{ .Values.config.otelSamplingRatio | quote }}
+            {{- end }}
             {{- if eq .Values.config.haMode "true" }}
             - name: EMDEX_HA_MODE
               value: "true"
             - name: POSTGRES_URL
               value: {{ .Values.config.postgresUrl | quote }}
             {{- end }}
+            {{- if .Values.config.pgReplicaUrl }}
+            - name: EMDEX_PG_REPLICA_URL
+              value: {{ .Values.config.pgReplicaUrl | quote }}
+            {{- end }}
+            {{- if eq (.Values.config.qdrantTls | default "false") "true" }}
+            - name: EMDEX_QDRANT_TLS
+              value: "true"
+            {{- if .Values.config.qdrantTlsCa }}
+            - name: EMDEX_QDRANT_TLS_CA
+              value: {{ .Values.config.qdrantTlsCa | quote }}
+            {{- end }}
+            {{- if .Values.config.qdrantTlsCert }}
+            - name: EMDEX_QDRANT_TLS_CERT
+              value: {{ .Values.config.qdrantTlsCert | quote }}
+            - name: EMDEX_QDRANT_TLS_KEY
+              value: {{ .Values.config.qdrantTlsKey | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.config.qdrantHttpHost }}
+            - name: QDRANT_HTTP_HOST
+              value: {{ .Values.config.qdrantHttpHost | quote }}
+            {{- end }}
+            {{- if .Values.config.auditBufferSize }}
+            - name: EMDEX_AUDIT_BUFFER_SIZE
+              value: {{ .Values.config.auditBufferSize | quote }}
+            {{- end }}
+            - name: EMBED_PROVIDER
+              value: {{ .Values.config.embedProvider | default "gemini" | quote }}
+            {{- if .Values.config.ollamaHost }}
+            - name: OLLAMA_HOST
+              value: {{ .Values.config.ollamaHost | quote }}
+            {{- end }}
+            {{- if .Values.config.ollamaEmbedModel }}
+            - name: OLLAMA_EMBED_MODEL
+              value: {{ .Values.config.ollamaEmbedModel | quote }}
+            {{- end }}
+            {{- if .Values.config.geminiModel }}
+            - name: EMDEX_GEMINI_MODEL
+              value: {{ .Values.config.geminiModel | quote }}
+            {{- end }}
+            {{- if .Values.config.openaiEmbedModel }}
+            - name: OPENAI_EMBED_MODEL
+              value: {{ .Values.config.openaiEmbedModel | quote }}
+            {{- end }}
+            {{- if .Values.secret.openaiApiKey }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "emdexer-gateway.fullname" . }}-secret
+                  key: openai-api-key
+            {{- end }}
+            - name: EMDEX_RERANK_ENABLED
+              value: {{ .Values.config.rerankEnabled | default "false" | quote }}
+            {{- if .Values.config.rerankUrl }}
+            - name: EMDEX_RERANK_URL
+              value: {{ .Values.config.rerankUrl | quote }}
+            {{- end }}
+            {{- if .Values.config.rerankTopK }}
+            - name: EMDEX_RERANK_TOP_K
+              value: {{ .Values.config.rerankTopK | quote }}
+            {{- end }}
+            {{- if .Values.config.rerankThreshold }}
+            - name: EMDEX_RERANK_THRESHOLD
+              value: {{ .Values.config.rerankThreshold | quote }}
+            {{- end }}
+            {{- if .Values.secret.rerankToken }}
+            - name: EMDEX_RERANK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "emdexer-gateway.fullname" . }}-secret
+                  key: rerankToken
+            {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: EMDEX_REGISTRY_FILE
               value: {{ .Values.persistence.registryFile | quote }}
             {{- end }}
+            - name: EMDEX_STREAM_ENABLED
+              value: {{ .Values.config.streamEnabled | default "true" | quote }}
           {{- if .Values.persistence.enabled }}
           volumeMounts:
             - name: registry-storage
@@ -77,6 +196,13 @@ spec:
               port: http
             failureThreshold: 30
             periodSeconds: 10
+          # Optional: surface Raft cluster health in pod conditions.
+          # Uncomment in HA deployments to fail-fast on split-brain.
+          # lifecycle:
+          #   postStart:
+          #     httpGet:
+          #       path: /healthz/qdrant
+          #       port: http
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- if .Values.persistence.enabled }}

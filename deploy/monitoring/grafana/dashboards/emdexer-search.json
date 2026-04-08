@@ -1,0 +1,283 @@
+{
+  "id": null,
+  "uid": "emdexer-search",
+  "title": "Emdexer — Search",
+  "tags": [
+    "emdexer"
+  ],
+  "timezone": "browser",
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Vector Search Latency P50 / P95 (ms)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_unified_query_duration_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p50 {{namespace}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_unified_query_duration_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p95 {{namespace}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Unified Search Latency P50 / P95 (ms)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_unified_query_duration_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p50 {{namespace}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_unified_query_duration_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p95 {{namespace}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Search Health (Empty Results + BM25 Fallback)",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(emdexer_gateway_search_empty_results_total[5m])) by (namespace)",
+          "legendFormat": "empty results {{namespace}}"
+        },
+        {
+          "expr": "sum(rate(emdexer_gateway_bm25_fallback_total[5m])) by (namespace)",
+          "legendFormat": "bm25 fallback {{namespace}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "End-to-End Hybrid Search Latency (ms)",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_hybrid_total_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p50 {{namespace}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_hybrid_total_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p95 {{namespace}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(emdexer_gateway_search_hybrid_total_ms_bucket[5m])) by (le, namespace))",
+          "legendFormat": "p99 {{namespace}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Streaming (Phase 37)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Time-to-First-Token P50/P95 (ms)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_llm_stream_ttft_ms_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_llm_stream_ttft_ms_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Stream Chunks/sec",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(emdexer_gateway_llm_stream_chunks_total[5m]))",
+          "legendFormat": "chunks/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Reranking (Phase 30)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Rerank Latency P50/P95 (ms)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(emdexer_gateway_search_rerank_duration_ms_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(emdexer_gateway_search_rerank_duration_ms_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Rerank Errors/sec",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(emdexer_gateway_search_rerank_errors_total[5m])) by (namespace)",
+          "legendFormat": "{{namespace}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

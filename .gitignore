@@ -30,3 +30,9 @@ test_dir_beta/
 .gitnexus
 AGENTS.md
 CLAUDE.md
+.claude-flow/
+docs/superpowers/
+
+# Local/environment-specific compose overrides
+deploy/docker/docker-compose.nas-nodes.yml
+deploy/docker/docker-compose.local-*.yml

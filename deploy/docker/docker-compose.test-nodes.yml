@@ -1,4 +1,22 @@
 services:
+  plugin-sidecar:
+    build: ../../src/plugin-sidecar
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    volumes:
+      - ../../plugins:/plugins:ro
+    networks:
+      - emdexer-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   node-alpha:
     build:
       context: ../../
@@ -24,10 +42,18 @@ services:
       - EMDEX_ENABLE_OCR=true
       - EMDEX_EMBEDDING_DIMS=3072
       - EMDEX_GEMINI_MODEL=models/gemini-embedding-2-preview
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - EMDEX_GATEWAY_URL=http://gateway:7700
-      - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     networks:
       - emdexer-net
+    depends_on:
+      plugin-sidecar:
+        condition: service_healthy
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8082/healthz/readiness"]
@@ -60,10 +86,18 @@ services:
       - EMDEX_ENABLE_OCR=true
       - EMDEX_EMBEDDING_DIMS=3072
       - EMDEX_GEMINI_MODEL=models/gemini-embedding-2-preview
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - EMDEX_GATEWAY_URL=http://gateway:7700
-      - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     networks:
       - emdexer-net
+    depends_on:
+      plugin-sidecar:
+        condition: service_healthy
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8083/healthz/readiness"]
@@ -87,18 +121,26 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - NODE_TYPE=s3
       - S3_ENDPOINT=play.min.io
-      - S3_ACCESS_KEY=Q3AM3UQ867SPQQA43P2F
-      - S3_SECRET_KEY=zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
       - S3_BUCKET=emdexer-test
       - S3_USE_SSL=true
       - NODE_HEALTH_PORT=8084
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
       - EMDEX_EMBEDDING_DIMS=3072
       - EMDEX_GEMINI_MODEL=models/gemini-embedding-2-preview
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - EMDEX_GATEWAY_URL=http://gateway:7700
-      - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
     networks:
       - emdexer-net
+    depends_on:
+      plugin-sidecar:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8084/healthz/readiness"]

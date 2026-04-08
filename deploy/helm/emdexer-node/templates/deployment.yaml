@@ -25,17 +25,76 @@ spec:
               value: {{ .Values.config.namespace | quote }}
             - name: EMDEX_EXTRACTOUS_URL
               value: {{ .Values.config.extractousHost | quote }}
+            {{- if eq (.Values.config.whisperEnabled | default "false") "true" }}
+            - name: EMDEX_WHISPER_ENABLED
+              value: "true"
+            {{- end }}
             - name: EMDEX_WHISPER_URL
-              value: {{ .Values.config.whisperUrl | quote }}
+              value: {{ .Values.config.whisperUrl | default "http://whisper:8080" | quote }}
             - name: EMDEX_WHISPER_MODEL
               value: {{ .Values.config.whisperModel | default "base" | quote }}
+            - name: EMDEX_WHISPER_MIN_CHARS
+              value: {{ .Values.config.whisperMinChars | default "50" | quote }}
+            {{- if .Values.config.whisperLanguage }}
+            - name: EMDEX_WHISPER_LANGUAGE
+              value: {{ .Values.config.whisperLanguage | quote }}
+            {{- end }}
             - name: EMDEX_ENABLE_OCR
               value: {{ .Values.config.enableOcr | default "true" | quote }}
+            {{- if eq (.Values.config.visionEnabled | default "false") "true" }}
+            - name: EMDEX_VISION_ENABLED
+              value: "true"
+            - name: EMDEX_VISION_MAX_SIZE_MB
+              value: {{ .Values.config.visionMaxSizeMB | default "10" | quote }}
+            {{- end }}
+            {{- if eq (.Values.config.frameEnabled | default "false") "true" }}
+            - name: EMDEX_FRAME_ENABLED
+              value: "true"
+            - name: EMDEX_FFMPEG_URL
+              value: {{ .Values.config.ffmpegUrl | quote }}
+            - name: EMDEX_FRAME_INTERVAL_SEC
+              value: {{ .Values.config.frameIntervalSec | default "30" | quote }}
+            - name: EMDEX_MAX_FRAMES
+              value: {{ .Values.config.maxFrames | default "10" | quote }}
+            {{- end }}
             - name: GOOGLE_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "emdexer-node.fullname" . }}-secret
                   key: google-api-key
+            - name: EMBED_PROVIDER
+              value: {{ .Values.config.embedProvider | default "gemini" | quote }}
+            {{- if .Values.config.ollamaHost }}
+            - name: OLLAMA_HOST
+              value: {{ .Values.config.ollamaHost | quote }}
+            {{- end }}
+            {{- if .Values.config.ollamaEmbedModel }}
+            - name: OLLAMA_EMBED_MODEL
+              value: {{ .Values.config.ollamaEmbedModel | quote }}
+            {{- end }}
+            {{- if .Values.config.geminiModel }}
+            - name: EMDEX_GEMINI_MODEL
+              value: {{ .Values.config.geminiModel | quote }}
+            {{- end }}
+            {{- if .Values.config.openaiEmbedModel }}
+            - name: OPENAI_EMBED_MODEL
+              value: {{ .Values.config.openaiEmbedModel | quote }}
+            {{- end }}
+            {{- if .Values.secret.openaiApiKey }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "emdexer-node.fullname" . }}-secret
+                  key: openai-api-key
+            {{- end }}
+            {{- if .Values.config.indexWorkers }}
+            - name: EMDEX_INDEX_WORKERS
+              value: {{ .Values.config.indexWorkers | quote }}
+            {{- end }}
+            {{- if .Values.config.batchSize }}
+            - name: EMDEX_BATCH_SIZE
+              value: {{ .Values.config.batchSize | quote }}
+            {{- end }}
             - name: EMDEX_DELTA_ENABLED
               value: {{ .Values.config.deltaEnabled | default "1" | quote }}
             - name: EMDEX_FULL_HASH
@@ -47,6 +106,67 @@ spec:
               value: {{ .Values.config.gatewayUrl | quote }}
             - name: EMDEX_GATEWAY_AUTH_KEY
               value: {{ .Values.config.gatewayAuthKey | quote }}
+            {{- end }}
+            {{- if eq (.Values.config.qdrantTls | default "false") "true" }}
+            - name: EMDEX_QDRANT_TLS
+              value: "true"
+            {{- if .Values.config.qdrantTlsCa }}
+            - name: EMDEX_QDRANT_TLS_CA
+              value: {{ .Values.config.qdrantTlsCa | quote }}
+            {{- end }}
+            {{- if .Values.config.qdrantTlsCert }}
+            - name: EMDEX_QDRANT_TLS_CERT
+              value: {{ .Values.config.qdrantTlsCert | quote }}
+            - name: EMDEX_QDRANT_TLS_KEY
+              value: {{ .Values.config.qdrantTlsKey | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.config.chunkSize }}
+            - name: EMDEX_CHUNK_SIZE
+              value: {{ .Values.config.chunkSize | quote }}
+            {{- end }}
+            {{- if .Values.config.chunkOverlap }}
+            - name: EMDEX_CHUNK_OVERLAP
+              value: {{ .Values.config.chunkOverlap | quote }}
+            {{- end }}
+            {{- if and .Values.config.chunkStrategy (ne .Values.config.chunkStrategy "fixed") }}
+            - name: EMDEX_CHUNK_STRATEGY
+              value: {{ .Values.config.chunkStrategy | quote }}
+            {{- end }}
+            {{- if .Values.config.semanticChunkThreshold }}
+            - name: EMDEX_SEMANTIC_CHUNK_THRESHOLD
+              value: {{ .Values.config.semanticChunkThreshold | quote }}
+            {{- end }}
+            {{- if .Values.config.semanticChunkMaxSize }}
+            - name: EMDEX_SEMANTIC_CHUNK_MAX_SIZE
+              value: {{ .Values.config.semanticChunkMaxSize | quote }}
+            {{- end }}
+            {{- if eq (.Values.config.contextualRetrieval | default "false") "true" }}
+            - name: EMDEX_CONTEXTUAL_RETRIEVAL
+              value: "true"
+            {{- end }}
+            {{- if .Values.config.contextModel }}
+            - name: EMDEX_CONTEXT_MODEL
+              value: {{ .Values.config.contextModel | quote }}
+            {{- end }}
+            {{- if .Values.config.excludePaths }}
+            - name: EMDEX_EXCLUDE_PATHS
+              value: {{ .Values.config.excludePaths | quote }}
+            {{- end }}
+            - name: EMDEX_GRAPH_MIGRATION
+              value: {{ .Values.config.graphMigration | default "auto" | quote }}
+            - name: EMDEX_PLUGIN_ENABLED
+              value: {{ .Values.config.pluginEnabled | default "true" | quote }}
+            {{- if .Values.config.pluginSidecarUrl }}
+            - name: EMDEX_PLUGIN_SIDECAR_URL
+              value: {{ .Values.config.pluginSidecarUrl | quote }}
+            {{- else }}
+            - name: EMDEX_PLUGIN_DIR
+              value: {{ .Values.config.pluginDir | default "/app/plugins" | quote }}
+            {{- if .Values.config.pluginTimeout }}
+            - name: EMDEX_PLUGIN_TIMEOUT
+              value: {{ .Values.config.pluginTimeout | quote }}
+            {{- end }}
             {{- end }}
             {{- if eq .Values.config.nodeType "s3" }}
             - name: S3_ENDPOINT

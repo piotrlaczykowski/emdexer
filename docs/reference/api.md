@@ -254,7 +254,7 @@ The gateway refreshes its namespace topology from the registry every 30 seconds.
 #### Metrics (Prometheus)
 - **Method:** `GET`
 - **Path:** `/metrics`
-- **Description:** Exposes search latency, embedding latency, and HTTP request counts in Prometheus format.
+- **Description:** Exposes Prometheus metrics. Key metrics include vector/BM25/hybrid latency histograms, RRF hit-distribution counters, embed/LLM latency, BM25 fallback and zero-result counters, and topology gauges. See [hybrid-search.md](hybrid-search.md) for the full metric list.
 
 #### Liveness
 - **Method:** `GET`
@@ -270,3 +270,117 @@ The gateway refreshes its namespace topology from the registry every 30 seconds.
 - **Method:** `GET`
 - **Path:** `/healthz/startup`
 - **Response:** `{"status": "STARTED"}`
+
+---
+
+## 5. Indexing Events (Phase 33)
+
+### GET /v1/events/indexing
+
+Streams indexing completion events as Server-Sent Events (SSE).
+
+**Auth:** Bearer token required.
+
+**Response:** `text/event-stream`
+
+Each event is a JSON object:
+
+```json
+{
+  "namespace": "production",
+  "node_id": "node-abc123",
+  "status": "complete",
+  "files_indexed": 142,
+  "files_skipped": 3,
+  "timestamp": "2026-03-26T01:00:00Z"
+}
+```
+
+Keepalive comments (`: keepalive`) are sent every 30 seconds to prevent proxy timeouts.
+
+**Example:**
+
+```bash
+curl -N -H "Authorization: Bearer {key}" http://localhost:7700/v1/events/indexing
+```
+
+---
+
+### POST /v1/nodes/{nodeId}/indexed
+
+Called by nodes to report startup walk completion. Invoked automatically by the node binary after the startup walk finishes — consumers do not need to call this directly.
+
+**Auth:** Bearer token required.
+
+**Request body:**
+
+```json
+{
+  "namespace": "production",
+  "files_indexed": 142,
+  "files_skipped": 3,
+  "status": "complete"
+}
+```
+
+**Response:** `204 No Content`
+
+---
+
+## 6. Eval Harness (Phase 34)
+
+### POST /v1/eval
+
+Runs an LLM-as-judge evaluation against the retrieval pipeline. Retrieves context for a question, then uses Gemini to score **context recall** (does the retrieved context contain the answer?) and **faithfulness** (is the generated answer grounded in the context?).
+
+**Auth:** Bearer token required.
+
+**Requires:** `GOOGLE_API_KEY` (returns `501` if unset).
+
+**Request body:**
+
+```json
+{
+  "question": "What is the capital of France?",
+  "expected_answer": "Paris",
+  "namespace": "docs",
+  "top_k": 5
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `question` | string | yes | — | The question to evaluate |
+| `expected_answer` | string | no | — | Reference answer used for recall scoring |
+| `namespace` | string | no | `""` | Qdrant namespace to search |
+| `top_k` | int | no | `5` | Number of chunks to retrieve |
+
+**Response `200 OK`:**
+
+```json
+{
+  "context_recall": 0.95,
+  "faithfulness": 0.9,
+  "retrieved_chunks": 5,
+  "latency_ms": 1240,
+  "verdict": "PASS"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `context_recall` | float | 0.0–1.0 — does retrieved context contain the answer? |
+| `faithfulness` | float | 0.0–1.0 — is the generated answer grounded in context? |
+| `retrieved_chunks` | int | Number of chunks returned by search |
+| `latency_ms` | int | End-to-end latency including search + two LLM calls |
+| `verdict` | string | `PASS` (avg ≥ 0.7) / `PARTIAL` (avg ≥ 0.4) / `FAIL` |
+| `error` | string | Set only on search failure; LLM errors produce `FAIL` verdict |
+
+**Example:**
+
+```bash
+curl -s -X POST http://localhost:7700/v1/eval \
+  -H "Authorization: Bearer {key}" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What is the capital of France?","expected_answer":"Paris","namespace":"docs"}'
+```

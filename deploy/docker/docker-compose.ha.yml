@@ -12,7 +12,7 @@ services:
   # ============================================================
 
   qdrant-1:
-    image: qdrant/qdrant:v1.13.0
+    image: qdrant/qdrant:v1.17.1
     environment:
       - QDRANT__CLUSTER__ENABLED=true
       - QDRANT__CLUSTER__P2P__PORT=6335
@@ -29,13 +29,14 @@ services:
       - emdexer-net
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      # Two-stage: HTTP liveness + Raft cluster readiness check.
+      test: ["CMD-SHELL", "nc -z localhost 6333 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   qdrant-2:
-    image: qdrant/qdrant:v1.13.0
+    image: qdrant/qdrant:v1.17.1
     environment:
       - QDRANT__CLUSTER__ENABLED=true
       - QDRANT__CLUSTER__P2P__PORT=6335
@@ -56,13 +57,13 @@ services:
         condition: service_healthy
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      test: ["CMD-SHELL", "nc -z localhost 6333 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   qdrant-3:
-    image: qdrant/qdrant:v1.13.0
+    image: qdrant/qdrant:v1.17.1
     environment:
       - QDRANT__CLUSTER__ENABLED=true
       - QDRANT__CLUSTER__P2P__PORT=6335
@@ -83,7 +84,7 @@ services:
         condition: service_healthy
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      test: ["CMD-SHELL", "nc -z localhost 6333 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -118,6 +119,24 @@ services:
   # Extractous sidecar
   # ============================================================
 
+  plugin-sidecar:
+    build: ../../src/plugin-sidecar
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    volumes:
+      - ../../plugins:/plugins:ro
+    networks:
+      - emdexer-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   extractous:
     build: ./extractous-sidecar
     deploy:
@@ -129,7 +148,7 @@ services:
       - emdexer-net
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -173,13 +192,40 @@ services:
     environment:
       - EMDEX_PORT=8080
       - QDRANT_HOST=qdrant-1:6334
+      - QDRANT_HTTP_HOST=qdrant-1:6333
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBED_MODEL=nomic-embed-text:v2
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - POSTGRES_URL=postgres://emdexer:${POSTGRES_PASSWORD:-emdexer_secret}@postgres:5432/emdexer?sslmode=disable
       - EMDEX_HA_MODE=true
       - EMDEX_GLOBAL_SEARCH_TIMEOUT=${EMDEX_GLOBAL_SEARCH_TIMEOUT:-500}
       - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
+      - EMDEX_BM25_ENABLED=${EMDEX_BM25_ENABLED:-true}
+      - EMDEX_RRF_K=${EMDEX_RRF_K:-60}
+      - EMDEX_RRF_VECTOR_WEIGHT=${EMDEX_RRF_VECTOR_WEIGHT:-1.0}
+      - EMDEX_RRF_BM25_WEIGHT=${EMDEX_RRF_BM25_WEIGHT:-1.0}
+      - EMDEX_AUDIT_BUFFER_SIZE=${EMDEX_AUDIT_BUFFER_SIZE:-1000}
+      - EMDEX_AGENTIC_ENABLED=${EMDEX_AGENTIC_ENABLED:-true}
+      - EMDEX_MAX_HOPS=${EMDEX_MAX_HOPS:-3}
+      - EMDEX_HOP_CONFIDENCE_THRESHOLD=${EMDEX_HOP_CONFIDENCE_THRESHOLD:-0.7}
+      - EMDEX_GRAPH_ENABLED=${EMDEX_GRAPH_ENABLED:-true}
+      - EMDEX_GRAPH_DEPTH=${EMDEX_GRAPH_DEPTH:-1}
+      # Uncomment to enable distributed tracing (OTLP/gRPC, backend-agnostic).
+      # - EMDEX_OTEL_ENDPOINT=otel-collector:4317
+      # - EMDEX_OTEL_SAMPLING_RATIO=1.0
+      # ── Qdrant mTLS (Phase 28) ────────────────────────────────
+      # - EMDEX_QDRANT_TLS=true
+      # - EMDEX_QDRANT_TLS_CA=/certs/ca.pem
+      # - EMDEX_QDRANT_TLS_CERT=/certs/client.pem
+      # - EMDEX_QDRANT_TLS_KEY=/certs/client.key
+      # ── PostgreSQL read replica (Phase 28) ───────────────────
+      # - EMDEX_PG_REPLICA_URL=postgres://user:pass@replica:5432/emdexer?sslmode=require
     volumes:
       - ../../logs:/app/logs
     networks:
@@ -208,13 +254,40 @@ services:
     environment:
       - EMDEX_PORT=8080
       - QDRANT_HOST=qdrant-1:6334
+      - QDRANT_HTTP_HOST=qdrant-1:6333
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBED_MODEL=nomic-embed-text:v2
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - POSTGRES_URL=postgres://emdexer:${POSTGRES_PASSWORD:-emdexer_secret}@postgres:5432/emdexer?sslmode=disable
       - EMDEX_HA_MODE=true
       - EMDEX_GLOBAL_SEARCH_TIMEOUT=${EMDEX_GLOBAL_SEARCH_TIMEOUT:-500}
       - EMDEX_API_KEYS=${EMDEX_API_KEYS:-}
+      - EMDEX_BM25_ENABLED=${EMDEX_BM25_ENABLED:-true}
+      - EMDEX_RRF_K=${EMDEX_RRF_K:-60}
+      - EMDEX_RRF_VECTOR_WEIGHT=${EMDEX_RRF_VECTOR_WEIGHT:-1.0}
+      - EMDEX_RRF_BM25_WEIGHT=${EMDEX_RRF_BM25_WEIGHT:-1.0}
+      - EMDEX_AUDIT_BUFFER_SIZE=${EMDEX_AUDIT_BUFFER_SIZE:-1000}
+      - EMDEX_AGENTIC_ENABLED=${EMDEX_AGENTIC_ENABLED:-true}
+      - EMDEX_MAX_HOPS=${EMDEX_MAX_HOPS:-3}
+      - EMDEX_HOP_CONFIDENCE_THRESHOLD=${EMDEX_HOP_CONFIDENCE_THRESHOLD:-0.7}
+      - EMDEX_GRAPH_ENABLED=${EMDEX_GRAPH_ENABLED:-true}
+      - EMDEX_GRAPH_DEPTH=${EMDEX_GRAPH_DEPTH:-1}
+      # Uncomment to enable distributed tracing (OTLP/gRPC, backend-agnostic).
+      # - EMDEX_OTEL_ENDPOINT=otel-collector:4317
+      # - EMDEX_OTEL_SAMPLING_RATIO=1.0
+      # ── Qdrant mTLS (Phase 28) ────────────────────────────────
+      # - EMDEX_QDRANT_TLS=true
+      # - EMDEX_QDRANT_TLS_CA=/certs/ca.pem
+      # - EMDEX_QDRANT_TLS_CERT=/certs/client.pem
+      # - EMDEX_QDRANT_TLS_KEY=/certs/client.key
+      # ── PostgreSQL read replica (Phase 28) ───────────────────
+      # - EMDEX_PG_REPLICA_URL=postgres://user:pass@replica:5432/emdexer?sslmode=require
     volumes:
       - ../../logs:/app/logs
     networks:
@@ -278,11 +351,32 @@ services:
       - EMDEX_NAMESPACE=default
       - NODE_HEALTH_PORT=8081
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
+      # ── Audio/Video transcription (Track 1) ──────────────────
+      # - EMDEX_WHISPER_ENABLED=true
       - EMDEX_WHISPER_URL=${EMDEX_WHISPER_URL:-http://whisper:8080}
       - EMDEX_WHISPER_MODEL=${EMDEX_WHISPER_MODEL:-base}
+      # - EMDEX_WHISPER_MIN_CHARS=50
+      # - EMDEX_WHISPER_LANGUAGE=
       - EMDEX_ENABLE_OCR=${EMDEX_ENABLE_OCR:-true}
+      # ── Gemini Vision image captioning (Track 2) ─────────────
+      # - EMDEX_VISION_ENABLED=true
+      # - EMDEX_VISION_MAX_SIZE_MB=10
+      # ── FFmpeg video frame extraction (Track 3) ──────────────
+      # - EMDEX_FRAME_ENABLED=true
+      # - EMDEX_FFMPEG_URL=http://ffmpeg-sidecar:8004
+      # - EMDEX_FRAME_INTERVAL_SEC=30
+      # - EMDEX_MAX_FRAMES=10
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBED_MODEL=nomic-embed-text:v2
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
       - EMDEX_GATEWAY_URL=http://nginx:80
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
     networks:
@@ -293,6 +387,8 @@ services:
       extractous:
         condition: service_healthy
       whisper:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: always
     healthcheck:
@@ -321,11 +417,32 @@ services:
       - SMB_PASS=${SMB_PASS}
       - NODE_HEALTH_PORT=8082
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
+      # ── Audio/Video transcription (Track 1) ──────────────────
+      # - EMDEX_WHISPER_ENABLED=true
       - EMDEX_WHISPER_URL=${EMDEX_WHISPER_URL:-http://whisper:8080}
       - EMDEX_WHISPER_MODEL=${EMDEX_WHISPER_MODEL:-base}
+      # - EMDEX_WHISPER_MIN_CHARS=50
+      # - EMDEX_WHISPER_LANGUAGE=
       - EMDEX_ENABLE_OCR=${EMDEX_ENABLE_OCR:-true}
+      # ── Gemini Vision image captioning (Track 2) ─────────────
+      # - EMDEX_VISION_ENABLED=true
+      # - EMDEX_VISION_MAX_SIZE_MB=10
+      # ── FFmpeg video frame extraction (Track 3) ──────────────
+      # - EMDEX_FRAME_ENABLED=true
+      # - EMDEX_FFMPEG_URL=http://ffmpeg-sidecar:8004
+      # - EMDEX_FRAME_INTERVAL_SEC=30
+      # - EMDEX_MAX_FRAMES=10
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBED_MODEL=nomic-embed-text:v2
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
       - EMDEX_GATEWAY_URL=http://nginx:80
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
     networks:
@@ -336,6 +453,8 @@ services:
       extractous:
         condition: service_healthy
       whisper:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: always
     healthcheck:
@@ -363,11 +482,32 @@ services:
       - SFTP_PASS=${SFTP_PASS}
       - NODE_HEALTH_PORT=8083
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
+      # ── Audio/Video transcription (Track 1) ──────────────────
+      # - EMDEX_WHISPER_ENABLED=true
       - EMDEX_WHISPER_URL=${EMDEX_WHISPER_URL:-http://whisper:8080}
       - EMDEX_WHISPER_MODEL=${EMDEX_WHISPER_MODEL:-base}
+      # - EMDEX_WHISPER_MIN_CHARS=50
+      # - EMDEX_WHISPER_LANGUAGE=
       - EMDEX_ENABLE_OCR=${EMDEX_ENABLE_OCR:-true}
+      # ── Gemini Vision image captioning (Track 2) ─────────────
+      # - EMDEX_VISION_ENABLED=true
+      # - EMDEX_VISION_MAX_SIZE_MB=10
+      # ── FFmpeg video frame extraction (Track 3) ──────────────
+      # - EMDEX_FRAME_ENABLED=true
+      # - EMDEX_FFMPEG_URL=http://ffmpeg-sidecar:8004
+      # - EMDEX_FRAME_INTERVAL_SEC=30
+      # - EMDEX_MAX_FRAMES=10
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBED_MODEL=nomic-embed-text:v2
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
       - EMDEX_GATEWAY_URL=http://nginx:80
       - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
     networks:
@@ -378,6 +518,8 @@ services:
       extractous:
         condition: service_healthy
       whisper:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: always
     healthcheck:
@@ -404,10 +546,14 @@ services:
     environment:
       - GATEWAY_URL=http://nginx:80
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
     networks:
       - emdexer-net
     depends_on:
       nginx:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: always
 

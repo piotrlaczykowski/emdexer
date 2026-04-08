@@ -10,10 +10,27 @@ config:
   namespace: "default"
   mountPath: "/data"
   extractousHost: "http://extractous:8000"
-  # Whisper sidecar (audio/video transcription)
+  # Qdrant mTLS (Phase 28) — default is plaintext gRPC (unchanged)
+  qdrantTls: "false"
+  # qdrantTlsCa: "/certs/ca.pem"
+  # qdrantTlsCert: "/certs/client.pem"
+  # qdrantTlsKey: "/certs/client.key"
+  # Multi-Modal Hardening (Phase 26)
+  # Track 1 — Whisper (audio/video transcription)
+  whisperEnabled: "false"
   whisperUrl: "http://whisper:8080"
   whisperModel: "base"
+  whisperMinChars: "50"
+  whisperLanguage: ""
   enableOcr: "true"
+  # Track 2 — Gemini Vision (image captioning)
+  visionEnabled: "false"
+  visionMaxSizeMB: "10"
+  # Track 3 — FFmpeg (video frame extraction)
+  frameEnabled: "false"
+  ffmpegUrl: ""
+  frameIntervalSec: "30"
+  maxFrames: "10"
   deltaEnabled: "1"
   fullHash: "0"
   # VFS backend: local | smb | sftp | nfs | s3
@@ -21,6 +38,26 @@ config:
   # Gateway registration (optional)
   gatewayUrl: ""
   gatewayAuthKey: ""
+  # Chunking (Phase 31)
+  chunkSize: ""    # words per chunk; leave empty to use default (512)
+  chunkOverlap: "" # overlapping words; leave empty to use default (50)
+  # Semantic Chunking (Phase 35)
+  chunkStrategy: "fixed"           # "fixed" or "semantic"
+  semanticChunkThreshold: ""       # cosine similarity threshold; default 0.7
+  semanticChunkMaxSize: ""         # max words per semantic chunk; default 512
+  # Contextual Retrieval (Phase 32)
+  contextualRetrieval: "false" # set to "true" to prepend LLM context to chunk embeddings
+  contextModel: ""             # model for context generation; leave empty to use EMDEX_LLM_MODEL
+  # Graph-RAG migration (Phase 24)
+  graphMigration: "auto"
+  # Walk-time path exclusions — comma-separated dir names or glob patterns.
+  # Skip before any file I/O. Example: "#recycle,.Trash,.DS_Store"
+  excludePaths: ""
+  # Extractor plugins (Phase 25)
+  pluginEnabled: "true"
+  # pluginSidecarUrl: "http://plugin-sidecar:8003/extract"
+  pluginDir: "/app/plugins"
+  # pluginTimeout: "10s"
   # S3 config (when nodeType=s3)
   s3Endpoint: ""
   s3AccessKey: ""
@@ -29,8 +66,23 @@ config:
   s3UseSsl: "true"
   s3Prefix: ""
 
+  # Parallel indexing workers (feat/batch-embed-workers)
+  # Each worker independently extracts text, embeds, and prepares Qdrant points.
+  # Default: 1 (safe for all setups). Recommended for local Ollama: 2-4.
+  indexWorkers: ""   # leave empty to use default (1)
+  batchSize: ""      # Qdrant flush threshold; leave empty to use default (500)
+
+  # Embedding provider (QW-1/2). Options: gemini (default) | ollama | openai.
+  embedProvider: "gemini"
+  # ollamaHost: "http://ollama:11434"
+  # ollamaEmbedModel: "nomic-embed-text:v2"
+  # geminiModel: "gemini-embedding-2-preview"
+  # openaiEmbedModel: "text-embedding-3-small"
+  # openaiApiKey is in secret.openaiApiKey
+
 secret:
   googleApiKey: ""
+  openaiApiKey: "" # required when config.embedProvider=openai
 
 persistence:
   enabled: false

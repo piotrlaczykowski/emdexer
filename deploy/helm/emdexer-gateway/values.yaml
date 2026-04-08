@@ -23,7 +23,6 @@ ingress:
 config:
   qdrantHost: "qdrant:6334"
   qdrantCollection: "emdexer_v1"
-  authKey: ""
   # OIDC / JWT (optional — set issuer to enable)
   oidcIssuer: ""
   oidcClientId: ""
@@ -32,9 +31,58 @@ config:
   groupAcl: ""
   # Global search timeout (ms)
   globalSearchTimeout: "500"
+  # Hybrid search — BM25 keyword + vector merged via RRF (Phase 21).
+  # Set to "false" to fall back to pure vector search.
+  bm25Enabled: "true"
+  # RRF tuning (Phase 22). Leave empty to use code defaults (K=60, weights=1.0).
+  # rrfK: "60"
+  # rrfVectorWeight: "1.0"
+  # rrfBm25Weight: "1.0"
+  # Agentic multi-hop RAG (Phase 20).
+  agenticEnabled: "true"
+  # maxHops: "3"          # Maximum retrieval hops (1-5). Default: 3.
+  # hopConfidenceThreshold: "0.7"  # LLM confidence threshold for early stop. Default: 0.7.
+  # Graph-RAG — filesystem knowledge graph (Phase 24).
+  # Set graphEnabled to "false" to disable graph expansion.
+  graphEnabled: "true"
+  # graphDepth: "1"       # BFS hop depth [1-3]. Default: 1.
+  # OpenTelemetry distributed tracing (Phase 27). Leave otelEndpoint empty to disable.
+  otelEndpoint: ""
+  # otelServiceName: "emdex-gateway"
+  # otelSamplingRatio: "1.0"
   # HA mode
   haMode: "false"
   postgresUrl: ""
+  # PostgreSQL read replica (Phase 28) — routes List queries to replica; fallback to primary on error
+  # pgReplicaUrl: "postgres://user:pass@replica:5432/emdexer?sslmode=require"
+  # Qdrant mTLS (Phase 28) — default is plaintext gRPC (unchanged)
+  qdrantTls: "false"
+  # qdrantTlsCa: "/certs/ca.pem"
+  # qdrantTlsCert: "/certs/client.pem"
+  # qdrantTlsKey: "/certs/client.key"
+  # Qdrant HTTP host for cluster health probe (/healthz/qdrant). Defaults to
+  # QDRANT_HOST with gRPC port 6334 replaced by HTTP port 6333.
+  # qdrantHttpHost: "qdrant:6333"
+  # Audit log async buffer size (Phase 29). Default: 1000. Range: [100, 100000].
+  # auditBufferSize: "1000"
+  # Late-interaction reranking (Phase 30). Disabled by default.
+  # Enable with a BGE-Reranker sidecar (see src/reranker-sidecar/).
+  # Embedding provider (QW-1/2). Options: gemini (default) | ollama | openai.
+  embedProvider: "gemini"
+  # ollamaHost: "http://ollama:11434"
+  # ollamaEmbedModel: "nomic-embed-text:v2"
+  # geminiModel: "gemini-embedding-2-preview"
+  # openaiEmbedModel: "text-embedding-3-small"
+  # openaiApiKey is in secret.openaiApiKey
+  rerankEnabled: "false"
+  # rerankUrl: "http://reranker:8005"
+  # rerankTopK: "20"          # Candidates fed into the reranker (default: 20).
+  # rerankThreshold: "0.0"    # Min rerank score to include in results [0.0–1.0].
+  # Shared secret for gateway→sidecar auth. Must match RERANKER_TOKEN on the sidecar.
+  # Leave empty to disable token auth (dev/local mode).
+  # rerankToken: ""  — moved to secret.rerankToken
+  # True LLM token streaming (Phase 37)
+  streamEnabled: "true"
 
 # Node registry persistence — set enabled=true to keep the registry across pod restarts.
 # The registry file path inside the container is persistence.registryFile.
@@ -48,8 +96,17 @@ persistence:
 
 secret:
   googleApiKey: ""
+  authKey: "" # Set via: helm upgrade --set secret.authKey=<value> or values override
+  rerankToken: ""
+  openaiApiKey: "" # required when config.embedProvider=openai
 
-resources: {}
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
 nodeSelector: {}
 tolerations: []
 affinity: {}

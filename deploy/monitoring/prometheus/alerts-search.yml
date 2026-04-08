@@ -1,0 +1,222 @@
+groups:
+  - name: emdexer_search
+    interval: 1m
+    rules:
+
+      # ────────────────────────────────────────────────────────────────────────
+      # UnifiedSearchHighLatency
+      # Fires when the Qdrant Universal Query API p99 latency (server-side RRF)
+      # exceeds 1 second over the last 5 minutes.
+      # This replaced the old HighBM25Latency alert (Phase 29 migration to
+      # server-side RRF removed separate vector/BM25 leg metrics).
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: UnifiedSearchHighLatency
+        expr: |
+          histogram_quantile(0.99,
+            rate(emdexer_gateway_search_unified_query_duration_ms_bucket[5m])
+          ) > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unified hybrid search p99 latency above 1 second"
+          description: >
+            Collection {{ $labels.collection }} namespace {{ $labels.namespace }}:
+            Qdrant Universal Query API p99 latency {{ $value | humanizeDuration }}
+            exceeds 1 second. Possible causes: missing full-text index on the 'text'
+            field causing Qdrant to perform a slow full-collection scan for the text
+            prefetch leg. Fix: restart the emdex-node to trigger EnsureTextIndexes(),
+            or create the index manually via the Qdrant REST API.
+
+      # ────────────────────────────────────────────────────────────────────────
+      # BM25IndexFailure
+      # Fires when unified hybrid search returns 0 results more than 50 times
+      # in 5 minutes. A sudden spike indicates the full-text index may have been
+      # dropped, the 'text' payload field is missing, or a namespace mismatch.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: BM25IndexFailure
+        expr: |
+          increase(emdexer_gateway_bm25_zero_results_total[5m]) > 50
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unified hybrid search returning 0 results — possible index issue"
+          description: >
+            Collection {{ $labels.collection }} namespace {{ $labels.namespace }}:
+            Unified hybrid search (server-side RRF) returned 0 results {{ $value | humanize }}
+            times in the last 5 minutes.
+            Possible causes:
+            - Full-text index missing on the 'text' field (text prefetch leg returns nothing)
+            - Documents indexed without a 'text' payload field
+            - All queries contain only stop-words
+            Check gateway logs for: [search] unified query returned 0 results
+
+      # ────────────────────────────────────────────────────────────────────────
+      # HybridFallbackActive
+      # Fires immediately when any hybrid search falls back to vector-only
+      # due to the Qdrant Universal Query API failing. This means the Qdrant
+      # version is too old (< 1.10.0) or the gRPC method is unavailable.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: HybridFallbackActive
+        expr: |
+          increase(emdexer_gateway_bm25_fallback_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hybrid search falling back to vector-only"
+          description: >
+            Collection {{ $labels.collection }} namespace {{ $labels.namespace }}:
+            The Qdrant Universal Query API is returning errors — hybrid search has
+            fallen back to vector-only results. Search is degraded but still functional.
+            Likely cause: Qdrant version < 1.10.0 (Universal Query API not available).
+            Required: Qdrant >= 1.10.0. Check gateway logs for:
+            [search] unified query failed for collection
+
+      # ────────────────────────────────────────────────────────────────────────
+      # AgenticHighHopRate
+      # Fires when the average additional hops per chat request exceeds 2.
+      # This usually indicates the confidence threshold is too high, causing
+      # the loop to exhaust MaxHops on most requests and driving up LLM cost.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: AgenticHighHopRate
+        expr: |
+          (
+            rate(emdexer_gateway_agentic_hops_total[5m])
+            /
+            rate(emdexer_gateway_llm_duration_ms_count{model="gemini-2.0-flash"}[5m])
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agentic RAG averaging >2 extra hops per request"
+          description: >
+            Namespace {{ $labels.namespace }}:
+            The agentic retrieval loop is performing more than 2 additional hops
+            per chat request on average. This increases LLM cost and latency.
+            Consider lowering EMDEX_HOP_CONFIDENCE_THRESHOLD or EMDEX_MAX_HOPS.
+
+      # ────────────────────────────────────────────────────────────────────────
+      # AgenticLowEarlyStopRate
+      # Fires when the early-stop ratio drops below 20% for 10 minutes.
+      # Means the LLM rarely considers context sufficient before MaxHops —
+      # the threshold may be set too high for the corpus.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: AgenticLowEarlyStopRate
+        expr: |
+          (
+            rate(emdexer_gateway_agentic_early_stop_total[10m])
+            /
+            (rate(emdexer_gateway_agentic_hops_total[10m]) + rate(emdexer_gateway_agentic_early_stop_total[10m]))
+          ) < 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agentic RAG early-stop rate below 20%"
+          description: >
+            Namespace {{ $labels.namespace }}:
+            The agentic loop early-stops on fewer than 20% of requests.
+            Most requests are running to MaxHops. Check EMDEX_HOP_CONFIDENCE_THRESHOLD
+            (default 0.7) — lower it to allow earlier stopping, or review whether
+            the corpus has sufficient coverage for the queries being asked.
+
+      # ────────────────────────────────────────────────────────────────────────
+      # GraphExpansionNoNeighbors
+      # Fires when graph expansions are triggered but consistently find 0 neighbours.
+      # This usually means the index was created before Phase 24 and no `relations`
+      # payload field has been populated yet — a re-index is needed.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: GraphExpansionNoNeighbors
+        expr: |
+          (
+            rate(emdexer_gateway_graph_expansions_total[10m]) > 0
+          )
+          and
+          (
+            rate(emdexer_gateway_graph_neighbors_found_sum[10m])
+            /
+            rate(emdexer_gateway_graph_neighbors_found_count[10m])
+          ) == 0
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "Graph-RAG expansions triggered but finding no neighbours"
+          description: >
+            Graph expansions are running but returning 0 neighbours on average over
+            the past 10 minutes. Likely cause: the Qdrant collection was indexed
+            before Phase 24 — no `relations` payload field exists yet.
+            Fix: trigger a full re-index so the node writes the `relations` field.
+
+      # ────────────────────────────────────────────────────────────────────────
+      # GraphCacheMissRate
+      # Fires when the graph cache hit rate drops below 50% — the 5-minute TTL
+      # should provide a high hit rate under normal load.
+      # Low hit rates indicate the cache is being evicted too aggressively or
+      # requests arrive for many distinct namespaces.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: GraphCacheMissRate
+        expr: |
+          (
+            rate(emdexer_gateway_graph_cache_hits_total[5m])
+            /
+            rate(emdexer_gateway_graph_expansions_total[5m])
+          ) < 0.5
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "Graph cache hit rate below 50%"
+          description: >
+            The knowledge graph cache hit rate has been below 50% for 5 minutes.
+            Each cache miss triggers a Qdrant scroll of all chunk-0 points.
+            Possible causes: many distinct namespaces, very high request rate,
+            or the TTL is shorter than expected. Consider increasing the
+            EMDEX_GRAPH_TTL environment variable (default: 5m) if applicable.
+
+      # ────────────────────────────────────────────────────────────────────────
+      # PluginHighErrorRate
+      # Fires when any plugin's error+timeout rate exceeds 10% over 5 minutes.
+      # Indicates a broken or crashing plugin script that should be fixed or
+      # removed from EMDEX_PLUGIN_DIR.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: PluginHighErrorRate
+        expr: |
+          (
+            rate(emdexer_node_plugin_calls_total{status=~"error|timeout"}[5m])
+            /
+            rate(emdexer_node_plugin_calls_total[5m])
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Extractor plugin error/timeout rate above 10%"
+          description: >
+            Plugin {{ $labels.plugin }} (extension {{ $labels.extension }}) is
+            failing or timing out on more than 10% of calls over the past 5 minutes.
+            Check node logs for [plugin] errors. If the plugin script is broken,
+            remove it from EMDEX_PLUGIN_DIR and restart the node.
+            Consider increasing EMDEX_PLUGIN_TIMEOUT if timeouts are the root cause.
+
+      # ────────────────────────────────────────────────────────────────────────
+      # PluginTimeoutSpiking
+      # Fires immediately when any plugin is timing out — even a single timeout
+      # per minute suggests the script is hanging on some input class.
+      # ────────────────────────────────────────────────────────────────────────
+      - alert: PluginTimeoutSpiking
+        expr: |
+          rate(emdexer_node_plugin_calls_total{status="timeout"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Extractor plugin subprocess timeout detected"
+          description: >
+            Plugin {{ $labels.plugin }} is timing out on {{ $labels.extension }} files.
+            The subprocess is being killed after EMDEX_PLUGIN_TIMEOUT (default 10s).
+            Check the plugin script for blocking I/O or infinite loops.
+            Increase EMDEX_PLUGIN_TIMEOUT if the file format genuinely needs more time.

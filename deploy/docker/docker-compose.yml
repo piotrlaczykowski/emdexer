@@ -1,6 +1,6 @@
 services:
   qdrant:
-    image: qdrant/qdrant:v1.13.0
+    image: qdrant/qdrant:v1.17.1
     # No host port mappings — Qdrant is internal only.
     # Access via the emdexer-net Docker network (qdrant:6333/6334).
     deploy:
@@ -13,9 +13,17 @@ services:
     networks:
       - emdexer-net
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 6333 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   extractous:
-    build: ./extractous-sidecar
+    build:
+      context: ../../src/extractous-sidecar
+      dockerfile: Dockerfile
     # No host port mappings — Extractous is internal only.
     # Access via the emdexer-net Docker network (extractous:8000).
     deploy:
@@ -27,7 +35,7 @@ services:
       - emdexer-net
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -69,13 +77,85 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      # ── Embedding provider (Phase QW-1/2) ────────────────────
+      # EMBED_PROVIDER: gemini (default) | ollama | openai
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBED_MODEL=nomic-embed-text:v2
+      # - OLLAMA_EMBED_DIMS=1024  # Truncate embedding dims (for Qwen3 etc.)
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      # - EMDEX_SD_FILE=/etc/prometheus/targets/emdexer_nodes.json
+      # Override hostname in Prometheus SD targets (use host IP so external Prometheus can scrape)
+      - EMDEX_SD_HOST_OVERRIDE=${EMDEX_SD_HOST_OVERRIDE:-}
+      - EMDEX_BM25_ENABLED=${EMDEX_BM25_ENABLED:-true}
+      - EMDEX_RRF_K=${EMDEX_RRF_K:-60}
+      - EMDEX_RRF_VECTOR_WEIGHT=${EMDEX_RRF_VECTOR_WEIGHT:-1.0}
+      - EMDEX_RRF_BM25_WEIGHT=${EMDEX_RRF_BM25_WEIGHT:-1.0}
+      - EMDEX_AGENTIC_ENABLED=${EMDEX_AGENTIC_ENABLED:-true}
+      - EMDEX_MAX_HOPS=${EMDEX_MAX_HOPS:-3}
+      - EMDEX_HOP_CONFIDENCE_THRESHOLD=${EMDEX_HOP_CONFIDENCE_THRESHOLD:-0.7}
+      - EMDEX_GRAPH_ENABLED=${EMDEX_GRAPH_ENABLED:-true}
+      - EMDEX_GRAPH_DEPTH=${EMDEX_GRAPH_DEPTH:-1}
+      # Uncomment to enable distributed tracing (OTLP/gRPC, backend-agnostic).
+      # - EMDEX_OTEL_ENDPOINT=otel-collector:4317
+      # - EMDEX_OTEL_SAMPLING_RATIO=1.0
+      # ── Qdrant mTLS (Phase 28) ────────────────────────────────
+      # - EMDEX_QDRANT_TLS=true
+      # - EMDEX_QDRANT_TLS_CA=/certs/ca.pem
+      # - EMDEX_QDRANT_TLS_CERT=/certs/client.pem
+      # - EMDEX_QDRANT_TLS_KEY=/certs/client.key
+      # ── PostgreSQL read replica (Phase 28) ───────────────────
+      # - EMDEX_PG_REPLICA_URL=postgres://user:pass@replica:5432/emdexer?sslmode=require
+      # ── Reranking (Phase 30) — disabled by default ───────────
+      - EMDEX_RERANK_ENABLED=${EMDEX_RERANK_ENABLED:-false}
+      # - EMDEX_RERANK_URL=http://reranker:8005
+      # - EMDEX_RERANK_TOP_K=20
+      # - EMDEX_RERANK_THRESHOLD=0.0
+      # - EMDEX_RERANK_TOKEN=${EMDEX_RERANK_TOKEN}
+      # ── True LLM token streaming (Phase 37) ────────────────
+      - EMDEX_STREAM_ENABLED=${EMDEX_STREAM_ENABLED:-true}
+      # ── Raft health probe / audit buffer (Phase 29) ──────────
+      # QDRANT_HTTP_HOST is derived automatically from QDRANT_HOST when unset.
+      # Override only if the HTTP port differs from 6333.
+      # - QDRANT_HTTP_HOST=qdrant:6333
+      - EMDEX_AUDIT_BUFFER_SIZE=${EMDEX_AUDIT_BUFFER_SIZE:-1000}
+      # ── Query embedding cache + timeout ───────────────────────────────
+      # - EMDEX_EMBED_CACHE_SIZE=1000
+      # - EMDEX_EMBED_TIMEOUT=30000
     volumes:
       - ../../logs:/app/logs
     networks:
       - emdexer-net
+    depends_on:
+      qdrant:
+        condition: service_healthy
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7700/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  plugin-sidecar:
+    build:
+      context: ../../src/plugin-sidecar
+      dockerfile: Dockerfile
+    # No host port mappings — plugin-sidecar is internal only.
+    # Access via the emdexer-net Docker network (plugin-sidecar:8003).
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    volumes:
+      - ../../plugins:/plugins:ro
+    networks:
+      - emdexer-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -90,7 +170,7 @@ services:
           cpus: '1.0'
           memory: 512M
     ports:
-      - "8081:8081"
+      - "8083:8081"   # metrics — use 8083 to avoid conflict with node-private (8082)
     volumes:
       - ../../test_dir:/app/test_dir
     environment:
@@ -98,20 +178,67 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_NAMESPACE=default
       - EMDEX_GATEWAY_URL=http://gateway:7700
-      - EMDEX_GATEWAY_AUTH_KEY=RandomKey123
+      - EMDEX_NODE_URL=${EMDEX_NODE_URL_NODE:-http://localhost:8083}
+      # ── Embedding provider (Phase QW-1/2) — must match gateway ──
+      - EMBED_PROVIDER=${EMBED_PROVIDER:-gemini}
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBED_MODEL=nomic-embed-text:v2
+      # - OLLAMA_EMBED_DIMS=1024  # Truncate embedding dims (for Qwen3 etc.)
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - EMDEX_GATEWAY_AUTH_KEY=${EMDEX_AUTH_KEY}
       - NODE_HEALTH_PORT=8081
       - EMDEX_EXTRACTOUS_URL=http://extractous:8000
+      # ── Audio/Video transcription (Track 1) ──────────────────
+      # Uncomment to enable audio/video transcription:
+      # - EMDEX_WHISPER_ENABLED=true
       - EMDEX_WHISPER_URL=${EMDEX_WHISPER_URL:-http://whisper:8080}
       - EMDEX_WHISPER_MODEL=${EMDEX_WHISPER_MODEL:-base}
+      # - EMDEX_WHISPER_MIN_CHARS=50
+      # - EMDEX_WHISPER_LANGUAGE=
       - EMDEX_ENABLE_OCR=${EMDEX_ENABLE_OCR:-true}
+      # ── Gemini Vision image captioning (Track 2) ─────────────
+      # Uncomment to enable Gemini Vision for images (uses GOOGLE_API_KEY):
+      # - EMDEX_VISION_ENABLED=true
+      # - EMDEX_VISION_MAX_SIZE_MB=10
+      # ── FFmpeg video frame extraction (Track 3) ──────────────
+      # Uncomment to enable video frame extraction:
+      # - EMDEX_FRAME_ENABLED=true
+      # - EMDEX_FFMPEG_URL=http://ffmpeg-sidecar:8004
+      # - EMDEX_FRAME_INTERVAL_SEC=30
+      # - EMDEX_MAX_FRAMES=10
       - EMDEX_EMBEDDING_DIMS=${EMDEX_EMBEDDING_DIMS:-3072}
       - EMDEX_GEMINI_MODEL=${EMDEX_GEMINI_MODEL:-gemini-embedding-2-preview}
+      - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
+      # ── Walk-time path exclusions ────────────────────────────────────
+      # Skip dirs/files before opening them — comma-separated names or glob patterns.
+      # Recommended: #recycle,.Trash,.DS_Store,Thumbs.db
+      # - EMDEX_EXCLUDE_PATHS=#recycle,.Trash,.DS_Store
+      # ── Parallel indexing workers ─────────────────────────────────────
+      # Increase for faster bulk indexing (each worker: extract+embed+prepare).
+      # Recommended for local Ollama: 2-4. Default: 1 (safe for all setups).
+      # - EMDEX_INDEX_WORKERS=2
+      # ── Chunking (Phase 31) — defaults shown, uncomment to override ──
+      # - EMDEX_CHUNK_SIZE=512
+      # - EMDEX_CHUNK_OVERLAP=50
+      # ── Semantic Chunking (Phase 35) — disabled by default ────────
+      # - EMDEX_CHUNK_STRATEGY=fixed
+      # - EMDEX_SEMANTIC_CHUNK_THRESHOLD=0.7
+      # - EMDEX_SEMANTIC_CHUNK_MAX_SIZE=512
+      # ── Contextual Retrieval (Phase 32) — disabled by default ─────
+      # - EMDEX_CONTEXTUAL_RETRIEVAL=false
+      # - EMDEX_CONTEXT_MODEL=gemini-3-flash-preview
     networks:
       - emdexer-net
     depends_on:
       extractous:
         condition: service_healthy
       whisper:
+        condition: service_healthy
+      plugin-sidecar:
         condition: service_healthy
     restart: always
     healthcheck:
@@ -134,12 +261,57 @@ services:
     environment:
       - GATEWAY_URL=http://gateway:7700
       - EMDEX_AUTH_KEY=${EMDEX_AUTH_KEY}
+      - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
+      - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
     networks:
       - emdexer-net
     depends_on:
       gateway:
         condition: service_healthy
+      plugin-sidecar:
+        condition: service_healthy
     restart: always
+
+  # ── Reranker sidecar (late-interaction reranking — Phase 30) ────────────────
+  # Disabled by default. Set EMDEX_RERANK_ENABLED=true on the gateway service
+  # and uncomment this block to enable cross-encoder reranking.
+  # reranker:
+  #   build:
+  #     context: ../../src/reranker-sidecar
+  #     dockerfile: Dockerfile
+  #   environment:
+  #     # Options: cross-encoder/ms-marco-MiniLM-L-6-v2 (default, English),
+  #     #          BAAI/bge-reranker-v2-m3 (BGE-M3, multilingual)
+  #     - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+  #     - RERANKER_DEVICE=${RERANKER_DEVICE:-cpu}
+  #     - MAX_TEXTS=${MAX_TEXTS:-100}
+  #     - RERANKER_TOKEN=${RERANKER_TOKEN}
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '2.0'
+  #         memory: 1G
+  #   networks:
+  #     - emdexer-net
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/health')"]
+  #     interval: 15s
+  #     timeout: 10s
+  #     retries: 5
+
+  # ── FFmpeg sidecar (video frame extraction — Track 3) ───────────────────────
+  # Uncomment to enable video frame extraction:
+  # ffmpeg-sidecar:
+  #   build: ../../src/ffmpeg-sidecar
+  #   networks:
+  #     - emdexer-net
+  #   restart: unless-stopped
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "2"
+  #         memory: 512M
 
 networks:
   emdexer-net:

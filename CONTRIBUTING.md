@@ -43,18 +43,20 @@ Emdexer follows **Semantic Versioning 2.0.0** and uses **Conventional Commits** 
 
 ### Branching Strategy
 
+This project uses **trunk-based development** — `main` is the only long-lived branch.
+
 | Branch | Purpose |
 |---|---|
-| `main` | Production-ready. Only accepts merges from `release/*` and `hotfix/*` |
-| `develop` | Integration branch for features |
-| `feature/*` | Active development of new features |
-| `bugfix/*` | Bug fixes targeting develop |
-| `hotfix/*` | Urgent production fixes |
-| `release/*` | Release preparation |
+| `main` | Always releasable. All PRs target this branch. |
+| `feature/*` | New features |
+| `fix/*` | Bug fixes |
+| `chore/*` | Maintenance, deps, refactors |
+
+Releases are created by pushing a version tag (e.g. `git tag v1.2.0 && git push origin v1.2.0`), which triggers the release workflow.
 
 ### Commit Convention
 
-Releases are automated via [Release Please](https://github.com/google-github-actions/release-please-action) using Conventional Commits:
+Use **Conventional Commits** for clear history:
 
 | Prefix | Effect | Example |
 |---|---|---|
@@ -78,10 +80,10 @@ Look for issues labeled [`good first issue`](https://github.com/piotrlaczykowski
 
 ## Pull Request Process
 
-1. Fork the repo and create your branch from `develop`
+1. Fork the repo and create your branch from `main`
 2. Write tests for your changes
 3. Ensure `make test` and `make vet` pass
-4. Open a PR against `develop` with a clear description
+4. Open a PR against `main` with a clear description
 5. Reference any related issues
 
 ---

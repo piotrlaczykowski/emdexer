@@ -114,6 +114,9 @@ services:
       # - EMDEX_RERANK_TOP_K=20
       # - EMDEX_RERANK_THRESHOLD=0.0
       # - EMDEX_RERANK_TOKEN=${EMDEX_RERANK_TOKEN}
+      # ── Ollama LLM provider (Phase 40) — if set, overrides Gemini ──
+      - EMDEX_OLLAMA_URL=${EMDEX_OLLAMA_URL:-}
+      - EMDEX_OLLAMA_MODEL=${EMDEX_OLLAMA_MODEL:-gemma4:26b}
       # ── True LLM token streaming (Phase 37) ────────────────
       - EMDEX_STREAM_ENABLED=${EMDEX_STREAM_ENABLED:-true}
       # ── Raft health probe / audit buffer (Phase 29) ──────────

@@ -233,11 +233,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Query().Get("debug") == "true" {
 		cfg := search.DefaultRRFConfig()
-		resp["rrf_config"] = map[string]any{
+		rffCfg := map[string]any{
 			"k":             cfg.K,
 			"vector_weight": cfg.VectorWeight,
 			"bm25_weight":   cfg.BM25Weight,
+			"custom":        cfg.K != 60 || cfg.VectorWeight != 1.0 || cfg.BM25Weight != 1.0,
 		}
+		resp["rrf_config"] = rffCfg
 	}
 	s.writeJSON(w, http.StatusOK, resp)
 

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -95,6 +97,15 @@ func (s *Server) handleNodeIndexed(w http.ResponseWriter, r *http.Request) {
 	nodeFilesSkippedTotal.WithLabelValues(body.Namespace, nodeID).Add(float64(body.FilesSkipped))
 	nodeIndexingCompleteTotal.WithLabelValues(body.Namespace, nodeID, body.Status).Inc()
 	nodeIndexingLastFilesIndexed.WithLabelValues(body.Namespace, nodeID).Set(float64(body.FilesIndexed))
+
+	if s.cache != nil {
+		if gen, err := s.cache.IncrGeneration(context.Background(), body.Namespace); err == nil {
+			cacheInvalidations.WithLabelValues(body.Namespace).Inc()
+			log.Printf("[cache] invalidated namespace=%q new_gen=%d", body.Namespace, gen)
+		} else {
+			log.Printf("[cache] invalidate error namespace=%q: %v", body.Namespace, err)
+		}
+	}
 
 	s.events.publish(IndexingEvent{
 		Namespace:    body.Namespace,

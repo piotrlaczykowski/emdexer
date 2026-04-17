@@ -16,6 +16,7 @@ import (
 
 	"github.com/piotrlaczykowski/emdexer/audit"
 	"github.com/piotrlaczykowski/emdexer/auth"
+	"github.com/piotrlaczykowski/emdexer/cache"
 	"github.com/piotrlaczykowski/emdexer/config"
 	"github.com/piotrlaczykowski/emdexer/embed"
 	"github.com/piotrlaczykowski/emdexer/graph"
@@ -39,6 +40,7 @@ type Server struct {
 	pointsClient qdrant.PointsClient
 	healthClient grpc_health_v1.HealthClient
 	embedder     embed.EmbedProvider
+	cache        cache.Cache // nil when EMDEX_CACHE_ENABLED != "true"
 	collection   string
 	apiKey       string
 	authCfg      *auth.Config
@@ -222,6 +224,14 @@ func newServer() *Server {
 		log.Printf("[gateway] query embed cache: disabled (EMDEX_EMBED_CACHE_SIZE=0)")
 	}
 
+	var responseCache cache.Cache
+	if c, err := cache.NewFromEnv(); err != nil {
+		log.Printf("[gateway] cache init error: %v — continuing without cache", err)
+	} else if c != nil {
+		log.Printf("[gateway] cache enabled backend=%s", os.Getenv("EMDEX_CACHE_BACKEND"))
+		responseCache = c
+	}
+
 	globalSearchTimeout := 500 * time.Millisecond
 	if t := os.Getenv("EMDEX_GLOBAL_SEARCH_TIMEOUT"); t != "" {
 		if ms, err := strconv.Atoi(t); err == nil && ms > 0 {
@@ -317,6 +327,7 @@ func newServer() *Server {
 		pointsClient:        qdrant.NewPointsClient(conn),
 		healthClient:        grpc_health_v1.NewHealthClient(conn),
 		embedder:            embedder,
+		cache:               responseCache,
 		collection:          collection,
 		apiKey:              apiKey,
 		authCfg:             &auth.Config{AuthKey: authKey, APIKeys: apiKeys, OIDC: oidcVerifier, GroupACL: groupACL},
@@ -444,6 +455,12 @@ func (s *Server) Run() {
 	}
 	if err := metricsServer.Shutdown(ctx); err != nil {
 		log.Printf("[gateway] metrics server shutdown error: %v", err)
+	}
+
+	if s.cache != nil {
+		if err := s.cache.Close(); err != nil {
+			log.Printf("[gateway] cache close error: %v", err)
+		}
 	}
 
 	audit.Shutdown()

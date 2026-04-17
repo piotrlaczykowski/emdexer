@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"log"
 	"net/http"
 	"sort"
@@ -131,12 +131,25 @@ func (s *Server) namespaceVectorCount(ctx context.Context, ns string) (uint64, e
 }
 
 // queryLastIndexed returns MAX(last_heartbeat) for any node whose namespaces
-// JSONB array contains ns.
+// JSONB array contains ns. Returns zero time when no rows match (MAX is NULL).
 func queryLastIndexed(ctx context.Context, r *registry.DBNodeRegistry, ns string) (time.Time, error) {
-	var t time.Time
+	var t *time.Time
 	err := r.DB().QueryRowContext(ctx,
 		`SELECT MAX(last_heartbeat) FROM registered_nodes WHERE namespaces @> $1::jsonb`,
-		fmt.Sprintf(`[%q]`, ns),
+		jsonArray(ns),
 	).Scan(&t)
-	return t, err
+	if err != nil {
+		return time.Time{}, err
+	}
+	if t == nil {
+		return time.Time{}, nil
+	}
+	return *t, nil
+}
+
+// jsonArray marshals s into a single-element JSONB array string, safely
+// handling namespaces that contain backslashes, quotes, or non-ASCII chars.
+func jsonArray(s string) string {
+	b, _ := json.Marshal([]string{s})
+	return string(b)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/piotrlaczykowski/emdexer/registry"
 	"github.com/qdrant/go-client/qdrant"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -91,6 +92,13 @@ func (s *Server) handleNamespaceStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sort.Slice(stats, func(i, j int) bool { return stats[i].Namespace < stats[j].Namespace })
+
+	span.SetAttributes(
+		attribute.Int("namespaces.count", len(stats)),
+		attribute.Int("nodes.total", len(nodes)),
+		attribute.Bool("registry.db_backed", dbReg != nil),
+	)
+
 	s.writeJSON(w, http.StatusOK, stats)
 }
 

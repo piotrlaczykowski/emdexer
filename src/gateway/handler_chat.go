@@ -118,7 +118,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("X-Emdexer-Cache", "hit")
 			span.SetAttributes(attribute.Bool("cache.hit", true))
 			if req.Stream {
-				rag.StreamResponse(w, req.Model, cached.Answer)
+				rag.StreamResponse(w, req.Model, cached.Answer) //nolint:staticcheck // cache hit replays a stored string; no real stream to tee
 			} else {
 				s.writeJSON(w, http.StatusOK, openai.ChatResponse{
 					ID: "chatcmpl-cache",

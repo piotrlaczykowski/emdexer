@@ -93,6 +93,22 @@ spec:
             - name: EMDEX_OTEL_SAMPLING_RATIO
               value: {{ .Values.config.otelSamplingRatio | quote }}
             {{- end }}
+            - name: EMDEX_CACHE_ENABLED
+              value: {{ .Values.config.cacheEnabled | default "false" | quote }}
+            - name: EMDEX_CACHE_BACKEND
+              value: {{ .Values.config.cacheBackend | default "memory" | quote }}
+            {{- if .Values.config.cacheRedisUrl }}
+            - name: EMDEX_CACHE_REDIS_URL
+              value: {{ .Values.config.cacheRedisUrl | quote }}
+            {{- end }}
+            {{- if .Values.config.cacheTtl }}
+            - name: EMDEX_CACHE_TTL
+              value: {{ .Values.config.cacheTtl | quote }}
+            {{- end }}
+            {{- if .Values.config.cacheMaxEntries }}
+            - name: EMDEX_CACHE_MAX_ENTRIES
+              value: {{ .Values.config.cacheMaxEntries | quote }}
+            {{- end }}
             {{- if eq .Values.config.haMode "true" }}
             - name: EMDEX_HA_MODE
               value: "true"

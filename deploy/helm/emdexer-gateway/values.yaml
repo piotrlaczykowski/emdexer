@@ -50,6 +50,12 @@ config:
   otelEndpoint: ""
   # otelServiceName: "emdex-gateway"
   # otelSamplingRatio: "1.0"
+  # Response caching (Phase 41). Disabled by default.
+  cacheEnabled: "false"
+  cacheBackend: "memory"   # memory | redis
+  # cacheRedisUrl: "redis://redis:6379"   # required when cacheBackend=redis
+  # cacheTtl: "5m"
+  # cacheMaxEntries: "1000"              # memory backend only
   # HA mode
   haMode: "false"
   postgresUrl: ""

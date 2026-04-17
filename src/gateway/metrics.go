@@ -64,3 +64,18 @@ var chatStreamChunksTotal = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "emdexer_gateway_chat_stream_chunks_total",
 	Help: "Total SSE token chunks delivered to clients via the chat handler",
 })
+
+var cacheHits = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "emdexer_gateway_cache_hits_total",
+	Help: "Total number of chat completion cache hits",
+})
+
+var cacheMisses = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "emdexer_gateway_cache_misses_total",
+	Help: "Total number of chat completion cache misses",
+})
+
+var cacheInvalidations = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_cache_invalidations_total",
+	Help: "Total number of namespace cache invalidations",
+}, []string{"namespace"})

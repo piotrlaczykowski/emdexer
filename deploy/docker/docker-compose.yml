@@ -127,6 +127,11 @@ services:
       # ── Query embedding cache + timeout ───────────────────────────────
       # - EMDEX_EMBED_CACHE_SIZE=1000
       # - EMDEX_EMBED_TIMEOUT=30000
+      - EMDEX_CACHE_ENABLED=${EMDEX_CACHE_ENABLED:-false}
+      - EMDEX_CACHE_BACKEND=${EMDEX_CACHE_BACKEND:-memory}
+      - EMDEX_CACHE_REDIS_URL=${EMDEX_CACHE_REDIS_URL:-redis://redis:6379}
+      - EMDEX_CACHE_TTL=${EMDEX_CACHE_TTL:-5m}
+      - EMDEX_CACHE_MAX_ENTRIES=${EMDEX_CACHE_MAX_ENTRIES:-1000}
     volumes:
       - ../../logs:/app/logs
     networks:
@@ -315,6 +320,13 @@ services:
   #       limits:
   #         cpus: "2"
   #         memory: 512M
+
+  # Uncomment to enable Redis cache backend (set EMDEX_CACHE_BACKEND=redis).
+  # redis:
+  #   image: redis:7-alpine
+  #   restart: unless-stopped
+  #   networks:
+  #     - emdexer-net
 
 networks:
   emdexer-net:

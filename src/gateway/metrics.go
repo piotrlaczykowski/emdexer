@@ -79,3 +79,8 @@ var cacheInvalidations = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "emdexer_gateway_cache_invalidations_total",
 	Help: "Total number of namespace cache invalidations",
 }, []string{"namespace"})
+
+var namespaceVectorCount = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "emdexer_gateway_namespace_vector_count",
+	Help: "Approximate number of vectors per namespace in the Qdrant collection",
+}, []string{"namespace"})

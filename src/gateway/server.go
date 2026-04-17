@@ -423,6 +423,7 @@ func (s *Server) Run() {
 	mux.HandleFunc("/v1/events/indexing", middleware.Instrument("/v1/events/indexing", s.authCfg.Middleware(s.handleIndexingEvents)))
 	mux.HandleFunc("/v1/eval", middleware.Instrument("/v1/eval", s.authCfg.Middleware(s.handleEval)))
 	mux.HandleFunc("/v1/nodes/", middleware.Instrument("/v1/nodes/", s.authCfg.Middleware(s.handleNodeIndexed)))
+	mux.HandleFunc("/v1/namespaces/stats", middleware.Instrument("/v1/namespaces/stats", s.authCfg.Middleware(s.handleNamespaceStats)))
 
 	addr := ":" + s.port
 	log.Printf("Gateway starting on %s", addr)

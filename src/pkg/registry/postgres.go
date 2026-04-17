@@ -65,6 +65,10 @@ func (r *DBNodeRegistry) OpenReplica(replicaDSN string) {
 	log.Println("[registry] PostgreSQL read replica attached")
 }
 
+// DB returns the primary write connection. Exposed for read-only aggregate
+// queries (e.g. namespace stats) that need direct SQL access.
+func (r *DBNodeRegistry) DB() *sql.DB { return r.db }
+
 // readDB returns replicaDB when available, otherwise the primary.
 func (r *DBNodeRegistry) readDB() *sql.DB {
 	if r.replicaDB != nil {

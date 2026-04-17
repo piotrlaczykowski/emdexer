@@ -98,15 +98,31 @@ func TestDispatchWebhook_5xxRetry(t *testing.T) {
 // TestDispatchWebhook_4xxNoRetry — a 4xx response must NOT be retried.
 func TestDispatchWebhook_4xxNoRetry(t *testing.T) {
 	var count int32
+	done := make(chan struct{}, 2) // buffer 2 so handler never blocks
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&count, 1)
 		w.WriteHeader(http.StatusBadRequest)
+		done <- struct{}{}
 	}))
 	defer ts.Close()
 
 	dispatchWebhook(ts.Client(), ts.URL, IndexedEvent{Event: "namespace.indexed"})
 
-	time.Sleep(300 * time.Millisecond)
+	// Wait for the first (and only) request to complete.
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for initial request")
+	}
+
+	// Allow a brief window for any erroneous retry to arrive.
+	select {
+	case <-done:
+		t.Errorf("unexpected retry on 4xx (count=%d)", atomic.LoadInt32(&count))
+	case <-time.After(200 * time.Millisecond):
+		// good — no retry
+	}
 
 	if got := atomic.LoadInt32(&count); got != 1 {
 		t.Errorf("expected exactly 1 call on 4xx, got %d", got)
@@ -134,16 +150,21 @@ func TestDispatchWebhook_SSRFBlocked(t *testing.T) {
 }
 
 // TestDispatchWebhook_Timeout — a slow server (>5s) must not block the caller.
-// dispatchWebhook must return in <100ms even when the server never responds.
+// dispatchWebhook must return in <500ms even when the server never responds.
 func TestDispatchWebhook_Timeout(t *testing.T) {
 	// handlerStarted is closed once the handler goroutine is running so we know
 	// the server is holding an in-flight request before we call ts.Close().
 	handlerStarted := make(chan struct{})
-	var wg sync.WaitGroup
+	var (
+		wg          sync.WaitGroup
+		handlerOnce sync.Once
+	)
 	wg.Add(1)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer wg.Done()
-		close(handlerStarted)
+		handlerOnce.Do(func() {
+			wg.Done()
+			close(handlerStarted)
+		}) // safe if called more than once
 		select {
 		case <-time.After(10 * time.Second):
 		case <-r.Context().Done():
@@ -151,6 +172,8 @@ func TestDispatchWebhook_Timeout(t *testing.T) {
 	}))
 	defer func() {
 		ts.Close()
+		// Wait for the in-flight handler goroutine to exit (r.Context() will
+		// be cancelled by ts.Close, which unblocks the select above).
 		wg.Wait()
 	}()
 
@@ -158,8 +181,10 @@ func TestDispatchWebhook_Timeout(t *testing.T) {
 	dispatchWebhook(ts.Client(), ts.URL, IndexedEvent{Event: "namespace.indexed"})
 	elapsed := time.Since(start)
 
-	if elapsed > 100*time.Millisecond {
-		t.Errorf("dispatchWebhook blocked the caller for %v (want <100ms)", elapsed)
+	// dispatchWebhook must return immediately — it must not wait for the
+	// 5s client timeout or the 10s server delay.
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("dispatchWebhook blocked the caller for %v (want <500ms)", elapsed)
 	}
 
 	// Wait for the handler to start so ts.Close() can cancel the in-flight

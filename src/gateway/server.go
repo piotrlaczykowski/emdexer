@@ -25,6 +25,7 @@ import (
 	"github.com/piotrlaczykowski/emdexer/qdrantcreds"
 	"github.com/piotrlaczykowski/emdexer/rag"
 	"github.com/piotrlaczykowski/emdexer/registry"
+	"github.com/piotrlaczykowski/emdexer/safenet"
 	"github.com/piotrlaczykowski/emdexer/rerank"
 	"github.com/piotrlaczykowski/emdexer/telemetry"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -73,6 +74,12 @@ type Server struct {
 
 	// Indexing events (Phase 33)
 	events *eventBus
+
+	// Webhook on namespace index completion (Phase 44).
+	// webhookURL is empty when EMDEX_WEBHOOK_URL is unset — dispatcher never fires.
+	// webhookClient uses safenet.NewSafeClient to block SSRF via private IPs at dial time.
+	webhookURL    string
+	webhookClient *http.Client
 
 	// Prometheus file_sd service discovery writer.
 	sdWriter *SDWriter
@@ -345,6 +352,12 @@ func newServer() *Server {
 		rerankThreshold:     rerankThreshold,
 		streamEnabled:       streamEnabled,
 		otelShutdown:        otelShutdown,
+	}
+
+	srv.webhookURL = os.Getenv("EMDEX_WEBHOOK_URL")
+	if srv.webhookURL != "" {
+		srv.webhookClient = safenet.NewSafeClient(5 * time.Second)
+		log.Printf("[gateway] webhook enabled: %s", logSafe(srv.webhookURL))
 	}
 
 	ollamaURL := os.Getenv("EMDEX_OLLAMA_URL")

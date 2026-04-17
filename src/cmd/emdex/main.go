@@ -26,6 +26,8 @@ func main() {
 			cmdWhoami()
 		case "chat":
 			cmdChat()
+		case "eval":
+			cmdEval()
 		default:
 			fmt.Fprintf(os.Stderr, "\n  %s %s: %s\n", "❌", ui.Red("Unknown command"), os.Args[1])
 			printUsage()

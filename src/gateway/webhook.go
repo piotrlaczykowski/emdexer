@@ -62,12 +62,12 @@ func postOnce(client *http.Client, webhookURL string, body []byte, label string)
 		log.Printf("[webhook] POST %s error (%s): %v", webhookURL, label, err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 500 && label == "initial" {
 		log.Printf("[webhook] POST %s returned %d — retrying once", webhookURL, resp.StatusCode)
 		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		postOnce(client, webhookURL, body, "retry")
 		return
 	}

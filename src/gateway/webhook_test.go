@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -196,5 +197,69 @@ func TestDispatchWebhook_Timeout(t *testing.T) {
 		// avoid a leaked goroutine blocking the test process on exit.
 		wg.Done()
 		t.Error("timeout waiting for handler to start")
+	}
+}
+
+// TestHandleNodeIndexed_FiresWebhook — end-to-end: POST /v1/nodes/{id}/indexed
+// triggers a webhook POST to the configured URL.
+func TestHandleNodeIndexed_FiresWebhook(t *testing.T) {
+	done := make(chan IndexedEvent, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var evt IndexedEvent
+		_ = json.NewDecoder(r.Body).Decode(&evt)
+		done <- evt
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	bus := newEventBus()
+	srv := &Server{
+		events:        bus,
+		webhookURL:    ts.URL,
+		webhookClient: ts.Client(), // unrestricted — allows loopback for test
+	}
+
+	body := `{"namespace":"prod","files_indexed":7,"files_skipped":0,"status":"complete"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/nodes/node-x/indexed", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.handleNodeIndexed(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("handler status: got %d, want 204", w.Code)
+	}
+
+	select {
+	case evt := <-done:
+		if evt.Event != "namespace.indexed" {
+			t.Errorf("event type = %q, want namespace.indexed", evt.Event)
+		}
+		if evt.Namespace != "prod" || evt.NodeID != "node-x" || evt.FilesIndexed != 7 {
+			t.Errorf("payload mismatch: %+v", evt)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for webhook delivery")
+	}
+}
+
+// TestHandleNodeIndexed_NoWebhookWhenDisabled — webhookURL="" means no dispatch.
+func TestHandleNodeIndexed_NoWebhookWhenDisabled(t *testing.T) {
+	var hit int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hit, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	srv := &Server{events: newEventBus()} // webhookURL unset
+
+	body := `{"namespace":"prod","files_indexed":7,"files_skipped":0,"status":"complete"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/nodes/node-x/indexed", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleNodeIndexed(w, req)
+
+	time.Sleep(200 * time.Millisecond)
+	if got := atomic.LoadInt32(&hit); got != 0 {
+		t.Errorf("webhook fired with empty URL: %d calls", got)
 	}
 }

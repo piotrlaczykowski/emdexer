@@ -132,6 +132,8 @@ services:
       - EMDEX_CACHE_REDIS_URL=${EMDEX_CACHE_REDIS_URL:-redis://redis:6379}
       - EMDEX_CACHE_TTL=${EMDEX_CACHE_TTL:-5m}
       - EMDEX_CACHE_MAX_ENTRIES=${EMDEX_CACHE_MAX_ENTRIES:-1000}
+      # ── Webhook (Phase 44) — fire-and-forget POST on namespace index completion ──
+      - EMDEX_WEBHOOK_URL=${EMDEX_WEBHOOK_URL:-}
     volumes:
       - ../../logs:/app/logs
     networks:

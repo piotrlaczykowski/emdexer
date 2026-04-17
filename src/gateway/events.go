@@ -115,5 +115,14 @@ func (s *Server) handleNodeIndexed(w http.ResponseWriter, r *http.Request) {
 		FilesSkipped: body.FilesSkipped,
 		Timestamp:    time.Now().UTC(),
 	})
+	if s.webhookURL != "" && s.webhookClient != nil {
+		dispatchWebhook(s.webhookClient, s.webhookURL, IndexedEvent{
+			Event:        "namespace.indexed",
+			Namespace:    body.Namespace,
+			NodeID:       nodeID,
+			FilesIndexed: body.FilesIndexed,
+			Timestamp:    time.Now().UTC(),
+		})
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

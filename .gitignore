@@ -1,6 +1,7 @@
 # Binaries
 bin/
-emdex
+src/cmd/emdex/emdex
+/emdex
 emdex-gateway
 emdex-node
 src/gateway/gateway

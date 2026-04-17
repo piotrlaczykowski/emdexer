@@ -193,6 +193,10 @@ spec:
             {{- end }}
             - name: EMDEX_STREAM_ENABLED
               value: {{ .Values.config.streamEnabled | default "true" | quote }}
+            {{- if .Values.config.webhookUrl }}
+            - name: EMDEX_WEBHOOK_URL
+              value: {{ .Values.config.webhookUrl | quote }}
+            {{- end }}
           {{- if .Values.persistence.enabled }}
           volumeMounts:
             - name: registry-storage

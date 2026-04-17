@@ -89,6 +89,9 @@ config:
   # rerankToken: ""  — moved to secret.rerankToken
   # True LLM token streaming (Phase 37)
   streamEnabled: "true"
+  # Webhook fired on namespace index completion (Phase 44). Empty = disabled.
+  # Must be a reachable URL on a public IP — SSRF guard rejects private/loopback.
+  webhookUrl: ""
 
 # Node registry persistence — set enabled=true to keep the registry across pod restarts.
 # The registry file path inside the container is persistence.registryFile.

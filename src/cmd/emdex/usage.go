@@ -21,6 +21,7 @@ func printUsage() {
 	fmt.Printf("    %s    Search indexed documents  %s\n", ui.Cyan("search"), ui.Dim("(--namespace, --global, --limit)"))
 	fmt.Printf("    %s      Chat with the LLM  %s\n", ui.Cyan("chat"), ui.Dim("(--stream, --namespace, --model)"))
 	fmt.Printf("    %s    Show current caller identity and authorized namespaces\n", ui.Cyan("whoami"))
+	fmt.Printf("    %s      Run RAG eval questions against the gateway  %s\n", ui.Cyan("eval"), ui.Dim("(--file, --question, --threshold, --output)"))
 	fmt.Println()
 	fmt.Printf("  %s\n", ui.Bold("Flags:"))
 	fmt.Printf("    %s  Show version information\n", ui.Cyan("--version"))

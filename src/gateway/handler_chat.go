@@ -12,11 +12,13 @@ import (
 
 	"github.com/piotrlaczykowski/emdexer/audit"
 	"github.com/piotrlaczykowski/emdexer/auth"
+	"github.com/piotrlaczykowski/emdexer/cache"
 	"github.com/piotrlaczykowski/emdexer/llm"
 	"github.com/piotrlaczykowski/emdexer/openai"
 	"github.com/piotrlaczykowski/emdexer/rag"
 	"github.com/piotrlaczykowski/emdexer/search"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -91,16 +93,71 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var question string
+	var question, rawQuestion string
 	for i := len(req.Messages) - 1; i >= 0; i-- {
 		if req.Messages[i].Role == "user" {
-			question = logSafe(req.Messages[i].Content)
+			rawQuestion = req.Messages[i].Content
+			question = logSafe(rawQuestion)
 			break
 		}
 	}
 	if question == "" {
 		http.Error(w, "Bad request: no user message found", http.StatusBadRequest)
 		return
+	}
+
+	var (
+		cacheKey      string
+		cacheEligible = s.cache != nil
+	)
+	if cacheEligible {
+		gen := s.cache.GetGeneration(r.Context(), requestedNamespace)
+		cacheKey = cache.BuildKey(requestedNamespace, gen, req.Model, rawQuestion)
+		if cached, ok := s.cache.Get(r.Context(), cacheKey); ok {
+			cacheHits.Inc()
+			w.Header().Set("X-Emdexer-Cache", "hit")
+			span.SetAttributes(attribute.Bool("cache.hit", true))
+			if req.Stream {
+				rag.StreamResponse(w, req.Model, cached.Answer)
+			} else {
+				s.writeJSON(w, http.StatusOK, openai.ChatResponse{
+					ID: "chatcmpl-cache",
+					Choices: []openai.ChatChoice{{
+						Message: openai.ChatMessage{Role: "assistant", Content: cached.Answer},
+					}},
+				})
+			}
+			audit.Log(audit.Entry{
+				Action:    "chat",
+				User:      user,
+				Query:     question,
+				Namespace: requestedNamespace,
+				Results:   0,
+				LatencyMS: time.Since(start).Milliseconds(),
+				Status:    http.StatusOK,
+				Metadata:  map[string]interface{}{"cache": "hit"},
+			})
+			return
+		}
+		cacheMisses.Inc()
+		w.Header().Set("X-Emdexer-Cache", "miss")
+		span.SetAttributes(attribute.Bool("cache.hit", false))
+	} else {
+		w.Header().Set("X-Emdexer-Cache", "disabled")
+	}
+
+	storeIfOK := func(answer string) {
+		if !cacheEligible || answer == "" {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = s.cache.Set(ctx, cacheKey, &cache.CachedResponse{
+			Answer:    answer,
+			Model:     req.Model,
+			Namespace: requestedNamespace,
+			CachedAt:  time.Now(),
+		}, 0)
 	}
 
 	embedCtx, embedCancel := context.WithTimeout(r.Context(), s.embedTimeout)
@@ -238,8 +295,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if callStream == nil {
 			callStream = llm.CallGeminiStream
 		}
+		var streamBuf strings.Builder
 		streamErr := rag.StreamLLMResponse(w, req.Model, func(onChunk func(string) error) error {
 			return callStream(r.Context(), finalPrompt, s.apiKey, func(chunk string) error {
+				streamBuf.WriteString(chunk)
 				ttftOnce.Do(func() {
 					chatStreamTTFT.Observe(float64(time.Since(streamStart).Milliseconds()))
 				})
@@ -247,6 +306,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				return onChunk(chunk)
 			})
 		})
+		if streamErr == nil {
+			storeIfOK(streamBuf.String())
+		}
 		if streamErr != nil {
 			log.Printf("[chat] stream error: %v", streamErr)
 			audit.Log(audit.Entry{
@@ -311,6 +373,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				ID:      "chatcmpl-rag",
 				Choices: []openai.ChatChoice{{Message: openai.ChatMessage{Role: "assistant", Content: eval}}},
 			})
+			storeIfOK(eval)
 		}
 	}
 

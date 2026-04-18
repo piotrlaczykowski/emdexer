@@ -33,3 +33,44 @@ class RenderResultsTests(unittest.TestCase):
         assert "src/bar.py" in out
         assert "0.42" in out
         assert "| # | Path |" in out
+
+
+class SearchModeTests(unittest.TestCase):
+    def _mock_response(self, results=None):
+        m = MagicMock()
+        m.json.return_value = {"results": results or [], "mode": "any"}
+        m.raise_for_status.return_value = None
+        return m
+
+    @patch("main.requests.get")
+    def test_search_semantic_sends_mode_semantic(self, mock_get):
+        mock_get.return_value = self._mock_response()
+        main.search_semantic("hello", "default", ctx=None)
+        mock_get.assert_called_once()
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["mode"] == "semantic", kwargs["params"]
+        assert kwargs["params"]["q"] == "hello"
+        assert kwargs["params"]["namespace"] == "default"
+
+    @patch("main.requests.get")
+    def test_search_keyword_sends_mode_keyword(self, mock_get):
+        mock_get.return_value = self._mock_response()
+        main.search_keyword("foo_bar", "default", ctx=None)
+        mock_get.assert_called_once()
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["mode"] == "keyword", kwargs["params"]
+
+    @patch("main.requests.get")
+    def test_search_hybrid_sends_mode_hybrid(self, mock_get):
+        mock_get.return_value = self._mock_response()
+        main.search_hybrid("hello", "default", ctx=None)
+        mock_get.assert_called_once()
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["mode"] == "hybrid", kwargs["params"]
+
+    @patch("main.search_hybrid")
+    def test_search_files_aliases_search_hybrid(self, mock_hybrid):
+        mock_hybrid.return_value = "ok"
+        out = main.search_files("hello", "default", ctx=None)
+        mock_hybrid.assert_called_once_with("hello", "default", None)
+        assert out == "ok"

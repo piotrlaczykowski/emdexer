@@ -97,57 +97,49 @@ def _render_results(results, title, namespace, ctx, extra_lines=None):
     return "\n".join(lines)
 
 
-@mcp.tool()
-def search_files(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
-    """Search for files in EMDEX with semantic ranking. Use namespace='*' for global search across all authorized namespaces."""
+def _search_call(query: str, namespace: str, mode: str, ctx, title: str):
+    """HTTP GET /v1/search?mode=... and render via _render_results."""
     url = f"{GATEWAY_URL}/v1/search"
-    params = {"q": query, "namespace": namespace}
-
+    params = {"q": query, "namespace": namespace, "mode": mode}
     try:
         resp = requests.get(url, params=params, headers=get_headers(), timeout=10)
         resp.raise_for_status()
-        data = resp.json()
-        results = data.get("results", [])
+        results = resp.json().get("results", [])
     except Exception as e:
-        msg = f"Error searching EMDEX: {str(e)}"
+        msg = f"Error searching EMDEX ({mode}): {str(e)}"
         return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
+    return _render_results(results, title=title, namespace=namespace, ctx=ctx)
 
-    if not results:
-        msg = f"No results found for **{query}** in namespace `{namespace}`."
-        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
 
-    table_data = []
-    for r in results:
-        payload = r.get("payload", {})
-        path = payload.get("path", "N/A")
-        tag = media_tag(path)
-        preview = payload.get("text", "")[:100] + "..." if payload.get("text") else ""
-        table_data.append({
-            "Path": path,
-            "Score": round(float(r.get("score", 0)), 4),
-            "Preview": tag + preview,
-        })
+@mcp.tool()
+def search_semantic(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
+    """Semantic/vector search — finds conceptually similar files even without exact keyword
+    matches. Best for: "what is X?", "explain Y", natural language questions, paraphrases.
+    Use namespace='*' for global search across all authorized namespaces."""
+    return _search_call(query, namespace, mode="semantic", ctx=ctx, title=f"Semantic results for **{query}**")
 
-    if is_gui(ctx):
-        return PrefabApp(
-            children=[
-                DataTable(
-                    columns=[
-                        DataTableColumn(key="Path", header="Path"),
-                        DataTableColumn(key="Score", header="Score"),
-                        DataTableColumn(key="Preview", header="Preview"),
-                    ],
-                    rows=table_data,
-                )
-            ]
-        )
 
-    lines = [f"### Search results for **{query}** in `{namespace}`\n"]
-    lines.append("| # | Path | Score | Preview |")
-    lines.append("|---|---|---|---|")
-    for i, row in enumerate(table_data, 1):
-        lines.append(f"| {i} | `{row['Path']}` | {row['Score']} | {row['Preview']} |")
-    return "\n".join(lines)
+@mcp.tool()
+def search_keyword(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
+    """Keyword/BM25 search — finds files containing specific terms, identifiers, or exact
+    phrases. Best for: function names, error codes, config keys, exact strings, code symbols.
+    Use namespace='*' for global search across all authorized namespaces."""
+    return _search_call(query, namespace, mode="keyword", ctx=ctx, title=f"Keyword results for **{query}**")
+
+
+@mcp.tool()
+def search_hybrid(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
+    """Hybrid search combining semantic and keyword matching via Reciprocal Rank Fusion.
+    Best for: general queries where both conceptual similarity and keyword presence matter.
+    Default choice when uncertain which mode fits.
+    Use namespace='*' for global search across all authorized namespaces."""
+    return _search_call(query, namespace, mode="hybrid", ctx=ctx, title=f"Hybrid results for **{query}**")
+
+
+@mcp.tool()
+def search_files(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
+    """Alias for search_hybrid — kept for backward compatibility with older clients."""
+    return search_hybrid(query, namespace, ctx)
 
 
 @mcp.tool()

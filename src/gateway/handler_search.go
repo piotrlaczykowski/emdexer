@@ -122,6 +122,15 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mode := strings.TrimSpace(r.URL.Query().Get("mode"))
+	switch mode {
+	case "", "hybrid", "semantic", "keyword":
+		// valid
+	default:
+		http.Error(w, fmt.Sprintf("invalid mode %q (allowed: hybrid, semantic, keyword)", mode), http.StatusBadRequest)
+		return
+	}
+
 	embedCtx, embedCancel := context.WithTimeout(r.Context(), s.embedTimeout)
 	defer embedCancel()
 	vector, err := s.embedder.Embed(embedCtx, query)
@@ -131,6 +140,15 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	namespaces := search.ResolveNamespaces(requestedNamespace, allowedNamespaces, s.knownNamespaces())
+
+	resolvedMode := mode
+	if resolvedMode == "" {
+		if s.bm25Enabled {
+			resolvedMode = "hybrid"
+		} else {
+			resolvedMode = "semantic"
+		}
+	}
 
 	var results []search.Result
 	var fanoutFailedNS []string
@@ -142,10 +160,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		if s.bm25Enabled {
-			results, err = search.HybridSearch(ctx, s.pointsClient, s.collection, query, vector, 10, ns)
-		} else {
+		switch resolvedMode {
+		case "semantic":
 			results, err = search.SearchQdrant(ctx, s.pointsClient, s.collection, vector, 10, ns)
+		case "keyword":
+			results, err = search.KeywordSearch(ctx, s.pointsClient, s.collection, query, vector, 10, ns)
+		default: // "hybrid"
+			results, err = search.HybridSearch(ctx, s.pointsClient, s.collection, query, vector, 10, ns)
 		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusInternalServerError)
@@ -159,10 +180,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		// Multi-namespace fan-out with RRF merge.
 		// Partial failures are surfaced in the response so clients can detect degraded results;
 		// a complete failure returns 200 with empty results rather than a 504.
-		if s.bm25Enabled {
-			results, fanoutFailedNS, err = search.FanOutHybridSearch(r.Context(), s.pointsClient, s.collection, query, vector, namespaces, 10, s.globalSearchTimeout)
-		} else {
+		switch resolvedMode {
+		case "semantic":
 			results, fanoutFailedNS, err = search.FanOutSearch(r.Context(), s.pointsClient, s.collection, vector, namespaces, 10, s.globalSearchTimeout)
+		case "keyword":
+			results, fanoutFailedNS, err = search.FanOutKeywordSearch(r.Context(), s.pointsClient, s.collection, query, vector, namespaces, 10, s.globalSearchTimeout)
+		default: // "hybrid"
+			results, fanoutFailedNS, err = search.FanOutHybridSearch(r.Context(), s.pointsClient, s.collection, query, vector, namespaces, 10, s.globalSearchTimeout)
 		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusInternalServerError)
@@ -225,6 +249,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		"query":   query,
 		"results": results,
 	}
+	resp["mode"] = resolvedMode
 	if isGlobal {
 		resp["namespaces_searched"] = namespaces
 		if len(fanoutFailedNS) > 0 {
@@ -254,8 +279,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if claims, ok := auth.GetUserClaims(r); ok {
 		auditEntry.User = claims.Subject
 	}
+	auditEntry.Metadata = map[string]interface{}{"mode": resolvedMode}
 	if isGlobal {
-		auditEntry.Metadata = map[string]interface{}{"namespaces_searched": namespaces}
+		auditEntry.Metadata["namespaces_searched"] = namespaces
 	}
 	audit.Log(auditEntry)
 }

@@ -15,15 +15,24 @@ import (
 )
 
 // mockPointsClient implements qdrant.PointsClient with no-op Search and Query.
+// It captures args so tests can assert on which method was called and with what.
 type mockPointsClient struct {
 	qdrant.PointsClient
+	lastQuery     *qdrant.QueryPoints
+	lastSearchPts *qdrant.SearchPoints
+	searchCalled  int
+	queryCalled   int
 }
 
-func (m *mockPointsClient) Search(_ context.Context, _ *qdrant.SearchPoints, _ ...grpc.CallOption) (*qdrant.SearchResponse, error) {
+func (m *mockPointsClient) Search(_ context.Context, in *qdrant.SearchPoints, _ ...grpc.CallOption) (*qdrant.SearchResponse, error) {
+	m.searchCalled++
+	m.lastSearchPts = in
 	return &qdrant.SearchResponse{}, nil
 }
 
-func (m *mockPointsClient) Query(_ context.Context, _ *qdrant.QueryPoints, _ ...grpc.CallOption) (*qdrant.QueryResponse, error) {
+func (m *mockPointsClient) Query(_ context.Context, in *qdrant.QueryPoints, _ ...grpc.CallOption) (*qdrant.QueryResponse, error) {
+	m.queryCalled++
+	m.lastQuery = in
 	return &qdrant.QueryResponse{}, nil
 }
 
@@ -126,5 +135,88 @@ func TestHandleSearch_BM25FallbackCounterIncrements(t *testing.T) {
 	after := testutil.ToFloat64(bm25FallbackTotal.WithLabelValues("default"))
 	if after-before != 1 {
 		t.Errorf("expected bm25FallbackTotal to increment by 1, got delta=%.0f", after-before)
+	}
+}
+
+func TestHandleSearch_ModeSemantic_CallsSearchOnly(t *testing.T) {
+	s := newTestServer()
+	mock := s.pointsClient.(*mockPointsClient)
+
+	w := httptest.NewRecorder()
+	r := requestWithNamespace("/v1/search?q=hello&namespace=default&mode=semantic", []string{"*"})
+	s.handleSearch(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if mock.searchCalled != 1 {
+		t.Errorf("expected Search called once, got %d", mock.searchCalled)
+	}
+	if mock.queryCalled != 0 {
+		t.Errorf("expected Query NOT called for semantic mode, got %d", mock.queryCalled)
+	}
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["mode"] != "semantic" {
+		t.Errorf("expected response mode=semantic, got %v", resp["mode"])
+	}
+}
+
+func TestHandleSearch_ModeKeyword_CallsQueryWithSinglePrefetch(t *testing.T) {
+	s := newTestServer()
+	mock := s.pointsClient.(*mockPointsClient)
+
+	w := httptest.NewRecorder()
+	r := requestWithNamespace("/v1/search?q=hello&namespace=default&mode=keyword", []string{"*"})
+	s.handleSearch(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if mock.queryCalled != 1 {
+		t.Fatalf("expected Query called once, got %d", mock.queryCalled)
+	}
+	if got := len(mock.lastQuery.Prefetch); got != 1 {
+		t.Errorf("expected exactly 1 prefetch (text-only) for keyword mode, got %d", got)
+	}
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["mode"] != "keyword" {
+		t.Errorf("expected response mode=keyword, got %v", resp["mode"])
+	}
+}
+
+func TestHandleSearch_ModeHybrid_CallsQueryWithTwoPrefetches(t *testing.T) {
+	s := newTestServer()
+	s.bm25Enabled = false // explicit mode=hybrid should call HybridSearch regardless
+	mock := s.pointsClient.(*mockPointsClient)
+
+	w := httptest.NewRecorder()
+	r := requestWithNamespace("/v1/search?q=hello&namespace=default&mode=hybrid", []string{"*"})
+	s.handleSearch(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if mock.queryCalled != 1 {
+		t.Fatalf("expected Query called once, got %d", mock.queryCalled)
+	}
+	if got := len(mock.lastQuery.Prefetch); got != 2 {
+		t.Errorf("expected 2 prefetches (vector + text) for hybrid mode, got %d", got)
+	}
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["mode"] != "hybrid" {
+		t.Errorf("expected response mode=hybrid, got %v", resp["mode"])
+	}
+}
+
+func TestHandleSearch_ModeInvalid_Returns400(t *testing.T) {
+	s := newTestServer()
+	w := httptest.NewRecorder()
+	r := requestWithNamespace("/v1/search?q=hello&namespace=default&mode=quantum", []string{"*"})
+	s.handleSearch(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid mode, got %d: %s", w.Code, w.Body.String())
 	}
 }

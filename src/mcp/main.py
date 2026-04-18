@@ -47,6 +47,56 @@ def media_tag(path: str) -> str:
     return ""
 
 
+def _render_results(results, title, namespace, ctx, extra_lines=None):
+    """Shared renderer for search tools. Returns PrefabApp for GUI clients, markdown otherwise.
+
+    Args:
+        results: list of {"score": float, "payload": {"path": str, "text": str}} dicts.
+        title: human-readable title for the markdown header.
+        namespace: shown in the empty-results message and header.
+        ctx: FastMCP Context (may be None).
+        extra_lines: optional list of extra markdown lines appended after the table.
+    """
+    if not results:
+        msg = f"No results found for **{title}** in namespace `{namespace}`."
+        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
+
+    table_data = []
+    for r in results:
+        payload = r.get("payload", {})
+        path = payload.get("path", "N/A")
+        tag = media_tag(path)
+        preview = payload.get("text", "")[:100] + "..." if payload.get("text") else ""
+        table_data.append({
+            "Path": path,
+            "Score": round(float(r.get("score", 0)), 4),
+            "Preview": tag + preview,
+        })
+
+    if is_gui(ctx):
+        return PrefabApp(
+            children=[
+                DataTable(
+                    columns=[
+                        DataTableColumn(key="Path", header="Path"),
+                        DataTableColumn(key="Score", header="Score"),
+                        DataTableColumn(key="Preview", header="Preview"),
+                    ],
+                    rows=table_data,
+                )
+            ]
+        )
+
+    lines = [f"### {title} in `{namespace}`\n"]
+    lines.append("| # | Path | Score | Preview |")
+    lines.append("|---|---|---|---|")
+    for i, row in enumerate(table_data, 1):
+        lines.append(f"| {i} | `{row['Path']}` | {row['Score']} | {row['Preview']} |")
+    if extra_lines:
+        lines.extend(extra_lines)
+    return "\n".join(lines)
+
+
 @mcp.tool()
 def search_files(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
     """Search for files in EMDEX with semantic ranking. Use namespace='*' for global search across all authorized namespaces."""

@@ -47,23 +47,18 @@ def media_tag(path: str) -> str:
     return ""
 
 
-@mcp.tool()
-def search_files(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
-    """Search for files in EMDEX with semantic ranking. Use namespace='*' for global search across all authorized namespaces."""
-    url = f"{GATEWAY_URL}/v1/search"
-    params = {"q": query, "namespace": namespace}
+def _render_results(results, title, namespace, ctx, extra_lines=None):
+    """Shared renderer for search tools. Returns PrefabApp for GUI clients, markdown otherwise.
 
-    try:
-        resp = requests.get(url, params=params, headers=get_headers(), timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        results = data.get("results", [])
-    except Exception as e:
-        msg = f"Error searching EMDEX: {str(e)}"
-        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
-
+    Args:
+        results: list of {"score": float, "payload": {"path": str, "text": str}} dicts.
+        title: human-readable title for the markdown header.
+        namespace: shown in the empty-results message and header.
+        ctx: FastMCP Context (may be None).
+        extra_lines: optional list of extra markdown lines appended after the table.
+    """
     if not results:
-        msg = f"No results found for **{query}** in namespace `{namespace}`."
+        msg = f"No results found for **{title}** in namespace `{namespace}`."
         return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
 
     table_data = []
@@ -92,19 +87,70 @@ def search_files(query: str, namespace: str = "default", ctx: Context = None) ->
             ]
         )
 
-    lines = [f"### Search results for **{query}** in `{namespace}`\n"]
+    lines = [f"### {title} in `{namespace}`\n"]
     lines.append("| # | Path | Score | Preview |")
     lines.append("|---|---|---|---|")
     for i, row in enumerate(table_data, 1):
         lines.append(f"| {i} | `{row['Path']}` | {row['Score']} | {row['Preview']} |")
+    if extra_lines:
+        lines.extend(extra_lines)
     return "\n".join(lines)
+
+
+def _search_call(query: str, namespace: str, mode: str, ctx, title: str):
+    """HTTP GET /v1/search?mode=... and render via _render_results."""
+    url = f"{GATEWAY_URL}/v1/search"
+    params = {"q": query, "namespace": namespace, "mode": mode}
+    try:
+        resp = requests.get(url, params=params, headers=get_headers(), timeout=10)
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+    except Exception as e:
+        msg = f"Error searching EMDEX ({mode}): {str(e)}"
+        return PrefabApp(children=[Text(content=msg)]) if is_gui(ctx) else msg
+    return _render_results(results, title=title, namespace=namespace, ctx=ctx)
+
+
+@mcp.tool()
+def search_semantic(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
+    """Semantic/vector search — finds conceptually similar files even without exact keyword
+    matches. Best for: "what is X?", "explain Y", natural language questions, paraphrases.
+    Use namespace='*' for global search across all authorized namespaces."""
+    return _search_call(query, namespace, mode="semantic", ctx=ctx, title=f"Semantic results for **{query}**")
+
+
+@mcp.tool()
+def search_keyword(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
+    """Keyword/BM25 search — finds files containing specific terms, identifiers, or exact
+    phrases. Best for: function names, error codes, config keys, exact strings, code symbols.
+    Use namespace='*' for global search across all authorized namespaces."""
+    return _search_call(query, namespace, mode="keyword", ctx=ctx, title=f"Keyword results for **{query}**")
+
+
+@mcp.tool()
+def search_hybrid(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
+    """Hybrid search combining semantic and keyword matching via Reciprocal Rank Fusion.
+    Best for: general queries where both conceptual similarity and keyword presence matter.
+    Default choice when uncertain which mode fits.
+    Use namespace='*' for global search across all authorized namespaces."""
+    return _search_call(query, namespace, mode="hybrid", ctx=ctx, title=f"Hybrid results for **{query}**")
+
+
+@mcp.tool()
+def search_files(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
+    """Alias for search_hybrid — kept for backward compatibility with older clients."""
+    return search_hybrid(query, namespace, ctx)
 
 
 @mcp.tool()
 def search_graph(query: str, namespace: str = "default", depth: int = 1, ctx: Context = None) -> str | PrefabApp:
-    """Search files using graph-augmented RAG. Returns results enriched with knowledge-graph
-    nodes and edges showing structural relationships between files.
-    depth controls BFS hop depth [1-3]. namespace='*' is not supported on this endpoint."""
+    """Graph-augmented search — follows file relationships (imports, links) to find
+    structurally connected files. Best for: "what imports X?", "find all files related
+    to Y", dependency analysis, blast-radius questions.
+
+    Prefer search_semantic/search_keyword/search_hybrid for content-based queries.
+    depth controls BFS hop depth [1-3]. namespace='*' is not supported on this endpoint.
+    """
     url = f"{GATEWAY_URL}/v1/search/graph"
     params = {"q": query, "namespace": namespace, "depth": max(1, min(3, depth))}
 

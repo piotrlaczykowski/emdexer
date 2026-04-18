@@ -28,6 +28,14 @@ var hybridTotalDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Buckets: []float64{10, 50, 100, 200, 500, 1000, 2000, 5000},
 }, []string{"collection", "namespace"})
 
+// keywordTotalDuration tracks the end-to-end latency of KeywordSearch
+// (single text-filter prefetch via Qdrant Universal Query API) in milliseconds.
+var keywordTotalDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "emdexer_gateway_search_keyword_total_ms",
+	Help:    "End-to-end latency of KeywordSearch (text-filter via Qdrant Universal Query API) in milliseconds",
+	Buckets: []float64{10, 50, 100, 200, 500, 1000, 2000, 5000},
+}, []string{"collection", "namespace"})
+
 // unifiedQueryDuration tracks the latency of the single pc.Query call (server-side RRF).
 var unifiedQueryDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Name:    "emdexer_gateway_search_unified_query_duration_ms",
@@ -40,6 +48,13 @@ var unifiedQueryDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 var bm25Fallbacks = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "emdexer_gateway_bm25_fallback_total",
 	Help: "Number of times HybridSearch fell back to vector-only because the Qdrant Universal Query API failed",
+}, []string{"collection", "namespace"})
+
+// keywordFallbacks counts how many times KeywordSearch fell back to vector-only because
+// the Qdrant Universal Query API failed.
+var keywordFallbacks = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_keyword_fallback_total",
+	Help: "Number of times KeywordSearch fell back to vector-only because the Qdrant Universal Query API failed",
 }, []string{"collection", "namespace"})
 
 // bm25ZeroResults counts how many times unified hybrid search returned 0 results,
@@ -144,6 +159,62 @@ func HybridSearch(ctx context.Context, pc qdrant.PointsClient, collection string
 	points := resp.GetResult()
 	if len(points) == 0 {
 		log.Printf("[search] unified query returned 0 results for collection %q namespace %q query %q", collection, namespace, query)
+		bm25ZeroResults.WithLabelValues(collection, namespace).Inc()
+	}
+
+	results := make([]Result, 0, len(points))
+	for _, pt := range points {
+		results = append(results, pointToResult(pt))
+	}
+	return results, nil
+}
+
+// KeywordSearch issues a single Qdrant Universal Query API call with one server-side
+// prefetch (text-match filter) wrapped in RRF fusion. Use this when the caller wants
+// keyword/identifier matching without vector similarity contribution.
+//
+// On Query API error it falls back to vector-only search via SearchQdrant so callers
+// always receive results when Qdrant is reachable. The caller must supply a valid vector
+// even though it is only used in this fallback path.
+func KeywordSearch(ctx context.Context, pc qdrant.PointsClient, collection string, query string, vector []float32, limit uint64, namespace string) ([]Result, error) {
+	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.search.keyword")
+	span.SetAttributes(
+		attribute.String("search.collection", collection),
+		attribute.String("search.namespace", namespace),
+		attribute.String("search.mode", "keyword"),
+	)
+	defer span.End()
+
+	start := time.Now()
+	defer func() {
+		keywordTotalDuration.WithLabelValues(collection, namespace).Observe(float64(time.Since(start).Milliseconds()))
+	}()
+
+	prefetchLim := limit * 2
+	resp, err := pc.Query(ctx, &qdrant.QueryPoints{
+		CollectionName: collection,
+		Prefetch: []*qdrant.PrefetchQuery{
+			{
+				// Text-match (BM25) leg only — no vector prefetch.
+				Filter: buildTextFilter(namespace, query),
+				Limit:  &prefetchLim,
+			},
+		},
+		Query: qdrant.NewQueryFusion(qdrant.Fusion_RRF),
+		Limit: &limit,
+		WithPayload: &qdrant.WithPayloadSelector{
+			SelectorOptions: &qdrant.WithPayloadSelector_Enable{Enable: true},
+		},
+	})
+	if err != nil {
+		log.Printf("[search] keyword query failed for collection %q namespace %q — falling back to vector-only: %v", collection, namespace, err)
+		keywordFallbacks.WithLabelValues(collection, namespace).Inc()
+		return SearchQdrant(ctx, pc, collection, vector, limit, namespace)
+	}
+
+	points := resp.GetResult()
+	if len(points) == 0 {
+		log.Printf("[search] keyword query returned 0 results for collection %q namespace %q query %q", collection, namespace, query)
 		bm25ZeroResults.WithLabelValues(collection, namespace).Inc()
 	}
 

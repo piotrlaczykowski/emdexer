@@ -199,12 +199,10 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(results) == 0 {
-		mode := "vector"
-		if s.bm25Enabled {
-			mode = "hybrid"
+		if s.bm25Enabled && resolvedMode == "hybrid" {
 			bm25FallbackTotal.WithLabelValues(requestedNamespace).Inc()
 		}
-		searchEmptyResults.WithLabelValues(requestedNamespace, mode).Inc()
+		searchEmptyResults.WithLabelValues(requestedNamespace, resolvedMode).Inc()
 	}
 
 	// ── Phase 30: Late-interaction reranking ──────────────────────────────────

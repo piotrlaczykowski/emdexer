@@ -50,6 +50,13 @@ var bm25Fallbacks = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Number of times HybridSearch fell back to vector-only because the Qdrant Universal Query API failed",
 }, []string{"collection", "namespace"})
 
+// keywordFallbacks counts how many times KeywordSearch fell back to vector-only because
+// the Qdrant Universal Query API failed.
+var keywordFallbacks = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_keyword_fallback_total",
+	Help: "Number of times KeywordSearch fell back to vector-only because the Qdrant Universal Query API failed",
+}, []string{"collection", "namespace"})
+
 // bm25ZeroResults counts how many times unified hybrid search returned 0 results,
 // which may indicate a missing full-text index or an overly specific query.
 var bm25ZeroResults = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -166,8 +173,9 @@ func HybridSearch(ctx context.Context, pc qdrant.PointsClient, collection string
 // prefetch (text-match filter) wrapped in RRF fusion. Use this when the caller wants
 // keyword/identifier matching without vector similarity contribution.
 //
-// On Query API error it falls back to vector-only search via SearchQdrant for symmetry
-// with HybridSearch — callers always get results when Qdrant is reachable.
+// On Query API error it falls back to vector-only search via SearchQdrant so callers
+// always receive results when Qdrant is reachable. The caller must supply a valid vector
+// even though it is only used in this fallback path.
 func KeywordSearch(ctx context.Context, pc qdrant.PointsClient, collection string, query string, vector []float32, limit uint64, namespace string) ([]Result, error) {
 	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.search.keyword")
 	span.SetAttributes(
@@ -200,7 +208,7 @@ func KeywordSearch(ctx context.Context, pc qdrant.PointsClient, collection strin
 	})
 	if err != nil {
 		log.Printf("[search] keyword query failed for collection %q namespace %q — falling back to vector-only: %v", collection, namespace, err)
-		bm25Fallbacks.WithLabelValues(collection, namespace).Inc()
+		keywordFallbacks.WithLabelValues(collection, namespace).Inc()
 		return SearchQdrant(ctx, pc, collection, vector, limit, namespace)
 	}
 

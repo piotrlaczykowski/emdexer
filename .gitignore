@@ -26,6 +26,9 @@ test_dir_beta/
 *.bin
 *.tar.gz
 
+# Git worktrees
+.worktrees/
+
 # Local agent configuration
 .claude/
 .gitnexus

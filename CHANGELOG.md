@@ -1,6 +1,73 @@
 # Changelog
 
-## [Unreleased] — Phase 29: Server-Side RRF
+## [1.3.0] — 2026-04-18
+
+### Highlights
+
+- Ollama-native streaming LLM backend — self-host any model without touching Gemini (P40)
+- Response caching layer with in-process LRU and Redis backends — cut redundant embedding round-trips (P41)
+- `GET /v1/namespaces/stats` — per-namespace vector counts and last-indexed timestamps (P42)
+- `emdex eval` CLI command — run embedding evaluation suites from the terminal (P43)
+- Outbound webhook on namespace index completion — SSRF-safe POST notification to any URL (P44)
+
+### New Features
+
+#### P40 — Ollama-native Streaming (`llm`, `gateway`, `docker`)
+
+`CallOllama` and `CallOllamaStream` added to `src/pkg/llm` using stdlib `net/http` only (no new deps).
+When `EMDEX_OLLAMA_URL` is set, the gateway selects Ollama as the LLM backend for both streaming and
+non-streaming paths; Gemini remains the default.
+
+New env vars: `EMDEX_OLLAMA_URL`, `EMDEX_OLLAMA_MODEL` (default `gemma4:26b`).
+
+#### P41 — Response Caching Layer (`cache`, `gateway`)
+
+Cache interface with two backends:
+
+- **Memory** — hashicorp `golang-lru` expirable LRU with configurable TTL and atomic generation counters for namespace-scoped invalidation
+- **Redis** — drop-in alternative for multi-replica deployments
+
+Cache keys are deterministic SHA-256 hashes of `namespace + generation + model + normalized query` so a generation bump makes all prior entries unreachable cheaply.
+
+#### P42 — Namespace Stats Endpoint (`gateway`)
+
+`GET /v1/namespaces/stats` returns a JSON array of per-namespace visibility aggregated from the node
+registry plus Qdrant approximate vector counts. When the registry is PostgreSQL-backed, `last_indexed_at`
+is derived from `MAX(last_heartbeat)`. Partial Qdrant failures degrade gracefully.
+
+New Prometheus gauge: `emdexer_gateway_namespace_vector_count`.
+
+#### P43 — `emdex eval` CLI Command (`cmd`)
+
+`emdex eval` loads a YAML/JSON evaluation suite, calls the gateway search API for each query, and
+renders pass/fail results with per-query latency and score summaries. Supports truncation for large
+result sets and JSON output.
+
+#### P44 — Webhook on Namespace Index Completion (`gateway`, `docker`, `helm`)
+
+SSRF-safe outbound webhook dispatcher fires a `POST` to `EMDEX_WEBHOOK_URL` after a namespace finishes
+indexing. Includes exponential backoff retry on 5xx, request timeout, and private-IP blocklist.
+Docker-compose and Helm chart expose the new env var.
+
+New env var: `EMDEX_WEBHOOK_URL`.
+
+### Fixed
+
+- **search**: add `custom` indicator to `rrf_config` debug field; make RRF config settings configurable
+- **llm/p40**: Prometheus metrics and OTel spans for Ollama backend; CI coverage
+- **security**: upgrade Go 1.26.1 → 1.26.2; tidy integration `go.mod`
+- **deps**: tidy CLI and test `go.mod` files
+
+### Dependencies
+
+- `golang.org/x/crypto` 0.49.0 → 0.50.0
+- `modernc.org/sqlite` 1.48.1 → 1.48.2
+- `go.opentelemetry.io/otel/sdk` 1.42.0 → 1.43.0
+- `python-multipart` bumped in plugin-sidecar and ffmpeg-sidecar
+
+---
+
+## [1.2.0] — 2026-04-08 — Phase 29: Server-Side RRF
 
 ### Highlights
 

@@ -144,9 +144,13 @@ def search_files(query: str, namespace: str = "default", ctx: Context = None) ->
 
 @mcp.tool()
 def search_graph(query: str, namespace: str = "default", depth: int = 1, ctx: Context = None) -> str | PrefabApp:
-    """Search files using graph-augmented RAG. Returns results enriched with knowledge-graph
-    nodes and edges showing structural relationships between files.
-    depth controls BFS hop depth [1-3]. namespace='*' is not supported on this endpoint."""
+    """Graph-augmented search — follows file relationships (imports, links) to find
+    structurally connected files. Best for: "what imports X?", "find all files related
+    to Y", dependency analysis, blast-radius questions.
+
+    Prefer search_semantic/search_keyword/search_hybrid for content-based queries.
+    depth controls BFS hop depth [1-3]. namespace='*' is not supported on this endpoint.
+    """
     url = f"{GATEWAY_URL}/v1/search/graph"
     params = {"q": query, "namespace": namespace, "depth": max(1, min(3, depth))}
 

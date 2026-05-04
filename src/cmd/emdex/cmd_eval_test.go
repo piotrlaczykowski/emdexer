@@ -532,6 +532,65 @@ func TestRunEval_RagasSidecarUnreachable_Degrades(t *testing.T) {
 	}
 }
 
+func TestRunEval_PushesMetricsToGateway(t *testing.T) {
+	var metricsBody string
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/eval" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"context_recall": 0.9,
+				"faithfulness":   0.9,
+				"latency_ms":     100,
+				"answer":         "test answer",
+				"contexts":       []string{"context chunk"},
+			})
+			return
+		}
+		if r.URL.Path == "/v1/eval/metrics" {
+			b, _ := io.ReadAll(r.Body)
+			metricsBody = string(b)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer gw.Close()
+
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"context_recall": 0.82,
+			"faithfulness":   0.75,
+			"per_sample":     []map[string]any{{"question": "What is Emdexer?", "context_recall": 0.82, "faithfulness": 0.75}},
+		})
+	}))
+	defer sidecar.Close()
+
+	tmp := t.TempDir()
+	gtPath := filepath.Join(tmp, "gt.json")
+	os.WriteFile(gtPath, []byte(`[{"question":"What is Emdexer?","ground_truth":"Emdexer is a RAG engine."}]`), 0o644)
+	qPath := filepath.Join(tmp, "q.json")
+	os.WriteFile(qPath, []byte(`[{"question":"What is Emdexer?","expected_answer":"Emdexer is a RAG engine."}]`), 0o644)
+
+	rc := runEval(
+		[]string{"--file", qPath, "--ragas", "--ragas-url", sidecar.URL, "--ground-truth", gtPath},
+		io.Discard, io.Discard,
+		func(s string) string {
+			switch s {
+			case "EMDEX_GATEWAY_URL":
+				return gw.URL
+			case "EMDEX_AUTH_KEY":
+				return "k"
+			}
+			return ""
+		},
+	)
+	if rc != exitOK {
+		t.Fatalf("expected exitOK, got %d", rc)
+	}
+	if !strings.Contains(metricsBody, "0.82") || !strings.Contains(metricsBody, "0.75") {
+		t.Errorf("metrics push body = %q, expected 0.82 and 0.75", metricsBody)
+	}
+}
+
 func TestRunEval_RagasSuccess_PrintsScores(t *testing.T) {
 	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{

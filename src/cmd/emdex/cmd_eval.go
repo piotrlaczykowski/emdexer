@@ -58,6 +58,28 @@ type ragasResponse struct {
 	PerSample     []ragasPerSample `json:"per_sample"`
 }
 
+func pushEvalMetrics(gatewayURL, authKey string, recall, faithfulness float64) error {
+	body, _ := json.Marshal(map[string]float64{
+		"context_recall": recall,
+		"faithfulness":   faithfulness,
+	})
+	req, err := http.NewRequest(http.MethodPost, gatewayURL+"/v1/eval/metrics", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+authKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
 func callRagasSidecar(url string, samples []ragasSample) (ragasResponse, error) {
 	body, _ := json.Marshal(ragasRequest{
 		Samples: samples,
@@ -503,6 +525,9 @@ func runEval(args []string, stdout, stderr io.Writer, env func(string) string) i
 			ragasResult = &rr
 			fmt.Fprintf(stdout, "\n  RAGAS: context_recall=%.2f  faithfulness=%.2f\n",
 				rr.ContextRecall, rr.Faithfulness)
+			if err := pushEvalMetrics(gatewayURL, authKey, rr.ContextRecall, rr.Faithfulness); err != nil {
+				fmt.Fprintf(stderr, "  ! failed to push ragas metrics: %s\n", err)
+			}
 		}
 	}
 

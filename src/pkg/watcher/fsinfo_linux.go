@@ -46,7 +46,7 @@ func isEphemeralFS(path string) bool {
 			continue
 		}
 		fsType := fields[sep+1]
-		if !strings.HasPrefix(abs, mp) {
+		if mp != "/" && abs != mp && !strings.HasPrefix(abs, mp+"/") {
 			continue
 		}
 		if len(mp) > len(bestPrefix) {

@@ -10,8 +10,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/piotrlaczykowski/emdexer/embed"
+	"github.com/piotrlaczykowski/emdexer/extractcache"
 	"github.com/piotrlaczykowski/emdexer/plugin"
 	"github.com/qdrant/go-client/qdrant"
+	"github.com/zeebo/xxh3"
 )
 
 const ProjectNamespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
@@ -45,6 +47,11 @@ type PipelineConfig struct {
 	// Ctx is the walk/request context passed to EmbedBatch. Falls back to
 	// context.Background() if nil, so callers that don't set it are unaffected.
 	Ctx context.Context
+	// ExtractCache, if non-nil, is consulted before invoking cfg.Extract.
+	// On a hit, the extractor sidecar is bypassed. Use Noop{} when disabled.
+	ExtractCache extractcache.Cache
+	// ExtractorTag identifies the extractor config for cache keying.
+	ExtractorTag string
 }
 
 // IndexDataToPoints converts file content into Qdrant points via extraction, chunking, and embedding.
@@ -77,7 +84,7 @@ func IndexDataToPoints(path string, content []byte, cfg PipelineConfig) []*qdran
 			text = ""
 		}
 	} else if len(content) > 0 {
-		text, extraMeta, err = cfg.Extract(path, content, cfg.ExtractousHost)
+		text, extraMeta, err = cachedExtract(cfg, path, content)
 		if err != nil {
 			log.Printf("[node] Extraction failed for %s: %v", path, err)
 			text = ""
@@ -227,4 +234,36 @@ func IsZeroVector(v []float32) bool {
 		}
 	}
 	return true
+}
+
+func cachedExtract(cfg PipelineConfig, path string, content []byte) (string, map[string]string, error) {
+	cache := cfg.ExtractCache
+	if cache == nil {
+		cache = extractcache.Noop{}
+	}
+	tag := cfg.ExtractorTag
+	if tag == "" {
+		tag = "extractous"
+	}
+	ctx := cfg.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	hashHex := extractcache.HexXXH3(xxh3.Hash(content))
+	key := extractcache.BuildKey(hashHex, tag)
+	if hit, ok := cache.Get(ctx, key); ok {
+		extractCacheHits.WithLabelValues(tag).Inc()
+		return hit.Text, hit.Meta, nil
+	}
+	extractCacheMisses.WithLabelValues(tag).Inc()
+	text, meta, err := cfg.Extract(path, content, cfg.ExtractousHost)
+	if err != nil || text == "" {
+		return text, meta, err
+	}
+	if cerr := cache.Set(ctx, key, &extractcache.Result{
+		Text: text, Meta: meta, Extractor: tag,
+	}); cerr != nil {
+		log.Printf("[extract-cache] set failed for %s: %v", path, cerr)
+	}
+	return text, meta, nil
 }

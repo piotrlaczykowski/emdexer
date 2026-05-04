@@ -2,7 +2,11 @@ package indexer
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
+
+	"github.com/piotrlaczykowski/emdexer/extractcache"
+	"github.com/zeebo/xxh3"
 )
 
 // batchRecordingEmbedder tracks whether EmbedBatch was called and with how many texts.
@@ -107,5 +111,85 @@ func TestIndexDataToPoints_RespectsCtxCancellation(t *testing.T) {
 	points := IndexDataToPoints("test/file.txt", []byte("content"), cfg)
 	if len(points) != 0 {
 		t.Errorf("expected empty points with cancelled context, got %d", len(points))
+	}
+}
+
+// fakeECache is a test double for extractcache.Cache.
+type fakeECache struct {
+	store map[string]*extractcache.Result
+	gets  int32
+	sets  int32
+}
+
+func (f *fakeECache) Get(_ context.Context, k string) (*extractcache.Result, bool) {
+	atomic.AddInt32(&f.gets, 1)
+	if f.store == nil {
+		return nil, false
+	}
+	v, ok := f.store[k]
+	return v, ok
+}
+
+func (f *fakeECache) Set(_ context.Context, k string, v *extractcache.Result) error {
+	atomic.AddInt32(&f.sets, 1)
+	if f.store == nil {
+		f.store = map[string]*extractcache.Result{}
+	}
+	f.store[k] = v
+	return nil
+}
+
+func (f *fakeECache) Close() error { return nil }
+
+func TestIndexDataToPoints_ExtractCacheHit_SkipsExtractor(t *testing.T) {
+	var extractCalls int32
+	extractor := func(path string, content []byte, host string) (string, map[string]string, error) {
+		atomic.AddInt32(&extractCalls, 1)
+		return "fresh extracted text long enough to pass the ten char minimum check", nil, nil
+	}
+	content := []byte("hello world content for cache test")
+	hashHex := extractcache.HexXXH3(xxh3.Hash(content))
+	key := extractcache.BuildKey(hashHex, "extractous")
+	cache := &fakeECache{store: map[string]*extractcache.Result{
+		key: {Text: "cached text long enough to pass minimum check ok yes", Extractor: "extractous"},
+	}}
+	cfg := PipelineConfig{
+		Namespace:    "ns",
+		Embedder:     &batchRecordingEmbedder{dims: 4},
+		Extract:      extractor,
+		ExtractCache: cache,
+		ChunkSize:    16,
+		ChunkOverlap: 0,
+	}
+	pts := IndexDataToPoints("/some/path.txt", content, cfg)
+	if len(pts) == 0 {
+		t.Fatalf("no points produced")
+	}
+	if extractCalls != 0 {
+		t.Fatalf("extractor called %d times; expected 0 on cache hit", extractCalls)
+	}
+}
+
+func TestIndexDataToPoints_ExtractCacheMiss_StoresAfterExtract(t *testing.T) {
+	var extractCalls int32
+	extractor := func(path string, content []byte, host string) (string, map[string]string, error) {
+		atomic.AddInt32(&extractCalls, 1)
+		return "fresh extracted text long enough to pass minimum check yes", nil, nil
+	}
+	cache := &fakeECache{}
+	cfg := PipelineConfig{
+		Namespace:    "ns",
+		Embedder:     &batchRecordingEmbedder{dims: 4},
+		Extract:      extractor,
+		ExtractCache: cache,
+		ChunkSize:    16,
+		ChunkOverlap: 0,
+	}
+	_ = IndexDataToPoints("/p.txt", []byte("body content"), cfg)
+	if extractCalls != 1 {
+		t.Fatalf("extractCalls=%d want 1", extractCalls)
+	}
+	if cache.sets != 1 {
+		t.Fatalf("cache.sets=%d want 1", cache.sets)
 	}
 }

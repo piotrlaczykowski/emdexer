@@ -84,7 +84,7 @@ type GeminiResponse struct {
 func CallGemini(ctx context.Context, prompt, apiKey string) (string, error) {
 	model := llmModel()
 
-	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.llm.generate")
+	_, span := otel.Tracer("emdexer").Start(ctx, "emdex.llm.generate")
 	span.SetAttributes(attribute.String("llm.model", model))
 	defer span.End()
 
@@ -102,7 +102,7 @@ func CallGemini(ctx context.Context, prompt, apiKey string) (string, error) {
 func CallGeminiStructured(ctx context.Context, prompt, apiKey string) (string, error) {
 	model := llmModel()
 
-	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.llm.structured")
+	_, span := otel.Tracer("emdexer").Start(ctx, "emdex.llm.structured")
 	span.SetAttributes(attribute.String("llm.model", model))
 	defer span.End()
 

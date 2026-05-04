@@ -92,7 +92,7 @@ func (g *GeminiProvider) Embed(ctx context.Context, text string) ([]float32, err
 		geminiModel = envModel
 	}
 
-	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.embed")
+	_, span := otel.Tracer("emdexer").Start(ctx, "emdex.embed")
 	span.SetAttributes(attribute.String("embed.provider", "gemini"), attribute.String("embed.model", geminiModel))
 	defer span.End()
 
@@ -170,7 +170,7 @@ func (o *OllamaProvider) httpClient() *http.Client {
 }
 
 func (o *OllamaProvider) Embed(ctx context.Context, text string) ([]float32, error) {
-	ctx, span := otel.Tracer("emdexer").Start(ctx, "emdex.embed")
+	_, span := otel.Tracer("emdexer").Start(ctx, "emdex.embed")
 	span.SetAttributes(attribute.String("embed.provider", "ollama"), attribute.String("embed.model", o.Model))
 	defer span.End()
 

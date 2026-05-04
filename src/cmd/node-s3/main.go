@@ -38,7 +38,7 @@ func main() {
 		panic(err)
 	}
 	defer conn.Close()
-	pointsClient := qdrant.NewPointsClient(conn)
+	_ = qdrant.NewPointsClient(conn)
 
 	fmt.Printf("node-s3: Starting scan of bucket %s...\n", bucketName)
 

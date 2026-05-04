@@ -1,3 +1,4 @@
+import os
 from typing import List
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -20,9 +21,55 @@ class EvalRequest(BaseModel):
     metrics: List[str] = Field(default_factory=lambda: ["context_recall", "faithfulness"])
 
 
+def _build_llm():
+    provider = os.getenv("RAGAS_LLM_PROVIDER", "openai").lower()
+    model = os.getenv("RAGAS_MODEL", "")
+    if provider == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model=model or "gemini-2.0-flash")
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(model=model or "gpt-4o-mini")
+
+
 def _score_samples(samples: list, metrics: list) -> dict:
-    """Stub — replaced in Task 3. Tests monkey-patch this."""
-    raise NotImplementedError("RAGAS scoring not wired yet")
+    from datasets import Dataset
+    from ragas import evaluate
+    from ragas.metrics import context_recall, faithfulness as faithfulness_metric
+
+    ds = Dataset.from_list([
+        {
+            "question": s["question"],
+            "answer": s["answer"],
+            "contexts": s["contexts"],
+            "ground_truth": s["ground_truth"],
+        }
+        for s in samples
+    ])
+
+    _METRIC_REGISTRY = {
+        "context_recall": context_recall,
+        "faithfulness": faithfulness_metric,
+    }
+    llm = _build_llm()
+    metric_objs = [_METRIC_REGISTRY[m] for m in metrics if m in _METRIC_REGISTRY]
+    result = evaluate(ds, metrics=metric_objs, llm=llm)
+    df = result.to_pandas()
+
+    out: dict = {}
+    if "context_recall" in metrics:
+        out["context_recall"] = float(df["context_recall"].mean())
+    if "faithfulness" in metrics:
+        out["faithfulness"] = float(df["faithfulness"].mean())
+
+    out["per_sample"] = []
+    for _, row in df.iterrows():
+        entry = {"question": row["question"]}
+        if "context_recall" in metrics:
+            entry["context_recall"] = float(row["context_recall"])
+        if "faithfulness" in metrics:
+            entry["faithfulness"] = float(row["faithfulness"])
+        out["per_sample"].append(entry)
+    return out
 
 
 @app.get("/health")

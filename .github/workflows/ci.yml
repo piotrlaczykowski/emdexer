@@ -49,3 +49,13 @@ jobs:
 
     - name: Run golangci-lint on Node
       run: cd src/node && $(go env GOPATH)/bin/golangci-lint run ./...
+
+    - name: Check compose env parity
+      run: |
+        chmod +x .github/scripts/check-compose-env-parity.sh
+        .github/scripts/check-compose-env-parity.sh
+
+    - name: Check metrics dashboard coverage
+      run: |
+        chmod +x .github/scripts/check-metrics-dashboards.sh
+        .github/scripts/check-metrics-dashboards.sh

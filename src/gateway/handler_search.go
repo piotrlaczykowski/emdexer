@@ -227,7 +227,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 				score := sc.Score
 				results[sc.Index].RerankScore = &score
 			}
-			log.Printf("[rerank] namespace=%q candidates=%d changed_rank=%d", requestedNamespace, len(ranked), changed)
+			log.Printf("[rerank] namespace=%q mode=%s candidates=%d changed_rank=%d", requestedNamespace, resolvedMode, len(ranked), changed)
+			rerankAppliedTotal.WithLabelValues(requestedNamespace, resolvedMode).Inc()
 
 			// Rebuild results in reranked order, applying threshold filter.
 			reranked := make([]search.Result, 0, len(ranked))
@@ -263,6 +264,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			"custom":        cfg.K != 60 || cfg.VectorWeight != 1.0 || cfg.BM25Weight != 1.0,
 		}
 		resp["rrf_config"] = rffCfg
+		_, isNoop := s.reranker.(rerank.NoOpReranker)
+		resp["rerank_applied"] = !isNoop
+		resp["rerank_top_k"] = s.rerankTopK
 	}
 	s.writeJSON(w, http.StatusOK, resp)
 

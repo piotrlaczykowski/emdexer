@@ -123,6 +123,7 @@ def search_semantic(query: str, namespace: str = "default", ctx: Context = None)
 def search_keyword(query: str, namespace: str = "default", ctx: Context = None) -> str | PrefabApp:
     """Keyword/BM25 search — finds files containing specific terms, identifiers, or exact
     phrases. Best for: function names, error codes, config keys, exact strings, code symbols.
+    Results are reranked by cross-encoder when EMDEX_RERANK_ENABLED=true (recommended for precision).
     Use namespace='*' for global search across all authorized namespaces."""
     return _search_call(query, namespace, mode="keyword", ctx=ctx, title=f"Keyword results for **{query}**")
 

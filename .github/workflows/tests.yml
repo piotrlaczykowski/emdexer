@@ -21,6 +21,12 @@ jobs:
       with:
         go-version: 1.26.2
 
+    - name: Tidy Go modules
+      run: |
+        for mod in src/pkg src/gateway src/node; do
+          (cd "$mod" && go mod tidy)
+        done
+
     - name: Build
       run: make all
 

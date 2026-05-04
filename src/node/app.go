@@ -312,6 +312,11 @@ func newApp() *App {
 		cacheDir = filepath.Join(cwd, "cache")
 	}
 	_ = os.MkdirAll(cacheDir, 0700)
+	if watcher.IsEphemeralFS(cacheDir) {
+		log.Printf("[cache] WARNING: %s is on an ephemeral filesystem (tmpfs/overlay). "+
+			"Delta indexing will silently regress to full re-indexing on every restart. "+
+			"Mount a persistent volume at this path.", cacheDir)
+	}
 
 	// Automatic graph-relation migration: if the collection predates Phase 24
 	// (i.e. <20% of sampled chunk-0 points carry a `relations` field), delete

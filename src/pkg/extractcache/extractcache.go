@@ -38,6 +38,9 @@ type Cache interface {
 
 // BuildKey derives the cache key from content XXH3 hex and extractor tag.
 func BuildKey(xxh3Hex, extractor string) string {
+	if strings.ContainsAny(extractor, ":/") {
+		extractor = strings.NewReplacer(":", "_", "/", "_").Replace(extractor)
+	}
 	return fmt.Sprintf("%sv%d:%s:%s", keyPrefix, schemaVersion, xxh3Hex, extractor)
 }
 
@@ -104,11 +107,12 @@ func (r *RedisCache) Set(ctx context.Context, key string, v *Result) error {
 	if v == nil {
 		return errors.New("nil result")
 	}
-	v.SchemaV = schemaVersion
-	if v.ExtractAt.IsZero() {
-		v.ExtractAt = time.Now().UTC()
+	cp := *v  // copy so we don't mutate caller's struct
+	cp.SchemaV = schemaVersion
+	if cp.ExtractAt.IsZero() {
+		cp.ExtractAt = time.Now().UTC()
 	}
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(&cp)
 	if err != nil {
 		return err
 	}
@@ -118,6 +122,8 @@ func (r *RedisCache) Set(ctx context.Context, key string, v *Result) error {
 func (r *RedisCache) Close() error { return r.client.Close() }
 
 // NewFromEnv reads EMDEX_EXTRACT_CACHE_* and returns Noop when disabled.
+// Returns (nil, err) when enabled but misconfigured — callers must nil-check
+// when err != nil.
 func NewFromEnv() (Cache, error) {
 	if strings.ToLower(os.Getenv("EMDEX_EXTRACT_CACHE_ENABLED")) != "true" {
 		return Noop{}, nil

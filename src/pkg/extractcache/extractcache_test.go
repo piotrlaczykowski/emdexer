@@ -56,6 +56,9 @@ func TestRedisCache_RoundTrip(t *testing.T) {
 	if got.SchemaV != schemaVersion {
 		t.Fatalf("schema version not stamped: %d", got.SchemaV)
 	}
+	if got.ExtractAt.IsZero() {
+		t.Fatalf("ExtractAt not stamped after Set")
+	}
 }
 
 func TestRedisCache_TTLExpires(t *testing.T) {

@@ -183,10 +183,12 @@ services:
       - "8083:8081"   # metrics — use 8083 to avoid conflict with node-private (8082)
     volumes:
       - ../../test_dir:/app/test_dir
+      - node-cache:/app/cache
     environment:
       - QDRANT_HOST=qdrant:6334
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_NAMESPACE=default
+      - EMDEX_CACHE_DIR=/app/cache
       - EMDEX_GATEWAY_URL=http://gateway:7700
       - EMDEX_NODE_URL=${EMDEX_NODE_URL_NODE:-http://localhost:8083}
       # ── Embedding provider (Phase QW-1/2) — must match gateway ──
@@ -336,3 +338,4 @@ networks:
 
 volumes:
   whisper-models:
+  node-cache:

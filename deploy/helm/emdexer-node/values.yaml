@@ -91,6 +91,16 @@ persistence:
   storageClass: ""
   existingClaim: ""
 
+# ── P47: persistent delta-indexing cache ───────────────────────
+cache:
+  # When false, an emptyDir is mounted (survives container restart, not pod replacement).
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+  existingClaim: ""
+  retentionDays: 30
+  vacuumIntervalHours: 24
+
 resources: {}
 nodeSelector: {}
 tolerations: []

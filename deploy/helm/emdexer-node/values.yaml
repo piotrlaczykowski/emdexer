@@ -101,6 +101,11 @@ cache:
   retentionDays: 30
   vacuumIntervalHours: 24
 
+extractCache:
+  enabled: false
+  redisUrl: ""   # required when enabled, e.g. redis://redis-master:6379
+  ttl: "720h"
+
 resources: {}
 nodeSelector: {}
 tolerations: []

@@ -191,6 +191,9 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_NAMESPACE=default
       - EMDEX_CACHE_DIR=/app/cache
+      - EMDEX_EXTRACT_CACHE_ENABLED=${EMDEX_EXTRACT_CACHE_ENABLED:-false}
+      - EMDEX_EXTRACT_CACHE_REDIS_URL=${EMDEX_EXTRACT_CACHE_REDIS_URL:-redis://redis:6379}
+      - EMDEX_EXTRACT_CACHE_TTL=${EMDEX_EXTRACT_CACHE_TTL:-720h}
       - EMDEX_GATEWAY_URL=http://gateway:7700
       - EMDEX_NODE_URL=${EMDEX_NODE_URL_NODE:-http://localhost:8083}
       # ── Embedding provider (Phase QW-1/2) — must match gateway ──

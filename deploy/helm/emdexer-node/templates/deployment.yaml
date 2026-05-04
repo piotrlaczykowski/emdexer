@@ -188,6 +188,14 @@ spec:
             - name: S3_PREFIX
               value: {{ .Values.config.s3Prefix | quote }}
             {{- end }}
+            - name: EMDEX_EXTRACT_CACHE_ENABLED
+              value: {{ .Values.extractCache.enabled | default false | quote }}
+            {{- if .Values.extractCache.enabled }}
+            - name: EMDEX_EXTRACT_CACHE_REDIS_URL
+              value: {{ .Values.extractCache.redisUrl | quote }}
+            - name: EMDEX_EXTRACT_CACHE_TTL
+              value: {{ .Values.extractCache.ttl | default "720h" | quote }}
+            {{- end }}
           volumeMounts:
             - name: data
               mountPath: /opt/emdexer/test_dir

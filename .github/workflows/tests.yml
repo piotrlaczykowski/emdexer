@@ -54,3 +54,61 @@ jobs:
         # In a real CI, we'd start a containerized gateway/qdrant.
         # For now, we just skip if gateway is down or use a mock.
         cd src/tests/e2e && go test -v ./... || echo "E2E tests failed (expected if live gateway is missing)"
+
+  ragas-eval-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'eval'))
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Skip if no OpenAI key
+        id: keycheck
+        run: |
+          if [ -z "${{ secrets.OPENAI_API_KEY }}" ]; then
+            echo "no_key=1" >> "$GITHUB_OUTPUT"
+            echo "::warning::OPENAI_API_KEY not set; skipping ragas smoke"
+          fi
+
+      - name: Set up Go
+        if: steps.keycheck.outputs.no_key != '1'
+        uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.2
+
+      - name: Build emdex
+        if: steps.keycheck.outputs.no_key != '1'
+        run: cd src/cmd/emdex && go build -o /tmp/emdex .
+
+      - name: Start ragas-sidecar
+        if: steps.keycheck.outputs.no_key != '1'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          docker build -t ragas-sidecar:ci src/ragas-sidecar
+          docker run -d --name ragas -p 8006:8006 \
+            -e OPENAI_API_KEY="$OPENAI_API_KEY" \
+            -e RAGAS_LLM_PROVIDER=openai \
+            ragas-sidecar:ci
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            curl -fsS http://localhost:8006/health && break || sleep 3
+          done
+
+      - name: Run ragas smoke (threshold 0.0)
+        if: steps.keycheck.outputs.no_key != '1'
+        env:
+          EMDEX_GATEWAY_URL: http://localhost:7700
+          EMDEX_AUTH_KEY: smoke-key
+          EMDEX_RAGAS_URL: http://localhost:8006
+        run: |
+          /tmp/emdex eval \
+            --file src/ragas-sidecar/fixtures/emdexer-eval-20q.json \
+            --ragas \
+            --ground-truth src/ragas-sidecar/fixtures/emdexer-eval-20q.json \
+            --threshold 0.0 || true
+
+      - name: Stop sidecar
+        if: always() && steps.keycheck.outputs.no_key != '1'
+        run: docker rm -f ragas || true

@@ -435,6 +435,7 @@ func (s *Server) Run() {
 	mux.HandleFunc("/v1/whoami", middleware.Instrument("/v1/whoami", s.authCfg.Middleware(s.handleWhoami)))
 	mux.HandleFunc("/v1/events/indexing", middleware.Instrument("/v1/events/indexing", s.authCfg.Middleware(s.handleIndexingEvents)))
 	mux.HandleFunc("/v1/eval", middleware.Instrument("/v1/eval", s.authCfg.Middleware(s.handleEval)))
+	mux.HandleFunc("/v1/eval/metrics", middleware.Instrument("/v1/eval/metrics", s.authCfg.Middleware(http.HandlerFunc(handleEvalMetrics))))
 	mux.HandleFunc("/v1/nodes/", middleware.Instrument("/v1/nodes/", s.authCfg.Middleware(s.handleNodeIndexed)))
 	mux.HandleFunc("/v1/namespaces/stats", middleware.Instrument("/v1/namespaces/stats", s.authCfg.Middleware(s.handleNamespaceStats)))
 

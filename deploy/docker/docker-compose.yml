@@ -127,8 +127,8 @@ services:
       # ── Query embedding cache + timeout ───────────────────────────────
       # - EMDEX_EMBED_CACHE_SIZE=1000
       # - EMDEX_EMBED_TIMEOUT=30000
-      - EMDEX_CACHE_ENABLED=${EMDEX_CACHE_ENABLED:-false}
-      - EMDEX_CACHE_BACKEND=${EMDEX_CACHE_BACKEND:-memory}
+      - EMDEX_CACHE_ENABLED=${EMDEX_CACHE_ENABLED:-true}
+      - EMDEX_CACHE_BACKEND=${EMDEX_CACHE_BACKEND:-redis}
       - EMDEX_CACHE_REDIS_URL=${EMDEX_CACHE_REDIS_URL:-redis://redis:6379}
       - EMDEX_CACHE_TTL=${EMDEX_CACHE_TTL:-5m}
       - EMDEX_CACHE_MAX_ENTRIES=${EMDEX_CACHE_MAX_ENTRIES:-1000}
@@ -140,6 +140,8 @@ services:
       - emdexer-net
     depends_on:
       qdrant:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: always
     healthcheck:
@@ -325,12 +327,21 @@ services:
   #         cpus: "2"
   #         memory: 512M
 
-  # Uncomment to enable Redis cache backend (set EMDEX_CACHE_BACKEND=redis).
-  # redis:
-  #   image: redis:7-alpine
-  #   restart: unless-stopped
-  #   networks:
-  #     - emdexer-net
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - emdexer-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
 networks:
   emdexer-net:

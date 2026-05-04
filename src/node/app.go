@@ -379,7 +379,7 @@ func (a *App) Run() {
 
 func buildExtractorTag(cfg Config) string {
 	parts := []string{"extractous"}
-	if cfg.WhisperEnabled {
+	if cfg.WhisperEnabled && cfg.WhisperModel != "" {
 		parts = append(parts, "whisper:"+cfg.WhisperModel)
 	}
 	if cfg.VisionEnabled {

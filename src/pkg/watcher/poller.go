@@ -187,6 +187,15 @@ func (p *Poller) pollPath(path string) {
 			return
 		}
 
+		// Touch last_seen so PurgeStale only removes files that have actually
+		// disappeared from the source, not files that are unchanged.
+		if _, lsErr := p.cache.db.Exec(
+			`UPDATE file_cache SET last_seen = ? WHERE path = ?`,
+			time.Now().Unix(), filePath,
+		); lsErr != nil {
+			log.Printf("[cache] last_seen touch failed for %s: %v", filePath, lsErr)
+		}
+
 		// Delta detection is disabled — use legacy stat-only check.
 		if !p.delta.enabled {
 			if size != cachedSize || mtime != cachedMtime {

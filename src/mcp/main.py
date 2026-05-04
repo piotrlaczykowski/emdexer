@@ -133,6 +133,7 @@ def search_hybrid(query: str, namespace: str = "default", ctx: Context = None) -
     """Hybrid search combining semantic and keyword matching via Reciprocal Rank Fusion.
     Best for: general queries where both conceptual similarity and keyword presence matter.
     Default choice when uncertain which mode fits.
+    Results are reranked by cross-encoder when EMDEX_RERANK_ENABLED=true (recommended for precision).
     Use namespace='*' for global search across all authorized namespaces."""
     return _search_call(query, namespace, mode="hybrid", ctx=ctx, title=f"Hybrid results for **{query}**")
 

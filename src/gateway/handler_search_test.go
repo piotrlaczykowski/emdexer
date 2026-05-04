@@ -220,3 +220,81 @@ func TestHandleSearch_ModeInvalid_Returns400(t *testing.T) {
 		t.Errorf("expected 400 for invalid mode, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// mockPointsClientWithResults returns one scored point with a text payload so that
+// len(results) > 0 and the rerank block can execute.
+type mockPointsClientWithResults struct {
+	qdrant.PointsClient
+}
+
+func (m *mockPointsClientWithResults) Search(_ context.Context, _ *qdrant.SearchPoints, _ ...grpc.CallOption) (*qdrant.SearchResponse, error) {
+	return &qdrant.SearchResponse{
+		Result: []*qdrant.ScoredPoint{
+			{Score: 0.9, Payload: map[string]*qdrant.Value{"text": {Kind: &qdrant.Value_StringValue{StringValue: "hello world"}}}},
+		},
+	}, nil
+}
+
+func (m *mockPointsClientWithResults) Query(_ context.Context, _ *qdrant.QueryPoints, _ ...grpc.CallOption) (*qdrant.QueryResponse, error) {
+	return &qdrant.QueryResponse{
+		Result: []*qdrant.ScoredPoint{
+			{Score: 0.9, Payload: map[string]*qdrant.Value{"text": {Kind: &qdrant.Value_StringValue{StringValue: "hello world"}}}},
+		},
+	}, nil
+}
+
+// stubbedReranker returns a fixed positive score for every candidate text.
+type stubbedReranker struct{}
+
+func (stubbedReranker) Rerank(_ context.Context, _ string, texts []string) ([]float32, error) {
+	scores := make([]float32, len(texts))
+	for i := range scores {
+		scores[i] = 0.8
+	}
+	return scores, nil
+}
+
+func TestHandleSearch_RerankAppliedCounter_IncrementsOnSuccess(t *testing.T) {
+	s := &Server{
+		pointsClient:    &mockPointsClientWithResults{},
+		embedder:        &mockEmbedder{},
+		collection:      "test",
+		reranker:        stubbedReranker{},
+		rerankTopK:      5,
+		rerankThreshold: 0.0,
+	}
+
+	before := testutil.ToFloat64(rerankAppliedTotal.WithLabelValues("default", "semantic"))
+
+	w := httptest.NewRecorder()
+	r := requestWithNamespace("/v1/search?q=hello&namespace=default&mode=semantic", []string{"*"})
+	s.handleSearch(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	after := testutil.ToFloat64(rerankAppliedTotal.WithLabelValues("default", "semantic"))
+	if after-before != 1 {
+		t.Errorf("expected rerankAppliedTotal to increment by 1, got delta=%.0f", after-before)
+	}
+}
+
+func TestHandleSearch_RerankAppliedCounter_SkipsOnNoOp(t *testing.T) {
+	s := &Server{
+		pointsClient: &mockPointsClientWithResults{},
+		embedder:     &mockEmbedder{},
+		collection:   "test",
+		reranker:     rerank.NoOpReranker{},
+	}
+
+	before := testutil.ToFloat64(rerankAppliedTotal.WithLabelValues("default", "keyword"))
+
+	w := httptest.NewRecorder()
+	r := requestWithNamespace("/v1/search?q=hello&namespace=default&mode=keyword", []string{"*"})
+	s.handleSearch(w, r)
+
+	after := testutil.ToFloat64(rerankAppliedTotal.WithLabelValues("default", "keyword"))
+	if after != before {
+		t.Errorf("expected rerankAppliedTotal NOT to increment for NoOpReranker, got delta=%.0f", after-before)
+	}
+}

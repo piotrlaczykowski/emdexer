@@ -256,7 +256,7 @@ def get_file_relations(path: str, namespace: str = "default", depth: int = 1, ct
         if raw:
             try:
                 relations = _json.loads(raw)
-            except Exception:
+            except Exception:  # JSON is best-effort; keep empty list on parse error
                 pass
         break
 

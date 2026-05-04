@@ -26,7 +26,6 @@ HTTP status codes
 500  extraction error
 """
 
-import io
 import logging
 from typing import Optional
 
@@ -78,13 +77,14 @@ async def extract(
     if metadata:
         try:
             safe_meta = {k: str(v) for k, v in metadata.items()}
-        except Exception:
+        except Exception:  # metadata conversion is best-effort; keep empty dict on failure
             pass
 
+    safe_name = (file.filename or "").replace("\n", "\\n").replace("\r", "\\r")
     logger.info(
         "extracted %d chars from %s (ocr=%s)",
         len(text),
-        file.filename,
+        safe_name,
         ocr,
     )
     return JSONResponse({"text": text, "metadata": safe_meta})

@@ -307,9 +307,11 @@ func readDurationDays(env string, fallback int) time.Duration {
 
 func readDurationHours(env string, fallback int) time.Duration {
 	if s := os.Getenv(env); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n >= 0 && n < 720 {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n < 720 {
 			return time.Duration(n) * time.Hour
 		}
+		// n=0 would cause time.NewTicker to panic; fall back to default.
+		log.Printf("[cache] %s=%q is invalid (must be 1–719); using default %dh", env, s, fallback)
 	}
 	return time.Duration(fallback) * time.Hour
 }

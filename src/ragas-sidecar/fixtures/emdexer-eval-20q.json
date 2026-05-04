@@ -1,0 +1,82 @@
+[
+  {
+    "question": "What is the default embedding provider in Emdexer and how is it configured?",
+    "ground_truth": "The default embedding provider is Gemini, configured via the EMBED_PROVIDER environment variable. Supported values are 'gemini' (default), 'ollama', and 'openai'."
+  },
+  {
+    "question": "How does Emdexer implement hybrid search combining vector and keyword results?",
+    "ground_truth": "Emdexer implements hybrid search by combining dense vector search with BM25 keyword search and merging the results using Reciprocal Rank Fusion (RRF). BM25 is enabled by default via the bm25Enabled config flag; the RRF K parameter defaults to 60 with equal vector and BM25 weights."
+  },
+  {
+    "question": "How do you enable the reranker in Emdexer?",
+    "ground_truth": "To enable the reranker, set EMDEX_RERANK_ENABLED=true on the gateway service and uncomment the reranker sidecar block in docker-compose.yml. The reranker uses a cross-encoder model (default: cross-encoder/ms-marco-MiniLM-L-6-v2) configured via the RERANKER_MODEL environment variable."
+  },
+  {
+    "question": "What does the Emdexer response cache store and how is it enabled?",
+    "ground_truth": "The response cache stores the results of chat and search queries to avoid redundant LLM and vector-search calls. It is enabled by setting EMDEX_CACHE_ENABLED=true; the backend is either 'memory' or 'redis' (configured via EMDEX_CACHE_BACKEND), with a default TTL of 5 minutes and a maximum of 1000 entries."
+  },
+  {
+    "question": "How does Emdexer achieve high availability in a multi-node deployment?",
+    "ground_truth": "Emdexer's HA mode uses a 3-node Qdrant cluster with Raft consensus and deploys multiple Gateway replicas behind Nginx. HA mode is activated by setting haMode=true in Helm values or the equivalent env var, and requires a PostgreSQL URL for distributed state."
+  },
+  {
+    "question": "What is Graph-RAG in Emdexer and how does it work?",
+    "ground_truth": "Graph-RAG in Emdexer is a filesystem knowledge graph built lazily from Qdrant payload metadata that tracks structural relations between indexed files (imports, links). After the initial hybrid search, the gateway performs BFS-based neighbour expansion (default depth 1) to surface contextually related files, controlled by the graphEnabled flag and graphDepth setting."
+  },
+  {
+    "question": "What MCP tools does Emdexer expose?",
+    "ground_truth": "Emdexer's MCP server (src/mcp/main.py) exposes the following tools: search_semantic, search_keyword, search_hybrid, search_files, search_graph, get_file, get_file_relations, list_plugins, and system_status. All search tools accept a query and an optional namespace parameter."
+  },
+  {
+    "question": "What event triggers an Emdexer indexing webhook and what does the payload look like?",
+    "ground_truth": "A webhook is fired when a namespace finishes indexing, emitting a 'namespace.indexed' event. The payload contains the fields event, namespace, and node_id, and the webhook URL is configured via the EMDEX_WEBHOOK_URL environment variable on the gateway."
+  },
+  {
+    "question": "How do you use the emdex eval CLI command, and what metrics does it measure?",
+    "ground_truth": "The emdex eval command accepts --file/-f (JSON array of questions), --question/-q (single question), --expected/-e (expected answer), --namespace/-n, --threshold/-t (default 0.7), and --output/-o (table or json). It measures context_recall and faithfulness per question, returning exit code 0 if all questions pass the threshold or 1 if any fail."
+  },
+  {
+    "question": "Which endpoint provides namespace statistics and what does it return?",
+    "ground_truth": "The GET /v1/namespaces/stats endpoint returns aggregate statistics across namespaces. It is registered in the gateway router at /v1/namespaces/stats and is accessible only to authenticated clients via the standard auth middleware."
+  },
+  {
+    "question": "How does SSE streaming work for chat responses in Emdexer?",
+    "ground_truth": "When stream=true is set in a /v1/chat/completions request, the gateway returns an OpenAI-compatible SSE stream with Content-Type: text/event-stream, sending token chunks as they arrive from the LLM. The gateway tracks time-to-first-token (emdexer_gateway_chat_stream_ttft_ms) and total chunks delivered (emdexer_gateway_chat_stream_chunks_total) as Prometheus metrics."
+  },
+  {
+    "question": "How does Emdexer's delta indexing work to handle incremental file updates?",
+    "ground_truth": "Delta indexing uses a 3-stage XXH3 hash-based change detection at the file, chunk, and embedding level to skip redundant re-processing. A SQLite file-cache stores path-to-hash mappings; only files whose hash has changed since the last index run are re-extracted and re-embedded."
+  },
+  {
+    "question": "What does the plugin sidecar do in Emdexer and how do you add plugins?",
+    "ground_truth": "The plugin sidecar (src/plugin-sidecar) is an internal HTTP service running on port 8003 that provides custom extraction capabilities. Plugins are mounted into the container at /plugins as a read-only volume, and the sidecar is enabled on the node via EMDEX_PLUGIN_ENABLED=true with the URL set in EMDEX_PLUGIN_SIDECAR_URL."
+  },
+  {
+    "question": "Which node types support Whisper audio extraction in Emdexer?",
+    "ground_truth": "Whisper audio transcription is supported at the node level for audio and video file types. It is enabled by setting EMDEX_WHISPER_ENABLED=true on the node, pointing EMDEX_WHISPER_URL to a Whisper sidecar, and configuring the model via EMDEX_WHISPER_MODEL (default: base)."
+  },
+  {
+    "question": "How does Emdexer handle vision-based PDF extraction for multimodal documents?",
+    "ground_truth": "Emdexer supports vision-based extraction for images and scanned PDFs via a Gemini Vision integration, enabled by setting EMDEX_VISION_ENABLED=true on the node. OCR for scanned documents is separately enabled with EMDEX_ENABLE_OCR=true; the maximum file size for vision processing is controlled by EMDEX_VISION_MAX_SIZE_MB (default: 10 MB)."
+  },
+  {
+    "question": "What does the SFTP node type do in Emdexer?",
+    "ground_truth": "The SFTP node type implements a native VFS backend that connects to remote SFTP servers directly without OS-level mounts. This allows Emdexer to index files over SSH/SFTP by crawling the remote directory tree and streaming file contents for extraction and embedding."
+  },
+  {
+    "question": "What does the NFS node type do in Emdexer?",
+    "ground_truth": "The NFS node type provides a native VFS backend for NFS shares, enabling Emdexer to index files on NFS-exported directories without requiring a mounted filesystem on the host OS. Like SFTP and S3, it is part of Emdexer's zero-mount architecture to reduce operational fragility."
+  },
+  {
+    "question": "What does the S3 node type do in Emdexer?",
+    "ground_truth": "The S3 node type implements a native VFS backend for S3-compatible object storage (including MinIO), allowing Emdexer to stream and index objects directly from S3 buckets without mounting them. It is part of Emdexer's zero-mount architecture alongside SFTP and NFS backends."
+  },
+  {
+    "question": "What are the key values.yaml settings for deploying the Emdexer gateway with Helm?",
+    "ground_truth": "Key values.yaml settings for the emdexer-gateway Helm chart include: replicaCount (default 1), service.port (7700), config.qdrantHost (Qdrant gRPC address), config.embedProvider (gemini/ollama/openai), config.bm25Enabled (true), config.graphEnabled (true), config.cacheEnabled and cacheBackend, config.haMode, and ingress.enabled for external access."
+  },
+  {
+    "question": "What SSRF protection does Emdexer provide, and what Prometheus metrics does the gateway expose?",
+    "ground_truth": "Emdexer's safenet package provides SSRF protection by blocking outbound HTTP connections to private RFC 1918 ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), loopback, and link-local addresses at dial time. The gateway exposes Prometheus metrics including emdexer_gateway_chat_stream_ttft_ms, emdexer_gateway_chat_stream_chunks_total, emdexer_gateway_graph_expansions_total, and SSE subscriber and event counters."
+  }
+]

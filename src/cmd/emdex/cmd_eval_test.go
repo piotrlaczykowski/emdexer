@@ -181,7 +181,7 @@ func TestPrintEvalJSON_Structure(t *testing.T) {
 		{Question: "q2", Verdict: "FAIL", ContextRecall: 0.5, Faithfulness: 0.8, LatencyMs: 98},
 	}
 	var buf bytes.Buffer
-	if err := printEvalJSON(&buf, outcomes, 0.7); err != nil {
+	if err := printEvalJSON(&buf, outcomes, 0.7, nil); err != nil {
 		t.Fatalf("printEvalJSON: %v", err)
 	}
 
@@ -488,5 +488,97 @@ func TestParseEvalFlags_RagasRequiresGroundTruth(t *testing.T) {
 	)
 	if rc != exitConfigError {
 		t.Errorf("expected exitConfigError (2), got %d", rc)
+	}
+}
+
+func TestRunEval_RagasSidecarUnreachable_Degrades(t *testing.T) {
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"context_recall": 0.9,
+			"faithfulness":   0.9,
+			"latency_ms":     100,
+			"answer":         "test answer",
+			"contexts":       []string{"context chunk"},
+		})
+	}))
+	defer gw.Close()
+
+	tmp := t.TempDir()
+	gtPath := filepath.Join(tmp, "gt.json")
+	os.WriteFile(gtPath, []byte(`[{"question":"What is Emdexer?","ground_truth":"Emdexer is a RAG engine."}]`), 0o644)
+	qPath := filepath.Join(tmp, "q.json")
+	os.WriteFile(qPath, []byte(`[{"question":"What is Emdexer?","expected_answer":"Emdexer is a RAG engine."}]`), 0o644)
+
+	var stdout, stderr bytes.Buffer
+	rc := runEval(
+		[]string{"--file", qPath, "--ragas", "--ragas-url", "http://127.0.0.1:1", "--ground-truth", gtPath},
+		&stdout, &stderr,
+		func(s string) string {
+			switch s {
+			case "EMDEX_GATEWAY_URL":
+				return gw.URL
+			case "EMDEX_AUTH_KEY":
+				return "k"
+			}
+			return ""
+		},
+	)
+	// Should still exit OK (graceful degrade), context_recall 0.9 >= default threshold 0.7
+	if rc != exitOK {
+		t.Errorf("expected exitOK (graceful degrade), got %d, stderr=%s", rc, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ragas sidecar") {
+		t.Errorf("expected sidecar warning on stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRunEval_RagasSuccess_PrintsScores(t *testing.T) {
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"context_recall": 0.9,
+			"faithfulness":   0.9,
+			"latency_ms":     100,
+			"answer":         "test answer",
+			"contexts":       []string{"context chunk"},
+		})
+	}))
+	defer gw.Close()
+
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"context_recall": 0.82,
+			"faithfulness":   0.75,
+			"per_sample": []map[string]any{
+				{"question": "What is Emdexer?", "context_recall": 0.82, "faithfulness": 0.75},
+			},
+		})
+	}))
+	defer sidecar.Close()
+
+	tmp := t.TempDir()
+	gtPath := filepath.Join(tmp, "gt.json")
+	os.WriteFile(gtPath, []byte(`[{"question":"What is Emdexer?","ground_truth":"Emdexer is a RAG engine."}]`), 0o644)
+	qPath := filepath.Join(tmp, "q.json")
+	os.WriteFile(qPath, []byte(`[{"question":"What is Emdexer?","expected_answer":"Emdexer is a RAG engine."}]`), 0o644)
+
+	var stdout, stderr bytes.Buffer
+	rc := runEval(
+		[]string{"--file", qPath, "--ragas", "--ragas-url", sidecar.URL, "--ground-truth", gtPath, "--threshold", "0.8"},
+		&stdout, &stderr,
+		func(s string) string {
+			switch s {
+			case "EMDEX_GATEWAY_URL":
+				return gw.URL
+			case "EMDEX_AUTH_KEY":
+				return "k"
+			}
+			return ""
+		},
+	)
+	if rc != exitOK {
+		t.Errorf("expected exitOK (0.9 recall >= 0.8 threshold), got %d, stderr=%s", rc, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "0.82") {
+		t.Errorf("expected context_recall 0.82 in output, got: %s", stdout.String())
 	}
 }

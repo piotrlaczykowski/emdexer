@@ -12,6 +12,74 @@ import (
 	"time"
 )
 
+// groundTruthEntry is one entry in the ground-truth JSON file.
+type groundTruthEntry struct {
+	Question    string `json:"question"`
+	GroundTruth string `json:"ground_truth"`
+}
+
+func loadGroundTruth(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read ground-truth: %w", err)
+	}
+	var entries []groundTruthEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, fmt.Errorf("parse ground-truth: %w", err)
+	}
+	out := make(map[string]string, len(entries))
+	for _, e := range entries {
+		out[e.Question] = e.GroundTruth
+	}
+	return out, nil
+}
+
+type ragasSample struct {
+	Question    string   `json:"question"`
+	Answer      string   `json:"answer"`
+	Contexts    []string `json:"contexts"`
+	GroundTruth string   `json:"ground_truth"`
+}
+
+type ragasRequest struct {
+	Samples []ragasSample `json:"samples"`
+	Metrics []string      `json:"metrics"`
+}
+
+type ragasPerSample struct {
+	Question      string  `json:"question"`
+	ContextRecall float64 `json:"context_recall"`
+	Faithfulness  float64 `json:"faithfulness"`
+}
+
+type ragasResponse struct {
+	ContextRecall float64          `json:"context_recall"`
+	Faithfulness  float64          `json:"faithfulness"`
+	PerSample     []ragasPerSample `json:"per_sample"`
+}
+
+func callRagasSidecar(url string, samples []ragasSample) (ragasResponse, error) {
+	body, _ := json.Marshal(ragasRequest{
+		Samples: samples,
+		Metrics: []string{"context_recall", "faithfulness"},
+	})
+	client := &http.Client{Timeout: 300 * time.Second}
+	resp, err := client.Post(url+"/v1/eval/ragas", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return ragasResponse{}, fmt.Errorf("ragas sidecar unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return ragasResponse{}, fmt.Errorf("ragas sidecar HTTP %d: %s", resp.StatusCode, string(b))
+	}
+	var rr ragasResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rr); err != nil {
+		return ragasResponse{}, fmt.Errorf("decode ragas response: %w", err)
+	}
+	return rr, nil
+}
+
 // evalQuestion is one entry in the input JSON file, or a single --question invocation.
 type evalQuestion struct {
 	Question       string `json:"question"`
@@ -182,8 +250,8 @@ func padRight(s string, width int) string {
 }
 
 // printEvalJSON writes a machine-readable summary to w.
-// Output schema: {total, passed, failed, threshold, results[]}.
-func printEvalJSON(w io.Writer, outcomes []evalOutcome, threshold float64) error {
+// Output schema: {total, passed, failed, threshold, results[], ragas?}.
+func printEvalJSON(w io.Writer, outcomes []evalOutcome, threshold float64, ragasResult *ragasResponse) error {
 	passed, failed := 0, 0
 	for _, o := range outcomes {
 		if o.Verdict == "PASS" {
@@ -193,17 +261,19 @@ func printEvalJSON(w io.Writer, outcomes []evalOutcome, threshold float64) error
 		}
 	}
 	summary := struct {
-		Total     int           `json:"total"`
-		Passed    int           `json:"passed"`
-		Failed    int           `json:"failed"`
-		Threshold float64       `json:"threshold"`
-		Results   []evalOutcome `json:"results"`
+		Total     int            `json:"total"`
+		Passed    int            `json:"passed"`
+		Failed    int            `json:"failed"`
+		Threshold float64        `json:"threshold"`
+		Results   []evalOutcome  `json:"results"`
+		Ragas     *ragasResponse `json:"ragas,omitempty"`
 	}{
 		Total:     len(outcomes),
 		Passed:    passed,
 		Failed:    failed,
 		Threshold: threshold,
 		Results:   outcomes,
+		Ragas:     ragasResult,
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -406,9 +476,39 @@ func runEval(args []string, stdout, stderr io.Writer, env func(string) string) i
 		outcomes = append(outcomes, outcome)
 	}
 
+	// Optionally call RAGAS sidecar.
+	var ragasResult *ragasResponse
+	if opts.ragas {
+		gt, err := loadGroundTruth(opts.groundTruth)
+		if err != nil {
+			fmt.Fprintf(stderr, "  X %s\n", err)
+			return exitConfigError
+		}
+		samples := make([]ragasSample, 0, len(outcomes))
+		for _, o := range outcomes {
+			if o.Error != "" {
+				continue
+			}
+			samples = append(samples, ragasSample{
+				Question:    o.Question,
+				Answer:      o.Answer,
+				Contexts:    o.Contexts,
+				GroundTruth: gt[o.Question],
+			})
+		}
+		rr, err := callRagasSidecar(opts.ragasURL, samples)
+		if err != nil {
+			fmt.Fprintf(stderr, "  ! ragas sidecar unreachable, skipping: %s\n", err)
+		} else {
+			ragasResult = &rr
+			fmt.Fprintf(stdout, "\n  RAGAS: context_recall=%.2f  faithfulness=%.2f\n",
+				rr.ContextRecall, rr.Faithfulness)
+		}
+	}
+
 	// Render.
 	if opts.output == "json" {
-		if err := printEvalJSON(stdout, outcomes, opts.threshold); err != nil {
+		if err := printEvalJSON(stdout, outcomes, opts.threshold, ragasResult); err != nil {
 			fmt.Fprintf(stderr, "  X render JSON: %s\n", err)
 			return exitConfigError
 		}

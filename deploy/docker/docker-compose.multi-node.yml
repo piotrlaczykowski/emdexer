@@ -191,9 +191,11 @@ services:
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
       - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
+      - EMDEX_CACHE_DIR=/app/cache
     volumes:
       # Replace ./docs-data with your actual documents directory
       - ${DOCS_DATA_PATH:-./docs-data}:/app/data:ro
+      - node-docs-cache:/app/cache
     networks:
       - emdexer-net
     depends_on:
@@ -265,9 +267,11 @@ services:
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
       - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
+      - EMDEX_CACHE_DIR=/app/cache
     volumes:
       # Replace ./code-data with your actual source directory
       - ${CODE_DATA_PATH:-./code-data}:/app/data:ro
+      - node-code-cache:/app/cache
     networks:
       - emdexer-net
     depends_on:
@@ -294,3 +298,6 @@ volumes:
   qdrant-storage:
   # Named volume keeps the node registry across gateway restarts
   gateway-registry:
+  # Named volumes persist per-node delta-indexing cache across restarts
+  node-docs-cache:
+  node-code-cache:

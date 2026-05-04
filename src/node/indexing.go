@@ -109,6 +109,9 @@ func startIndexing(root, cwd string, pipelineCfg indexer.PipelineConfig, indexWo
 	} else {
 		cache, _ := watcher.NewMetadataCache(filepath.Join(cacheDir, "emdex_cache.db"))
 		if cache != nil {
+			retention := readDurationDays("EMDEX_CACHE_RETENTION_DAYS", 30)
+			vacuumEvery := readDurationHours("EMDEX_CACHE_VACUUM_INTERVAL_HOURS", 24)
+			cache.StartHygiene(globalCtx, retention, retention/24, vacuumEvery)
 			p := watcher.NewPoller(
 				globalFS,
 				root,
@@ -291,4 +294,24 @@ func (mb *microBatcher) flush() {
 	if len(batch) > 0 {
 		mb.flushFn(batch)
 	}
+}
+
+func readDurationDays(env string, fallback int) time.Duration {
+	if s := os.Getenv(env); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n < 3650 {
+			return time.Duration(n) * 24 * time.Hour
+		}
+	}
+	return time.Duration(fallback) * 24 * time.Hour
+}
+
+func readDurationHours(env string, fallback int) time.Duration {
+	if s := os.Getenv(env); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n < 720 {
+			return time.Duration(n) * time.Hour
+		}
+		// n=0 would cause time.NewTicker to panic; fall back to default.
+		log.Printf("[cache] %s=%q is invalid (must be 1–719); using default %dh", env, s, fallback)
+	}
+	return time.Duration(fallback) * time.Hour
 }

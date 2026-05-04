@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/piotrlaczykowski/emdexer/indexer"
@@ -70,36 +69,9 @@ func NewMetadataCache(dbPath string) (*MetadataCache, error) {
 	}
 	log.Printf("[cache] SQLite pragmas applied (driver: modernc)")
 
-	// Base table — create if not present.
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS file_cache (
-		path         TEXT PRIMARY KEY,
-		size         INTEGER,
-		mtime        INTEGER,
-		partial_hash TEXT,
-		full_hash    TEXT,
-		algorithm    TEXT,
-		last_seen    INTEGER
-	)`)
-	if err != nil {
-		return nil, err
-	}
-
-	// Idempotent schema migrations for databases created before this release.
-	// We use static SQL strings and handle errors properly, ignoring "duplicate column" errors.
-	migrations := []string{
-		"ALTER TABLE file_cache ADD COLUMN partial_hash TEXT",
-		"ALTER TABLE file_cache ADD COLUMN full_hash TEXT",
-		"ALTER TABLE file_cache ADD COLUMN algorithm TEXT",
-	}
-	for _, stmt := range migrations {
-		if _, err := db.Exec(stmt); err != nil {
-			// SQLite returns "duplicate column name: <name>" if it already exists.
-			// In some versions it might just be "duplicate column name".
-			// We check for the substring to be safe.
-			if !strings.Contains(err.Error(), "duplicate column name") {
-				return nil, fmt.Errorf("migration failed (%q): %w", stmt, err)
-			}
-		}
+	// Schema versioning lives in migrations.go.
+	if err := migrate(db); err != nil {
+		return nil, fmt.Errorf("schema migrate: %w", err)
 	}
 
 	return &MetadataCache{db: db}, nil
@@ -213,6 +185,15 @@ func (p *Poller) pollPath(path string) {
 			log.Printf("[poller] Query/Scan error for %s: %v", filePath, queryErr)
 			skipped++
 			return
+		}
+
+		// Touch last_seen so PurgeStale only removes files that have actually
+		// disappeared from the source, not files that are unchanged.
+		if _, lsErr := p.cache.db.Exec(
+			`UPDATE file_cache SET last_seen = ? WHERE path = ?`,
+			time.Now().Unix(), filePath,
+		); lsErr != nil {
+			log.Printf("[cache] last_seen touch failed for %s: %v", filePath, lsErr)
 		}
 
 		// Delta detection is disabled — use legacy stat-only check.

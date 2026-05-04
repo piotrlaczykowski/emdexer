@@ -1,0 +1,17 @@
+{{- if and .Values.cache.enabled (not .Values.cache.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-cache" (include "emdexer-node.fullname" .) }}
+  labels:
+    {{- include "emdexer-node.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.cache.size }}
+  {{- if .Values.cache.storageClass }}
+  storageClassName: {{ .Values.cache.storageClass | quote }}
+  {{- end }}
+{{- end }}

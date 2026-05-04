@@ -23,6 +23,12 @@ spec:
               value: {{ .Values.config.qdrantHost | quote }}
             - name: EMDEX_NAMESPACE
               value: {{ .Values.config.namespace | quote }}
+            - name: EMDEX_CACHE_DIR
+              value: "/app/cache"
+            - name: EMDEX_CACHE_RETENTION_DAYS
+              value: {{ .Values.cache.retentionDays | default 30 | quote }}
+            - name: EMDEX_CACHE_VACUUM_INTERVAL_HOURS
+              value: {{ .Values.cache.vacuumIntervalHours | default 24 | quote }}
             - name: EMDEX_EXTRACTOUS_URL
               value: {{ .Values.config.extractousHost | quote }}
             {{- if eq (.Values.config.whisperEnabled | default "false") "true" }}
@@ -182,10 +188,20 @@ spec:
             - name: S3_PREFIX
               value: {{ .Values.config.s3Prefix | quote }}
             {{- end }}
+            - name: EMDEX_EXTRACT_CACHE_ENABLED
+              value: {{ .Values.extractCache.enabled | default false | quote }}
+            {{- if .Values.extractCache.enabled }}
+            - name: EMDEX_EXTRACT_CACHE_REDIS_URL
+              value: {{ .Values.extractCache.redisUrl | quote }}
+            - name: EMDEX_EXTRACT_CACHE_TTL
+              value: {{ .Values.extractCache.ttl | default "720h" | quote }}
+            {{- end }}
           volumeMounts:
             - name: data
               mountPath: /opt/emdexer/test_dir
               readOnly: true
+            - name: cache
+              mountPath: /app/cache
           livenessProbe:
             httpGet:
               path: /healthz/liveness
@@ -202,4 +218,11 @@ spec:
           {{- else }}
           hostPath:
             path: {{ .Values.config.mountPath }}
+          {{- end }}
+        - name: cache
+          {{- if .Values.cache.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.cache.existingClaim | default (printf "%s-cache" (include "emdexer-node.fullname" .)) }}
+          {{- else }}
+          emptyDir: {}
           {{- end }}

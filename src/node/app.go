@@ -17,6 +17,7 @@ import (
 	"github.com/piotrlaczykowski/emdexer/config"
 	"github.com/piotrlaczykowski/emdexer/embed"
 	"github.com/piotrlaczykowski/emdexer/extract"
+	"github.com/piotrlaczykowski/emdexer/extractcache"
 	"github.com/piotrlaczykowski/emdexer/extractor"
 	"github.com/piotrlaczykowski/emdexer/health"
 	"github.com/piotrlaczykowski/emdexer/indexer"
@@ -53,9 +54,10 @@ var walkComplete atomic.Int32 // 0 = walk in progress, 1 = walk done
 
 // App holds the wired-up application state returned by newApp.
 type App struct {
-	conn *grpc.ClientConn
-	root string
-	cwd  string
+	conn        *grpc.ClientConn
+	root        string
+	cwd         string
+	extractCache extractcache.Cache
 }
 
 // newApp reads environment variables, wires up all dependencies, and starts
@@ -312,6 +314,17 @@ func newApp() *App {
 		cacheDir = filepath.Join(cwd, "cache")
 	}
 	_ = os.MkdirAll(cacheDir, 0700)
+	if watcher.IsEphemeralFS(cacheDir) {
+		log.Printf("[cache] WARNING: %s is on an ephemeral filesystem (tmpfs/overlay). "+
+			"Delta indexing will silently regress to full re-indexing on every restart. "+
+			"Mount a persistent volume at this path.", cacheDir)
+	}
+
+	xc, xcErr := extractcache.NewFromEnv()
+	if xcErr != nil {
+		log.Printf("[extract-cache] disabled: %v", xcErr)
+		xc = extractcache.Noop{}
+	}
 
 	// Automatic graph-relation migration: if the collection predates Phase 24
 	// (i.e. <20% of sampled chunk-0 points carry a `relations` field), delete
@@ -328,6 +341,8 @@ func newApp() *App {
 		}
 	}
 	log.Printf("[node] indexing workers: %d", indexWorkers)
+	pipelineCfg.ExtractCache = xc
+	pipelineCfg.ExtractorTag = buildExtractorTag(globalCfg)
 	startIndexing(root, cwd, pipelineCfg, indexWorkers)
 
 	// Self-register with the gateway and start periodic heartbeat.
@@ -342,13 +357,14 @@ func newApp() *App {
 	nodereg.Register(nodeCfg)
 	go nodereg.StartHeartbeatLoop(nodeCfg)
 
-	return &App{conn: conn, root: root, cwd: cwd}
+	return &App{conn: conn, root: root, cwd: cwd, extractCache: xc}
 }
 
 // Run starts the health server and blocks until SIGTERM or SIGINT.
 func (a *App) Run() {
 	defer func() { _ = a.conn.Close() }()
 	defer func() { _ = globalFS.Close() }()
+	defer func() { _ = a.extractCache.Close() }()
 
 	go health.StartServer(health.ServerConfig{
 		QdrantConn:      a.conn,
@@ -359,4 +375,18 @@ func (a *App) Run() {
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 	<-quit
 	log.Printf("[node] Shutting down")
+}
+
+func buildExtractorTag(cfg Config) string {
+	parts := []string{"extractous"}
+	if cfg.WhisperEnabled && cfg.WhisperModel != "" {
+		parts = append(parts, "whisper:"+cfg.WhisperModel)
+	}
+	if cfg.VisionEnabled {
+		parts = append(parts, "vision")
+	}
+	if cfg.EnableOCR {
+		parts = append(parts, "ocr")
+	}
+	return strings.Join(parts, "+")
 }

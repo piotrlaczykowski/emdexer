@@ -6,4 +6,3 @@ langchain-google-genai>=2.0
 httpx>=0.28
 pytest>=8
 pytest-asyncio>=0.24
-httpx>=0.28

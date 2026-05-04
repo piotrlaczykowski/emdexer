@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -447,5 +448,45 @@ func TestEvalCmd_PerEntryNamespaceOverridesFlag(t *testing.T) {
 	)
 	if gotNS != "from-entry" {
 		t.Errorf("namespace: per-entry should win; got %q", gotNS)
+	}
+}
+
+func TestParseEvalFlags_RagasFlags(t *testing.T) {
+	opts, err := parseEvalFlags([]string{
+		"--file", "q.json",
+		"--ragas",
+		"--ragas-url", "http://sidecar:8006",
+		"--ground-truth", "gt.json",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !opts.ragas {
+		t.Error("ragas not set")
+	}
+	if opts.ragasURL != "http://sidecar:8006" {
+		t.Errorf("ragasURL = %q", opts.ragasURL)
+	}
+	if opts.groundTruth != "gt.json" {
+		t.Errorf("groundTruth = %q", opts.groundTruth)
+	}
+}
+
+func TestParseEvalFlags_RagasRequiresGroundTruth(t *testing.T) {
+	// --ragas without --ground-truth should return exitConfigError
+	// We need a fake file to pass --file validation, so use /dev/null
+	var stderr bytes.Buffer
+	rc := runEval(
+		[]string{"--file", "/dev/null", "--ragas"},
+		io.Discard, &stderr,
+		func(s string) string {
+			if s == "EMDEX_AUTH_KEY" {
+				return "k"
+			}
+			return ""
+		},
+	)
+	if rc != exitConfigError {
+		t.Errorf("expected exitConfigError (2), got %d", rc)
 	}
 }

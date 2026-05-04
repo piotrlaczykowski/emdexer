@@ -45,13 +45,16 @@ type evalOutcome struct {
 
 // evalOpts holds parsed CLI options.
 type evalOpts struct {
-	file      string
-	question  string
-	expected  string
-	namespace string
-	threshold float64
-	output    string
-	help      bool
+	file        string
+	question    string
+	expected    string
+	namespace   string
+	threshold   float64
+	output      string
+	help        bool
+	ragas       bool
+	ragasURL    string
+	groundTruth string
 }
 
 // Exit codes (CI-friendly).
@@ -284,6 +287,20 @@ func parseEvalFlags(args []string) (evalOpts, error) {
 				return opts, fmt.Errorf("--output must be 'table' or 'json', got %q", v)
 			}
 			opts.output, i = v, ni
+		case arg == "--ragas":
+			opts.ragas = true
+		case matches(arg, "--ragas-url", "--ragas-url"):
+			v, ni, err := takeValue(i, "--ragas-url")
+			if err != nil {
+				return opts, err
+			}
+			opts.ragasURL, i = v, ni
+		case matches(arg, "--ground-truth", "--ground-truth"):
+			v, ni, err := takeValue(i, "--ground-truth")
+			if err != nil {
+				return opts, err
+			}
+			opts.groundTruth, i = v, ni
 		default:
 			return opts, fmt.Errorf("unknown flag: %s", arg)
 		}
@@ -324,6 +341,20 @@ func runEval(args []string, stdout, stderr io.Writer, env func(string) string) i
 	if authKey == "" {
 		fmt.Fprintf(stderr, "  X EMDEX_AUTH_KEY is required\n")
 		return exitConfigError
+	}
+
+	// RAGAS sidecar config.
+	if opts.ragas {
+		if opts.ragasURL == "" {
+			opts.ragasURL = env("EMDEX_RAGAS_URL")
+			if opts.ragasURL == "" {
+				opts.ragasURL = "http://localhost:8006"
+			}
+		}
+		if opts.groundTruth == "" {
+			fmt.Fprintf(stderr, "  X --ground-truth is required when --ragas is set\n")
+			return exitConfigError
+		}
 	}
 
 	// Build the question list.
@@ -403,6 +434,9 @@ func printEvalHelp(w io.Writer) {
 	fmt.Fprintf(w, "    --expected, -e <text>     Expected answer (required with --question)\n")
 	fmt.Fprintf(w, "    --namespace, -n <ns>      Namespace to query (default: 'default')\n")
 	fmt.Fprintf(w, "    --threshold, -t <0..1>    Pass threshold on context_recall (default: 0.7)\n")
-	fmt.Fprintf(w, "    --output, -o table|json   Output format (default: table)\n\n")
+	fmt.Fprintf(w, "    --output, -o table|json   Output format (default: table)\n")
+	fmt.Fprintf(w, "    --ragas                   Enable RAGAS scoring via sidecar\n")
+	fmt.Fprintf(w, "    --ragas-url <url>         Sidecar URL (default: $EMDEX_RAGAS_URL or http://localhost:8006)\n")
+	fmt.Fprintf(w, "    --ground-truth <path>     Ground-truth JSON (required with --ragas)\n\n")
 	fmt.Fprintf(w, "  Exit codes: 0=all pass  1=at least one fail  2=config error\n\n")
 }

@@ -1,0 +1,86 @@
+{
+  "id": null,
+  "uid": "emdexer-eval",
+  "title": "Emdexer — Eval Quality",
+  "tags": [
+    "emdexer"
+  ],
+  "timezone": "browser",
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Eval Scores Over Time",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "emdexer_eval_context_recall",
+          "legendFormat": "context_recall"
+        },
+        {
+          "expr": "emdexer_eval_faithfulness",
+          "legendFormat": "faithfulness"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 0.7}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Context Recall (latest)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "emdexer_eval_context_recall",
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 0.75}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Faithfulness (latest)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "emdexer_eval_faithfulness",
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 0.70}
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

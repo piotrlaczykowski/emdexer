@@ -345,7 +345,9 @@ services:
       - "8081:8081"
     volumes:
       - ../../test_dir:/app/test_dir
+      - node-local-cache:/app/cache
     environment:
+      - EMDEX_CACHE_DIR=/app/cache
       - QDRANT_HOST=qdrant-1:6334
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_NAMESPACE=default
@@ -406,7 +408,10 @@ services:
         limits:
           cpus: '1.0'
           memory: 512M
+    volumes:
+      - node-smb-cache:/app/cache
     environment:
+      - EMDEX_CACHE_DIR=/app/cache
       - QDRANT_HOST=qdrant-1:6334
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_NAMESPACE=${SMB_NAMESPACE:-smb}
@@ -472,7 +477,10 @@ services:
         limits:
           cpus: '1.0'
           memory: 512M
+    volumes:
+      - node-sftp-cache:/app/cache
     environment:
+      - EMDEX_CACHE_DIR=/app/cache
       - QDRANT_HOST=qdrant-1:6334
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_NAMESPACE=${SFTP_NAMESPACE:-sftp}
@@ -567,3 +575,6 @@ volumes:
   qdrant-storage-3:
   postgres-data:
   whisper-models:
+  node-local-cache:
+  node-smb-cache:
+  node-sftp-cache:

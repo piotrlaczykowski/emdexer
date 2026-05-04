@@ -54,6 +54,11 @@ var bm25FallbackTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Number of hybrid searches that returned zero results to the client",
 }, []string{"namespace"})
 
+var rerankAppliedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "emdexer_gateway_rerank_applied_total",
+	Help: "Number of times reranking was applied, by search mode and namespace",
+}, []string{"namespace", "mode"})
+
 var chatStreamTTFT = promauto.NewHistogram(prometheus.HistogramOpts{
 	Name:    "emdexer_gateway_chat_stream_ttft_ms",
 	Help:    "Time-to-first-token for LLM streaming responses in milliseconds, measured at the chat handler",

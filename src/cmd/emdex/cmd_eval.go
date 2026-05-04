@@ -23,22 +23,24 @@ type evalQuestion struct {
 // The gateway's handler returns these fields (see src/pkg/eval/eval.go).
 // Any field the gateway omits stays at its zero value.
 type evalResponse struct {
-	ContextRecall float64 `json:"context_recall"`
-	Faithfulness  float64 `json:"faithfulness"`
-	LatencyMs     int64   `json:"latency_ms"`
-	Answer        string  `json:"answer,omitempty"` // not returned by gateway today; tolerate absence
-	Error         string  `json:"error,omitempty"`
+	ContextRecall float64  `json:"context_recall"`
+	Faithfulness  float64  `json:"faithfulness"`
+	LatencyMs     int64    `json:"latency_ms"`
+	Answer        string   `json:"answer,omitempty"`   // LLM-generated answer
+	Contexts      []string `json:"contexts,omitempty"` // retrieved context chunks
+	Error         string   `json:"error,omitempty"`
 }
 
 // evalOutcome is what we render per question in the CLI.
 type evalOutcome struct {
-	Question      string  `json:"question"`
-	Verdict       string  `json:"verdict"` // "PASS" | "FAIL"
-	ContextRecall float64 `json:"context_recall"`
-	Faithfulness  float64 `json:"faithfulness"`
-	LatencyMs     int64   `json:"latency_ms"`
-	Answer        string  `json:"answer"`
-	Error         string  `json:"error,omitempty"`
+	Question      string   `json:"question"`
+	Verdict       string   `json:"verdict"` // "PASS" | "FAIL"
+	ContextRecall float64  `json:"context_recall"`
+	Faithfulness  float64  `json:"faithfulness"`
+	LatencyMs     int64    `json:"latency_ms"`
+	Answer        string   `json:"answer"`
+	Contexts      []string `json:"contexts,omitempty"` // forwarded to RAGAS sidecar
+	Error         string   `json:"error,omitempty"`
 }
 
 // evalOpts holds parsed CLI options.
@@ -360,6 +362,7 @@ func runEval(args []string, stdout, stderr io.Writer, env func(string) string) i
 			Faithfulness:  resp.Faithfulness,
 			LatencyMs:     resp.LatencyMs,
 			Answer:        resp.Answer,
+			Contexts:      resp.Contexts,
 		}
 		if err != nil {
 			outcome.Verdict = "FAIL"

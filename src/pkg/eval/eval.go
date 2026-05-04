@@ -40,12 +40,14 @@ type Request struct {
 
 // Result is the output of an eval run.
 type Result struct {
-	ContextRecall   float64 `json:"context_recall"`   // 0.0–1.0
-	Faithfulness    float64 `json:"faithfulness"`     // 0.0–1.0
-	RetrievedChunks int     `json:"retrieved_chunks"`
-	LatencyMs       int64   `json:"latency_ms"`
-	Verdict         string  `json:"verdict"` // "PASS" | "PARTIAL" | "FAIL"
-	Error           string  `json:"error,omitempty"`
+	ContextRecall   float64  `json:"context_recall"`    // 0.0–1.0
+	Faithfulness    float64  `json:"faithfulness"`      // 0.0–1.0
+	RetrievedChunks int      `json:"retrieved_chunks"`
+	LatencyMs       int64    `json:"latency_ms"`
+	Verdict         string   `json:"verdict"`            // "PASS" | "PARTIAL" | "FAIL"
+	Answer          string   `json:"answer,omitempty"`   // LLM-generated answer
+	Contexts        []string `json:"contexts,omitempty"` // retrieved context chunks
+	Error           string   `json:"error,omitempty"`
 }
 
 // SearchFn abstracts the search call for testability.
@@ -85,7 +87,7 @@ func Run(ctx context.Context, req Request, searchFn SearchFn, llmFn LLMFn) Resul
 	}
 
 	// Step 3: faithfulness — generate an answer and check it's grounded.
-	faithScore, faithErr := checkFaithfulness(ctx, req.Question, contextStr, llmFn)
+	answer, faithScore, faithErr := checkFaithfulness(ctx, req.Question, contextStr, llmFn)
 	if faithErr != nil {
 		faithScore = 0.0
 	}
@@ -98,6 +100,8 @@ func Run(ctx context.Context, req Request, searchFn SearchFn, llmFn LLMFn) Resul
 		RetrievedChunks: len(results),
 		LatencyMs:       ms(start),
 		Verdict:         verdict,
+		Answer:          answer,
+		Contexts:        contextParts,
 	}
 
 	evalContextRecall.WithLabelValues(req.Namespace).Observe(result.ContextRecall)
@@ -154,7 +158,8 @@ Respond with valid JSON only, no explanation:
 }
 
 // checkFaithfulness generates an answer from context and checks it's grounded.
-func checkFaithfulness(ctx context.Context, question, contextStr string, llmFn LLMFn) (float64, error) {
+// It returns the generated answer, faithfulness score, and any error.
+func checkFaithfulness(ctx context.Context, question, contextStr string, llmFn LLMFn) (string, float64, error) {
 	// First generate an answer.
 	genPrompt := fmt.Sprintf(`Answer this question using ONLY the provided context.
 Be concise. If the context doesn't contain the answer, say "I don't know."
@@ -168,7 +173,7 @@ Answer:`, truncate(contextStr, 3000), question)
 
 	answer, err := llmFn(ctx, genPrompt)
 	if err != nil {
-		return 0, err
+		return "", 0, err
 	}
 
 	// Then judge faithfulness.
@@ -185,16 +190,16 @@ Respond with valid JSON only, no explanation:
 
 	raw, err := llmFn(ctx, judgePrompt)
 	if err != nil {
-		return 0, err
+		return answer, 0, err
 	}
 	var resp struct {
 		Faithful bool    `json:"faithful"`
 		Score    float64 `json:"score"`
 	}
 	if err := parseJSON(raw, &resp); err != nil {
-		return 0, err
+		return answer, 0, err
 	}
-	return resp.Score, nil
+	return answer, resp.Score, nil
 }
 
 func truncate(s string, max int) string {

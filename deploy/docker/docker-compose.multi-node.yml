@@ -158,6 +158,10 @@ services:
       - QDRANT_HOST=qdrant:6334
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_NAMESPACE=docs
+      - EMDEX_CACHE_DIR=/app/cache
+      - EMDEX_EXTRACT_CACHE_ENABLED=${EMDEX_EXTRACT_CACHE_ENABLED:-false}
+      - EMDEX_EXTRACT_CACHE_REDIS_URL=${EMDEX_EXTRACT_CACHE_REDIS_URL:-redis://redis:6379}
+      - EMDEX_EXTRACT_CACHE_TTL=${EMDEX_EXTRACT_CACHE_TTL:-720h}
       - NODE_TYPE=local
       - NODE_ROOT=/app/data
       - NODE_HEALTH_PORT=8081
@@ -191,7 +195,6 @@ services:
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
       - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
-      - EMDEX_CACHE_DIR=/app/cache
     volumes:
       # Replace ./docs-data with your actual documents directory
       - ${DOCS_DATA_PATH:-./docs-data}:/app/data:ro
@@ -234,6 +237,10 @@ services:
       - QDRANT_HOST=qdrant:6334
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - EMDEX_NAMESPACE=code
+      - EMDEX_CACHE_DIR=/app/cache
+      - EMDEX_EXTRACT_CACHE_ENABLED=${EMDEX_EXTRACT_CACHE_ENABLED:-false}
+      - EMDEX_EXTRACT_CACHE_REDIS_URL=${EMDEX_EXTRACT_CACHE_REDIS_URL:-redis://redis:6379}
+      - EMDEX_EXTRACT_CACHE_TTL=${EMDEX_EXTRACT_CACHE_TTL:-720h}
       - NODE_TYPE=local
       - NODE_ROOT=/app/data
       - NODE_HEALTH_PORT=8082
@@ -267,7 +274,6 @@ services:
       - EMDEX_GRAPH_MIGRATION=${EMDEX_GRAPH_MIGRATION:-auto}
       - EMDEX_PLUGIN_ENABLED=${EMDEX_PLUGIN_ENABLED:-true}
       - EMDEX_PLUGIN_SIDECAR_URL=http://plugin-sidecar:8003/extract
-      - EMDEX_CACHE_DIR=/app/cache
     volumes:
       # Replace ./code-data with your actual source directory
       - ${CODE_DATA_PATH:-./code-data}:/app/data:ro

@@ -1,3 +1,4 @@
+import main
 from fastapi.testclient import TestClient
 from main import app
 
@@ -28,7 +29,6 @@ def test_eval_missing_ground_truth_returns_422():
     assert r.status_code == 422
 
 def test_eval_metrics_filter_only_returns_requested(monkeypatch):
-    import main
     def fake_score(samples, metrics):
         return {
             "context_recall": 0.9,
@@ -47,7 +47,6 @@ def test_eval_metrics_filter_only_returns_requested(monkeypatch):
     assert "faithfulness" not in js
 
 def test_eval_returns_per_sample_breakdown(monkeypatch):
-    import main
     monkeypatch.setattr(main, "_score_samples", lambda s, m: {
         "context_recall": 0.5, "faithfulness": 0.5,
         "per_sample": [{"question": "q", "context_recall": 0.5, "faithfulness": 0.5}],

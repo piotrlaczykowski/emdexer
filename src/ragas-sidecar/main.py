@@ -1,8 +1,11 @@
+import logging
 import os
 from typing import List
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="emdexer-ragas-sidecar")
 
@@ -88,8 +91,9 @@ def eval_ragas(req: EvalRequest):
 
     try:
         scores = _score_samples([s.model_dump() for s in req.samples], requested)
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": f"scoring failed: {e}"})
+    except Exception:
+        logger.exception("RAGAS scoring failed")
+        return JSONResponse(status_code=500, content={"error": "Internal scoring error"})
 
     out = {k: v for k, v in scores.items() if k in requested}
     out["per_sample"] = [

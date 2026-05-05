@@ -55,11 +55,14 @@ async def extract(
     file: UploadFile = File(...),
     ocr: Optional[bool] = Query(default=False),
 ):
+    safe_name = (file.filename or "").replace("\n", "\\n").replace("\r", "\\r")
+    ocr_flag = bool(ocr)
+
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="empty file")
 
-    extractor = _extractor_ocr if ocr else _extractor_plain
+    extractor = _extractor_ocr if ocr_flag else _extractor_plain
 
     try:
         reader, metadata = extractor.extract_bytes(content, "")
@@ -68,7 +71,7 @@ async def extract(
             chunks.append(chunk)
         text = "".join(chunks)
     except Exception as exc:
-        logger.error("extraction failed for %s: %s", file.filename, exc)
+        logger.error("extraction failed for %s: %s", safe_name, exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     # Normalise metadata: extractous returns a Java-style dict; convert values to str
@@ -80,11 +83,10 @@ async def extract(
         except Exception:  # metadata conversion is best-effort; keep empty dict on failure
             pass
 
-    safe_name = (file.filename or "").replace("\n", "\\n").replace("\r", "\\r")
     logger.info(
         "extracted %d chars from %s (ocr=%s)",
         len(text),
         safe_name,
-        ocr,
+        ocr_flag,
     )
     return JSONResponse({"text": text, "metadata": safe_meta})

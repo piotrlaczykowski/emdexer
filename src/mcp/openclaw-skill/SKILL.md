@@ -8,7 +8,7 @@ description: >
   health, or available namespaces; list installed connector plugins;
   or run quality eval (RAGAS context_recall and faithfulness scores).
   Supports modes semantic, keyword, hybrid (default), and graph.
-  Requires EMDEX_URL and EMDEX_AUTH_KEY env vars set on the MCP server.
+  Requires GATEWAY_URL and EMDEX_AUTH_KEY env vars set on the MCP server.
 ---
 
 # Emdexer Skill
@@ -21,7 +21,7 @@ Self-hosted RAG system with semantic, keyword, hybrid, and graph-augmented searc
    - Docker: `docker compose up -d mcp gateway`
    - Local: `python src/mcp/main.py --transport stdio`
 2. Set env vars on the MCP process:
-   - `EMDEX_URL` — gateway base URL (e.g. `http://localhost:8080`)
+   - `GATEWAY_URL` — gateway base URL (e.g. `http://localhost:8080`, default: `http://gateway:7700`)
    - `EMDEX_AUTH_KEY` — Bearer token (must match the gateway's `EMDEX_AUTH_KEY`)
    - `EMDEX_RAGAS_URL` *(optional)* — only needed for `eval_ragas`
 3. Connect a client:

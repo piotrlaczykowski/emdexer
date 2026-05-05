@@ -31,7 +31,7 @@ docker compose -f deploy/docker/docker-compose.yml up -d gateway mcp
 
 ```bash
 pip install -r requirements.txt
-export EMDEX_URL=http://localhost:8080
+export GATEWAY_URL=http://localhost:8080
 export EMDEX_AUTH_KEY=changeme
 python src/mcp/main.py --transport stdio
 ```
@@ -46,7 +46,7 @@ python src/mcp/main.py --transport sse --port 8002
 
 | Var | Purpose |
 |---|---|
-| `EMDEX_URL` | Gateway base URL (e.g. `http://localhost:8080`) |
+| `GATEWAY_URL` | Gateway base URL (e.g. `http://localhost:8080`, default: `http://gateway:7700`) |
 | `EMDEX_AUTH_KEY` | Bearer token (must match the gateway's value) |
 | `EMDEX_RAGAS_URL` | *(optional)* — RAGAS sidecar URL, only needed for `eval_ragas` |
 
@@ -61,7 +61,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "command": "python",
       "args": ["/absolute/path/to/emdexer/src/mcp/main.py", "--transport", "stdio"],
       "env": {
-        "EMDEX_URL": "http://localhost:8080",
+        "GATEWAY_URL": "http://localhost:8080",
         "EMDEX_AUTH_KEY": "changeme"
       }
     }

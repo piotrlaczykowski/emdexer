@@ -5,7 +5,7 @@ its shape silently disables the skill for users, so this test guards:
   - File exists at the canonical path
   - Frontmatter parses as YAML
   - Only `name` and `description` keys are present (skill-creator spec)
-  - `description` is non-empty and mentions `EMDEX_URL` and `EMDEX_AUTH_KEY`
+  - `description` is non-empty and mentions `GATEWAY_URL` and `EMDEX_AUTH_KEY`
   - Body length is under the 500-line cap
 """
 from __future__ import annotations
@@ -43,7 +43,7 @@ def test_name_is_emdexer():
 def test_description_mentions_required_env_vars():
     fm, _ = _load_skill()
     desc = fm["description"]
-    assert "EMDEX_URL" in desc, "description is missing EMDEX_URL"
+    assert "GATEWAY_URL" in desc, "description is missing GATEWAY_URL"
     assert "EMDEX_AUTH_KEY" in desc, "description is missing EMDEX_AUTH_KEY"
     assert len(desc) >= 100, "description must be comprehensive (OpenClaw uses it as the trigger)"
 

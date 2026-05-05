@@ -89,3 +89,13 @@ var namespaceVectorCount = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Name: "emdexer_gateway_namespace_vector_count",
 	Help: "Approximate number of vectors per namespace in the Qdrant collection",
 }, []string{"namespace"})
+
+var evalContextRecall = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "emdexer_eval_context_recall",
+	Help: "Latest RAGAS context_recall score (0..1)",
+})
+
+var evalFaithfulness = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "emdexer_eval_faithfulness",
+	Help: "Latest RAGAS faithfulness score (0..1)",
+})

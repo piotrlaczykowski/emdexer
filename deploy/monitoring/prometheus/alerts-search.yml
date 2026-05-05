@@ -220,3 +220,23 @@ groups:
             The subprocess is being killed after EMDEX_PLUGIN_TIMEOUT (default 10s).
             Check the plugin script for blocking I/O or infinite loops.
             Increase EMDEX_PLUGIN_TIMEOUT if the file format genuinely needs more time.
+
+  - name: emdexer-eval
+    rules:
+      - alert: EmdexerContextRecallLow
+        expr: emdexer_eval_context_recall < 0.75
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Emdexer context_recall below threshold"
+          description: "context_recall={{ $value }} (threshold 0.75) for 5m"
+
+      - alert: EmdexerFaithfulnessLow
+        expr: emdexer_eval_faithfulness < 0.7
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Emdexer faithfulness below threshold"
+          description: "faithfulness={{ $value }} (threshold 0.7) for 5m"

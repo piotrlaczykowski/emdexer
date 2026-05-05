@@ -119,3 +119,22 @@ resources:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+ragas:
+  enabled: false
+  image:
+    repository: ghcr.io/piotrlaczykowski/emdexer/ragas-sidecar
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 8006
+  llmProvider: openai
+  model: gpt-4o-mini
+  openaiApiKey: ""
+  googleApiKey: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi

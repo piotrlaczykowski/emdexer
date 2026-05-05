@@ -422,6 +422,35 @@ def system_status(ctx: Context = None) -> str | PrefabApp:
     return "\n".join(lines)
 
 
+@mcp.tool()
+def eval_ragas(
+    namespace: str = "default",
+    questions_file: str = "src/ragas-sidecar/fixtures/emdexer-eval-20q.json",
+    ground_truth_file: str = "src/ragas-sidecar/fixtures/emdexer-eval-20q.json",
+    threshold: float = 0.75,
+) -> str:
+    """
+    Run RAGAS evaluation against the specified namespace.
+    Returns context_recall and faithfulness scores.
+    Requires ragas-sidecar to be running (EMDEX_RAGAS_URL).
+    """
+    import subprocess
+    import os
+    cmd = [
+        "emdex", "eval",
+        "--file", questions_file,
+        "--ragas",
+        "--ground-truth", ground_truth_file,
+        "--namespace", namespace,
+        "--threshold", str(threshold),
+        "--output", "json",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    if proc.returncode not in (0, 1):
+        return f"emdex eval failed: rc={proc.returncode}\n{proc.stderr}"
+    return proc.stdout
+
+
 if __name__ == "__main__":
     import sys
 

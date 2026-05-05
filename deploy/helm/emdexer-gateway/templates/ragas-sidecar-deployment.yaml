@@ -1,0 +1,52 @@
+{{- if .Values.ragas.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "emdexer-gateway.fullname" . }}-ragas
+  labels:
+    {{- include "emdexer-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ragas-sidecar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "emdexer-gateway.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ragas-sidecar
+  template:
+    metadata:
+      labels:
+        {{- include "emdexer-gateway.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ragas-sidecar
+    spec:
+      containers:
+        - name: ragas-sidecar
+          image: "{{ .Values.ragas.image.repository }}:{{ .Values.ragas.image.tag }}"
+          imagePullPolicy: {{ .Values.ragas.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.ragas.port }}
+          env:
+            - name: RAGAS_PORT
+              value: "{{ .Values.ragas.port }}"
+            - name: RAGAS_LLM_PROVIDER
+              value: "{{ .Values.ragas.llmProvider }}"
+            - name: RAGAS_MODEL
+              value: "{{ .Values.ragas.model }}"
+            - name: OPENAI_API_KEY
+              value: "{{ .Values.ragas.openaiApiKey }}"
+            - name: GOOGLE_API_KEY
+              value: "{{ .Values.ragas.googleApiKey }}"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.ragas.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.ragas.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.ragas.resources | nindent 12 }}
+{{- end }}

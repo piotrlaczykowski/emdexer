@@ -195,6 +195,10 @@ Pre-built binaries and Docker images are published automatically on every releas
 - [Architecture Overview](docs/design/architecture.md)
 - [HA Deployment](docs/design/ha-infrastructure.md)
 
+### Eval Quality
+
+Emdexer ships a RAGAS-based eval harness for measuring `context_recall` and `faithfulness`. See [docs/guides/ragas-eval.md](docs/guides/ragas-eval.md).
+
 ## 🤝 Contributing
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.

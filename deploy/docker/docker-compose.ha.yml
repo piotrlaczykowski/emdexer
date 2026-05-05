@@ -574,6 +574,27 @@ services:
         condition: service_healthy
     restart: always
 
+  ragas-sidecar:
+    image: ghcr.io/piotrlaczykowski/emdexer/ragas-sidecar:${TAG:-latest}
+    build:
+      context: ../../src/ragas-sidecar
+      dockerfile: Dockerfile
+    ports:
+      - "8006:8006"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      RAGAS_LLM_PROVIDER: ${RAGAS_LLM_PROVIDER:-openai}
+      RAGAS_MODEL: ${RAGAS_MODEL:-gpt-4o-mini}
+    profiles:
+      - eval
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8006/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 networks:
   emdexer-net:
     driver: bridge

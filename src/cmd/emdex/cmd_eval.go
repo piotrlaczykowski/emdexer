@@ -12,6 +12,96 @@ import (
 	"time"
 )
 
+// groundTruthEntry is one entry in the ground-truth JSON file.
+type groundTruthEntry struct {
+	Question    string `json:"question"`
+	GroundTruth string `json:"ground_truth"`
+}
+
+func loadGroundTruth(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read ground-truth: %w", err)
+	}
+	var entries []groundTruthEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, fmt.Errorf("parse ground-truth: %w", err)
+	}
+	out := make(map[string]string, len(entries))
+	for _, e := range entries {
+		out[e.Question] = e.GroundTruth
+	}
+	return out, nil
+}
+
+type ragasSample struct {
+	Question    string   `json:"question"`
+	Answer      string   `json:"answer"`
+	Contexts    []string `json:"contexts"`
+	GroundTruth string   `json:"ground_truth"`
+}
+
+type ragasRequest struct {
+	Samples []ragasSample `json:"samples"`
+	Metrics []string      `json:"metrics"`
+}
+
+type ragasPerSample struct {
+	Question      string  `json:"question"`
+	ContextRecall float64 `json:"context_recall"`
+	Faithfulness  float64 `json:"faithfulness"`
+}
+
+type ragasResponse struct {
+	ContextRecall float64          `json:"context_recall"`
+	Faithfulness  float64          `json:"faithfulness"`
+	PerSample     []ragasPerSample `json:"per_sample"`
+}
+
+func pushEvalMetrics(gatewayURL, authKey string, recall, faithfulness float64) error {
+	body, _ := json.Marshal(map[string]float64{
+		"context_recall": recall,
+		"faithfulness":   faithfulness,
+	})
+	req, err := http.NewRequest(http.MethodPost, gatewayURL+"/v1/eval/metrics", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+authKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func callRagasSidecar(url string, samples []ragasSample) (ragasResponse, error) {
+	body, _ := json.Marshal(ragasRequest{
+		Samples: samples,
+		Metrics: []string{"context_recall", "faithfulness"},
+	})
+	client := &http.Client{Timeout: 300 * time.Second}
+	resp, err := client.Post(url+"/v1/eval/ragas", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return ragasResponse{}, fmt.Errorf("ragas sidecar unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return ragasResponse{}, fmt.Errorf("ragas sidecar HTTP %d: %s", resp.StatusCode, string(b))
+	}
+	var rr ragasResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rr); err != nil {
+		return ragasResponse{}, fmt.Errorf("decode ragas response: %w", err)
+	}
+	return rr, nil
+}
+
 // evalQuestion is one entry in the input JSON file, or a single --question invocation.
 type evalQuestion struct {
 	Question       string `json:"question"`
@@ -23,33 +113,38 @@ type evalQuestion struct {
 // The gateway's handler returns these fields (see src/pkg/eval/eval.go).
 // Any field the gateway omits stays at its zero value.
 type evalResponse struct {
-	ContextRecall float64 `json:"context_recall"`
-	Faithfulness  float64 `json:"faithfulness"`
-	LatencyMs     int64   `json:"latency_ms"`
-	Answer        string  `json:"answer,omitempty"` // not returned by gateway today; tolerate absence
-	Error         string  `json:"error,omitempty"`
+	ContextRecall float64  `json:"context_recall"`
+	Faithfulness  float64  `json:"faithfulness"`
+	LatencyMs     int64    `json:"latency_ms"`
+	Answer        string   `json:"answer,omitempty"`   // LLM-generated answer
+	Contexts      []string `json:"contexts,omitempty"` // retrieved context chunks
+	Error         string   `json:"error,omitempty"`
 }
 
 // evalOutcome is what we render per question in the CLI.
 type evalOutcome struct {
-	Question      string  `json:"question"`
-	Verdict       string  `json:"verdict"` // "PASS" | "FAIL"
-	ContextRecall float64 `json:"context_recall"`
-	Faithfulness  float64 `json:"faithfulness"`
-	LatencyMs     int64   `json:"latency_ms"`
-	Answer        string  `json:"answer"`
-	Error         string  `json:"error,omitempty"`
+	Question      string   `json:"question"`
+	Verdict       string   `json:"verdict"` // "PASS" | "FAIL"
+	ContextRecall float64  `json:"context_recall"`
+	Faithfulness  float64  `json:"faithfulness"`
+	LatencyMs     int64    `json:"latency_ms"`
+	Answer        string   `json:"answer"`
+	Contexts      []string `json:"contexts,omitempty"` // forwarded to RAGAS sidecar
+	Error         string   `json:"error,omitempty"`
 }
 
 // evalOpts holds parsed CLI options.
 type evalOpts struct {
-	file      string
-	question  string
-	expected  string
-	namespace string
-	threshold float64
-	output    string
-	help      bool
+	file        string
+	question    string
+	expected    string
+	namespace   string
+	threshold   float64
+	output      string
+	help        bool
+	ragas       bool
+	ragasURL    string
+	groundTruth string
 }
 
 // Exit codes (CI-friendly).
@@ -177,8 +272,8 @@ func padRight(s string, width int) string {
 }
 
 // printEvalJSON writes a machine-readable summary to w.
-// Output schema: {total, passed, failed, threshold, results[]}.
-func printEvalJSON(w io.Writer, outcomes []evalOutcome, threshold float64) error {
+// Output schema: {total, passed, failed, threshold, results[], ragas?}.
+func printEvalJSON(w io.Writer, outcomes []evalOutcome, threshold float64, ragasResult *ragasResponse) error {
 	passed, failed := 0, 0
 	for _, o := range outcomes {
 		if o.Verdict == "PASS" {
@@ -188,17 +283,19 @@ func printEvalJSON(w io.Writer, outcomes []evalOutcome, threshold float64) error
 		}
 	}
 	summary := struct {
-		Total     int           `json:"total"`
-		Passed    int           `json:"passed"`
-		Failed    int           `json:"failed"`
-		Threshold float64       `json:"threshold"`
-		Results   []evalOutcome `json:"results"`
+		Total     int            `json:"total"`
+		Passed    int            `json:"passed"`
+		Failed    int            `json:"failed"`
+		Threshold float64        `json:"threshold"`
+		Results   []evalOutcome  `json:"results"`
+		Ragas     *ragasResponse `json:"ragas,omitempty"`
 	}{
 		Total:     len(outcomes),
 		Passed:    passed,
 		Failed:    failed,
 		Threshold: threshold,
 		Results:   outcomes,
+		Ragas:     ragasResult,
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -282,6 +379,20 @@ func parseEvalFlags(args []string) (evalOpts, error) {
 				return opts, fmt.Errorf("--output must be 'table' or 'json', got %q", v)
 			}
 			opts.output, i = v, ni
+		case arg == "--ragas":
+			opts.ragas = true
+		case matches(arg, "--ragas-url", "--ragas-url"):
+			v, ni, err := takeValue(i, "--ragas-url")
+			if err != nil {
+				return opts, err
+			}
+			opts.ragasURL, i = v, ni
+		case matches(arg, "--ground-truth", "--ground-truth"):
+			v, ni, err := takeValue(i, "--ground-truth")
+			if err != nil {
+				return opts, err
+			}
+			opts.groundTruth, i = v, ni
 		default:
 			return opts, fmt.Errorf("unknown flag: %s", arg)
 		}
@@ -324,6 +435,20 @@ func runEval(args []string, stdout, stderr io.Writer, env func(string) string) i
 		return exitConfigError
 	}
 
+	// RAGAS sidecar config.
+	if opts.ragas {
+		if opts.ragasURL == "" {
+			opts.ragasURL = env("EMDEX_RAGAS_URL")
+			if opts.ragasURL == "" {
+				opts.ragasURL = "http://localhost:8006"
+			}
+		}
+		if opts.groundTruth == "" {
+			fmt.Fprintf(stderr, "  X --ground-truth is required when --ragas is set\n")
+			return exitConfigError
+		}
+	}
+
 	// Build the question list.
 	var questions []evalQuestion
 	if opts.file != "" {
@@ -360,6 +485,7 @@ func runEval(args []string, stdout, stderr io.Writer, env func(string) string) i
 			Faithfulness:  resp.Faithfulness,
 			LatencyMs:     resp.LatencyMs,
 			Answer:        resp.Answer,
+			Contexts:      resp.Contexts,
 		}
 		if err != nil {
 			outcome.Verdict = "FAIL"
@@ -372,9 +498,42 @@ func runEval(args []string, stdout, stderr io.Writer, env func(string) string) i
 		outcomes = append(outcomes, outcome)
 	}
 
+	// Optionally call RAGAS sidecar.
+	var ragasResult *ragasResponse
+	if opts.ragas {
+		gt, err := loadGroundTruth(opts.groundTruth)
+		if err != nil {
+			fmt.Fprintf(stderr, "  X %s\n", err)
+			return exitConfigError
+		}
+		samples := make([]ragasSample, 0, len(outcomes))
+		for _, o := range outcomes {
+			if o.Error != "" {
+				continue
+			}
+			samples = append(samples, ragasSample{
+				Question:    o.Question,
+				Answer:      o.Answer,
+				Contexts:    o.Contexts,
+				GroundTruth: gt[o.Question],
+			})
+		}
+		rr, err := callRagasSidecar(opts.ragasURL, samples)
+		if err != nil {
+			fmt.Fprintf(stderr, "  ! ragas sidecar unreachable, skipping: %s\n", err)
+		} else {
+			ragasResult = &rr
+			fmt.Fprintf(stdout, "\n  RAGAS: context_recall=%.2f  faithfulness=%.2f\n",
+				rr.ContextRecall, rr.Faithfulness)
+			if err := pushEvalMetrics(gatewayURL, authKey, rr.ContextRecall, rr.Faithfulness); err != nil {
+				fmt.Fprintf(stderr, "  ! failed to push ragas metrics: %s\n", err)
+			}
+		}
+	}
+
 	// Render.
 	if opts.output == "json" {
-		if err := printEvalJSON(stdout, outcomes, opts.threshold); err != nil {
+		if err := printEvalJSON(stdout, outcomes, opts.threshold, ragasResult); err != nil {
 			fmt.Fprintf(stderr, "  X render JSON: %s\n", err)
 			return exitConfigError
 		}
@@ -400,6 +559,9 @@ func printEvalHelp(w io.Writer) {
 	fmt.Fprintf(w, "    --expected, -e <text>     Expected answer (required with --question)\n")
 	fmt.Fprintf(w, "    --namespace, -n <ns>      Namespace to query (default: 'default')\n")
 	fmt.Fprintf(w, "    --threshold, -t <0..1>    Pass threshold on context_recall (default: 0.7)\n")
-	fmt.Fprintf(w, "    --output, -o table|json   Output format (default: table)\n\n")
+	fmt.Fprintf(w, "    --output, -o table|json   Output format (default: table)\n")
+	fmt.Fprintf(w, "    --ragas                   Enable RAGAS scoring via sidecar\n")
+	fmt.Fprintf(w, "    --ragas-url <url>         Sidecar URL (default: $EMDEX_RAGAS_URL or http://localhost:8006)\n")
+	fmt.Fprintf(w, "    --ground-truth <path>     Ground-truth JSON (required with --ragas)\n\n")
 	fmt.Fprintf(w, "  Exit codes: 0=all pass  1=at least one fail  2=config error\n\n")
 }

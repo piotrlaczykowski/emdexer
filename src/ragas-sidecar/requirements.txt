@@ -1,0 +1,8 @@
+fastapi>=0.115
+uvicorn[standard]>=0.34
+ragas>=0.2
+langchain-openai>=0.3
+langchain-google-genai>=2.0
+httpx>=0.28
+pytest>=8
+pytest-asyncio>=0.24

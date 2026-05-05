@@ -1,0 +1,16 @@
+{{- if .Values.ragas.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "emdexer-gateway.fullname" . }}-ragas
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.ragas.port }}
+      targetPort: {{ .Values.ragas.port }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "emdexer-gateway.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ragas-sidecar
+{{- end }}

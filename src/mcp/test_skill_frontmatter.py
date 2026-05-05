@@ -13,7 +13,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
 import yaml
 
 SKILL_PATH = Path(__file__).parent / "openclaw-skill" / "SKILL.md"

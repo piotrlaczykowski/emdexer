@@ -264,6 +264,8 @@ services:
       timeout: 5s
       retries: 5
 
+  # MCP server — exposes Emdexer tools to Claude Desktop and OpenClaw clients.
+  # OpenClaw skill: src/mcp/openclaw-skill/SKILL.md
   mcp:
     build:
       context: ../../

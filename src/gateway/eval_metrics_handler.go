@@ -39,13 +39,6 @@ func handleEvalMetrics(w http.ResponseWriter, r *http.Request) {
 		evalFaithfulness.Set(*req.Faithfulness)
 		span.SetAttributes(attribute.Float64("eval.faithfulness", *req.Faithfulness))
 	}
-	var recall, faith float64
-	if req.ContextRecall != nil {
-		recall = *req.ContextRecall
-	}
-	if req.Faithfulness != nil {
-		faith = *req.Faithfulness
-	}
-	log.Printf("[eval/metrics] context_recall=%.4f faithfulness=%.4f", recall, faith)
+	log.Printf("[eval/metrics] gauges updated")
 	w.WriteHeader(http.StatusNoContent)
 }

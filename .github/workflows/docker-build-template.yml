@@ -110,8 +110,12 @@ jobs:
           tags: ${{ steps.tag.outputs.tags }}
 
       - name: Set up Helm
+        # Pinned to v4.2.0. Bump to next release once helm/helm#31964 merges
+        # (fix: toPrettyJson HTML-escaping of &, <, > in chart templates)
         if: inputs.chart_path != ''
         uses: azure/setup-helm@v5
+        with:
+          version: v4.2.0
 
       - name: Lint Helm Chart
         if: inputs.chart_path != ''

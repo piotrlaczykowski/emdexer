@@ -28,7 +28,7 @@ RUN pip install --no-cache-dir \
     extractous==0.3.0 \
     fastapi==0.115.12 \
     uvicorn[standard]==0.34.3 \
-    python-multipart==0.0.20
+    python-multipart==0.0.27
 
 COPY server.py .
 

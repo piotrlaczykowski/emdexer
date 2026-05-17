@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir \
     fastapi==0.115.12 \
     uvicorn[standard]==0.34.3 \
     prometheus-client==0.21.1 \
-    python-multipart==0.0.20
+    python-multipart==0.0.27
 
 COPY server.py .
 

@@ -5,7 +5,7 @@ go 1.26.2
 require (
 	github.com/piotrlaczykowski/emdexer v1.3.0
 	github.com/prometheus/client_golang v1.23.2
-	github.com/qdrant/go-client v1.18.1
+	github.com/qdrant/go-client v1.18.2
 	google.golang.org/grpc v1.81.1
 )
 

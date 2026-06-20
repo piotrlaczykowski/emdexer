@@ -18,7 +18,7 @@ jobs:
       matrix:
         module: [src/gateway, src/node, src/pkg]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
@@ -36,7 +36,7 @@ jobs:
       matrix:
         module: [src/gateway, src/node, src/pkg]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup Go
         uses: actions/setup-go@v6
         with:

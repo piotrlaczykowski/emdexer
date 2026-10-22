@@ -253,41 +253,74 @@ docker compose -f deploy/docker/docker-compose.multi-node.yml up -d
 
 ## Kubernetes (Helm)
 
+Every service has its own chart under `deploy/charts/` (`emdexer-gateway`, `emdexer-node`, `emdexer-mcp`,
+`emdexer-extractous`, `emdexer-plugin-sidecar`, `emdexer-ragas-sidecar`, `emdexer-ffmpeg-sidecar`,
+`emdexer-reranker-sidecar`, `emdexer-whisper`). Each is a thin wrapper over the
+[helm-framework](https://github.com/k8s-stuff/helm-framework) library chart: the chart ships image, port,
+probes and security defaults, and you supply the environment in a values file. Qdrant and Redis are not
+bundled; use their upstream charts.
+
 ### Gateway
 
+```yaml
+# gateway-values.yaml
+envVars:
+  - name: QDRANT_HOST
+    value: qdrant:6334
+  - name: EMDEX_CACHE_BACKEND
+    value: memory
+  - name: GOOGLE_API_KEY
+    valueFrom: {secretKeyRef: {name: emdexer-app, key: GOOGLE_API_KEY}}
+  - name: EMDEX_AUTH_KEY
+    valueFrom: {secretKeyRef: {name: emdexer-app, key: EMDEX_AUTH_KEY}}
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: emdexer.example.com
+      paths: [{path: /, pathType: Prefix}]
+```
+
 ```bash
-helm install emdex-gateway deploy/helm/emdexer-gateway \
-  --set secret.googleApiKey=YOUR_API_KEY \
-  --set secret.emdexerAuthKey=YOUR_GATEWAY_AUTH_KEY
+helm dependency build deploy/charts/emdexer-gateway
+helm install emdex-gateway deploy/charts/emdexer-gateway -f gateway-values.yaml
 ```
 
 ### Node
 
-```bash
-helm install emdex-node-nas deploy/helm/emdexer-node \
-  --set config.gatewayUrl=https://emdex-gateway.internal \
-  --set config.namespace=nas-docs \
-  --set config.nodeType=smb \
-  --set secret.smbHost=10.0.0.10 \
-  --set secret.smbUser=nas_user \
-  --set secret.smbPass=secure_pass \
-  --set secret.smbShare=documents
+```yaml
+# node-values.yaml — index an NFS export read-only, keep the cache on a PVC
+envVars:
+  - name: NODE_ROOT
+    value: /data
+  - name: EMDEX_NAMESPACE
+    value: nas-docs
+  - name: EMDEX_GATEWAY_URL
+    value: http://emdex-gateway-emdexer-gateway:7700
+  - name: EMDEX_CACHE_DIR
+    value: /app/cache
+volumes:
+  - name: data
+    nfs: {server: 10.0.0.10, path: /volume1/documents, readOnly: true}
+  - name: cache
+    persistentVolumeClaim: {claimName: emdex-node-cache}
+volumeMounts:
+  - {name: data, mountPath: /data, readOnly: true}
+  - {name: cache, mountPath: /app/cache}
 ```
+
+```bash
+helm dependency build deploy/charts/emdexer-node
+helm install emdex-node-nas deploy/charts/emdexer-node -f node-values.yaml
+```
+
+The values every service needs (env vars, volumes, ingress) are the ones in the docker-compose files.
+For a complete, working set see how the homelab deploys it: `cluster-middleware/apps/emdexer/*.yaml`.
 
 ### Gateway — Persistent Node Registry
 
-By default the gateway stores its node registry in memory (lost on pod restart). Enable a PVC to persist it across restarts:
-
-```bash
-helm install emdex-gateway deploy/helm/emdexer-gateway \
-  --set secret.googleApiKey=YOUR_API_KEY \
-  --set secret.emdexerAuthKey=YOUR_GATEWAY_AUTH_KEY \
-  --set persistence.enabled=true \
-  --set persistence.size=1Gi \
-  --set persistence.storageClass=standard
-```
-
-This creates a `PersistentVolumeClaim` named `<release>-registry` and sets `EMDEX_REGISTRY_FILE` inside the container to `/var/lib/emdexer/nodes/nodes.json`.
+By default the gateway stores its node registry in memory (lost on pod restart). Mount a PVC and point
+`EMDEX_REGISTRY_FILE` at it (for example `/var/lib/emdexer/nodes/nodes.json`) to keep it across restarts.
 
 ---
 

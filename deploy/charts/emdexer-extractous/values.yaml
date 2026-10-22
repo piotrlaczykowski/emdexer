@@ -1,0 +1,53 @@
+# Defaults for emdexer-extractous, rendered by the helm-framework library chart.
+# Environment, ingress and volumes are set per deployment: for the homelab in cluster-middleware
+# apps/emdexer/extractous.yaml, with the image tag pinned in apps/emdexer/image.yaml.
+image:
+  repository: harbor.k8s.laczyk.com/emdexer/extractous
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+
+healthChecks:
+  enabled: true
+  startupProbe:
+    path: "/health"
+    periodSeconds: 5
+    failureThreshold: 60
+    successThreshold: 1
+    initialDelaySeconds: 5
+    timeoutSeconds: 3
+  livenessProbe:
+    path: "/health"
+    periodSeconds: 10
+    failureThreshold: 6
+    successThreshold: 1
+    initialDelaySeconds: 0
+    timeoutSeconds: 3
+  readinessProbe:
+    path: "/health"
+    periodSeconds: 10
+    failureThreshold: 3
+    successThreshold: 1
+    initialDelaySeconds: 0
+    timeoutSeconds: 3
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi

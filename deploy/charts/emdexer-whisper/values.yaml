@@ -60,8 +60,10 @@ healthChecks:
     initialDelaySeconds: 0
     timeoutSeconds: 3
 
-# The image runs as root (no USER in its Dockerfile).
+# The image runs as root (no USER in its Dockerfile). fsGroup lets the curl init container (uid 100)
+# write the model onto a fresh PVC, which is root:root 0755.
 podSecurityContext:
+  fsGroup: 10001
   seccompProfile:
     type: RuntimeDefault
 

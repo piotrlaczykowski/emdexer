@@ -11,7 +11,8 @@ on:
       - synchronize
 
 concurrency:
-  group: semantic-pr-${{ github.ref }}
+  # pull_request_target always runs on the base ref, so group per PR or every PR's check cancels the others.
+  group: semantic-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:

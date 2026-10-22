@@ -24,8 +24,9 @@ RUN pip install --no-cache-dir \
 
 COPY server.py .
 
-RUN addgroup --system emdexer && adduser --system --ingroup emdexer emdexer
-USER emdexer
+# Fixed numeric uid/gid: Kubernetes' runAsNonRoot can only verify a numeric USER.
+RUN addgroup --system --gid 10001 emdexer && adduser --system --uid 10001 --ingroup emdexer emdexer
+USER 10001:10001
 
 # The repo's plugins/ are baked in from the named build context `plugins`
 # (compose: additional_contexts; CI: build-contexts). docker-compose also mounts

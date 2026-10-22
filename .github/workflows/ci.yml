@@ -1,5 +1,8 @@
 name: Go CI
 
+# All jobs run on the homelab ARC scale sets (cluster-middleware apps/arc-runners-emdexer*). Fork PRs are
+# skipped: those runners carry the in-cluster build credentials, so only branches of this repo may use them.
+
 on:
   push:
     branches: [ main ]
@@ -7,19 +10,24 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: arc-emdexer
     steps:
     - uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: 1.26.2
+        go-version-file: src/pkg/go.mod
 
     - name: Tidy Go modules
       run: |
@@ -38,14 +46,15 @@ jobs:
       continue-on-error: true
 
   lint:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: arc-emdexer
     steps:
     - uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: 1.26.2
+        go-version-file: src/pkg/go.mod
 
     - name: Tidy Go modules
       run: |

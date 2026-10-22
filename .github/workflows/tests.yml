@@ -1,5 +1,8 @@
 name: tests
 
+# All jobs run on the homelab ARC scale sets (cluster-middleware apps/arc-runners-emdexer*). Fork PRs are
+# skipped: those runners carry the in-cluster build credentials, so only branches of this repo may use them.
+
 on:
   push:
     branches: [ main ]
@@ -7,25 +10,34 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: arc-emdexer
     steps:
     - uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: 1.26.2
+        go-version-file: src/pkg/go.mod
 
     - name: Tidy Go modules
       run: |
         for mod in src/pkg src/gateway src/node; do
           (cd "$mod" && go mod tidy)
         done
+
+    # The ARC runner image ships no build-essential.
+    - name: Ensure make
+      run: command -v make >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends make; }
 
     - name: Build
       run: make all
@@ -56,7 +68,8 @@ jobs:
         cd src/tests/e2e && go test -v ./... || echo "E2E tests failed (expected if live gateway is missing)"
 
   ragas-eval-smoke:
-    runs-on: ubuntu-latest
+    # Needs a Docker daemon (docker build/run of the sidecar), so it runs on the dind scale set.
+    runs-on: arc-emdexer-dind
     needs: test
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -76,7 +89,7 @@ jobs:
         if: steps.keycheck.outputs.no_key != '1'
         uses: actions/setup-go@v6
         with:
-          go-version: 1.26.2
+          go-version-file: src/pkg/go.mod
 
       - name: Build emdex
         if: steps.keycheck.outputs.no_key != '1'

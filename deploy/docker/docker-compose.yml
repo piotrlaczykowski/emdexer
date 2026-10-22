@@ -154,6 +154,8 @@ services:
     build:
       context: ../../src/plugin-sidecar
       dockerfile: Dockerfile
+      additional_contexts:
+        plugins: ../../plugins
     # No host port mappings — plugin-sidecar is internal only.
     # Access via the emdexer-net Docker network (plugin-sidecar:8003).
     deploy:

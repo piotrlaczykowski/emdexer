@@ -27,8 +27,10 @@ COPY server.py .
 RUN addgroup --system emdexer && adduser --system --ingroup emdexer emdexer
 USER emdexer
 
-# Plugins are volume-mounted at /plugins by the orchestrator (read-only).
-VOLUME ["/plugins"]
+# The repo's plugins/ are baked in from the named build context `plugins`
+# (compose: additional_contexts; CI: build-contexts). docker-compose also mounts
+# ../../plugins over /plugins so local edits apply without a rebuild.
+COPY --from=plugins . /plugins
 
 EXPOSE 8003
 

@@ -1,7 +1,7 @@
 module github.com/piotrlaczykowski/emdexer/emdex
 
-go 1.26.2
+go 1.27.3
 
-require github.com/piotrlaczykowski/emdexer v1.0.6
+require github.com/piotrlaczykowski/emdexer v1.4.0
 
 replace github.com/piotrlaczykowski/emdexer => ../../pkg

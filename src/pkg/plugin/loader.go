@@ -82,7 +82,7 @@ func (p *pythonPlugin) Extract(ctx context.Context, filename string, data []byte
 	callCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(callCtx, pythonCmd, p.scriptPath)
+	cmd := exec.CommandContext(callCtx, pythonCmd, p.scriptPath) // #nosec G204 -- running the operator's plugin scripts is the point of the loader
 	cmd.Stdin = strings.NewReader(stdinPayload)
 
 	out, execErr := cmd.Output()
@@ -259,7 +259,7 @@ func loadFromDir(dir string) ([]ExtractorPlugin, error) {
 			continue
 		}
 		scriptPath := filepath.Join(dir, entry.Name())
-		src, readErr := os.ReadFile(scriptPath)
+		src, readErr := os.ReadFile(filepath.Clean(scriptPath))
 		if readErr != nil {
 			log.Printf("[plugin] Failed to read %s: %v — skipping", scriptPath, readErr)
 			continue

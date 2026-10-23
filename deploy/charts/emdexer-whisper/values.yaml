@@ -1,0 +1,80 @@
+# Defaults for emdexer-whisper, rendered by the helm-framework library chart.
+# Environment, ingress and volumes are set per deployment: for the homelab in cluster-middleware
+# apps/emdexer/whisper.yaml, with the image tag pinned in apps/emdexer/image.yaml.
+# Upstream whisper.cpp server image, not built by this repo. Renovate pins it to a digest
+# (renovate.json, pinDigests for whisper.cpp); until then `main` must be pulled every start.
+image:
+  repository: ghcr.io/ggml-org/whisper.cpp
+  tag: "main"
+  pullPolicy: Always
+
+command: ["/app/build/bin/whisper-server"]
+args: ["-m", "/models/ggml-base.bin", "--host", "0.0.0.0", "--port", "8080"]
+
+# Downloads the model on first start. Override `volumes` with a PVC named `models` to keep it
+# across restarts; the init container skips the download once the file exists.
+initContainers:
+  - name: fetch-model
+    image: curlimages/curl:8.17.0
+    command: ["sh", "-c"]
+    args:
+      - test -s /models/ggml-base.bin || { curl -fsSL -o /models/ggml-base.bin.tmp https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin && mv /models/ggml-base.bin.tmp /models/ggml-base.bin; }
+    volumeMounts:
+      - name: models
+        mountPath: /models
+
+volumes:
+  - name: models
+    emptyDir: {}
+
+volumeMounts:
+  - name: models
+    mountPath: /models
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+healthChecks:
+  enabled: true
+  startupProbe:
+    path: "/health"
+    periodSeconds: 5
+    failureThreshold: 60
+    successThreshold: 1
+    initialDelaySeconds: 5
+    timeoutSeconds: 3
+  livenessProbe:
+    path: "/health"
+    periodSeconds: 10
+    failureThreshold: 6
+    successThreshold: 1
+    initialDelaySeconds: 0
+    timeoutSeconds: 3
+  readinessProbe:
+    path: "/health"
+    periodSeconds: 10
+    failureThreshold: 3
+    successThreshold: 1
+    initialDelaySeconds: 0
+    timeoutSeconds: 3
+
+# The image runs as root (no USER in its Dockerfile). fsGroup lets the curl init container (uid 100)
+# write the model onto a fresh PVC, which is root:root 0755.
+podSecurityContext:
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    memory: 1Gi

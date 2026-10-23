@@ -1,8 +1,9 @@
 FROM python:3.14-slim
 WORKDIR /app
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir "fastmcp[apps]" requests
-RUN useradd -m emdexer && chown emdexer:emdexer /app
+RUN pip install --no-cache-dir "fastmcp[apps]==4.1.3" requests==2.34.2
+# Fixed numeric uid/gid: Kubernetes' runAsNonRoot can only verify a numeric USER.
+RUN groupadd --gid 10001 emdexer && useradd -m --uid 10001 --gid 10001 emdexer && chown emdexer:emdexer /app
 COPY src/mcp/main.py .
-USER emdexer
+USER 10001:10001
 CMD ["python", "main.py", "run", "--port", "8002", "--transport", "sse"]

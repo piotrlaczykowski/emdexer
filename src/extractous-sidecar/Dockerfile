@@ -26,14 +26,15 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir \
     extractous==0.3.0 \
-    fastapi==0.115.12 \
-    uvicorn[standard]==0.34.3 \
-    python-multipart==0.0.20
+    fastapi==0.161.1 \
+    uvicorn[standard]==0.54.0 \
+    python-multipart==0.0.32
 
 COPY server.py .
 
-RUN addgroup --system emdexer && adduser --system --ingroup emdexer emdexer
-USER emdexer
+# Fixed numeric uid/gid: Kubernetes' runAsNonRoot can only verify a numeric USER.
+RUN addgroup --system --gid 10001 emdexer && adduser --system --uid 10001 --ingroup emdexer emdexer
+USER 10001:10001
 
 EXPOSE 8000
 

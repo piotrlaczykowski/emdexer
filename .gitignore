@@ -46,3 +46,7 @@ docs/superpowers/
 # Local/environment-specific compose overrides
 deploy/docker/docker-compose.nas-nodes.yml
 deploy/docker/docker-compose.local-*.yml
+
+# helm dependency build output (helm-framework is fetched at render time)
+deploy/charts/*/charts/
+deploy/charts/*/Chart.lock

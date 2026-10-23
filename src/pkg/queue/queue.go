@@ -31,7 +31,7 @@ func NewPersistentQueue(dbPath string) (*PersistentQueue, error) {
 		return nil, fmt.Errorf("failed to create secure directory: %w", err)
 	}
 	// Harden existing directories just in case they were created with weaker permissions
-	if err := os.Chmod(dbDir, 0700); err != nil {
+	if err := os.Chmod(dbDir, 0700); err != nil { // #nosec G302 -- a directory needs the exec bit
 		log.Printf("[queue] Warning: Failed to set 0700 permissions on %s: %v", dbDir, err)
 	}
 

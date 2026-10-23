@@ -19,17 +19,18 @@ WORKDIR /app
 # sentence-transformers pulls in torch (CPU-only wheel kept small via index-url).
 RUN pip install --no-cache-dir \
     --extra-index-url https://download.pytorch.org/whl/cpu \
-    torch==2.6.0+cpu \
-    sentence-transformers==3.4.1 \
-    fastapi==0.115.12 \
-    uvicorn[standard]==0.34.3 \
-    pydantic==2.11.3
+    torch==2.14.1+cpu \
+    sentence-transformers==6.2.0 \
+    fastapi==0.161.1 \
+    uvicorn[standard]==0.54.0 \
+    pydantic==2.14.1
 
 # Create non-root user and set up cache directory before model download.
-RUN adduser --disabled-password --gecos "" emdexer
+# Fixed numeric uid/gid: Kubernetes' runAsNonRoot can only verify a numeric USER.
+RUN addgroup --gid 10001 emdexer && adduser --disabled-password --gecos "" --uid 10001 --ingroup emdexer emdexer
 ENV HF_HOME=/app/.cache/huggingface
 RUN mkdir -p /app/.cache/huggingface && chown -R emdexer:emdexer /app/.cache/huggingface
-USER emdexer
+USER 10001:10001
 
 # Pre-download the model at build time so startup is instant at runtime.
 ARG RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2

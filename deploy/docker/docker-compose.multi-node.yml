@@ -18,7 +18,7 @@ services:
   # ============================================================
 
   qdrant:
-    image: qdrant/qdrant:v1.17.1
+    image: qdrant/qdrant:v1.20.0
     deploy:
       resources:
         limits:
@@ -40,7 +40,10 @@ services:
   # ============================================================
 
   plugin-sidecar:
-    build: ../../src/plugin-sidecar
+    build:
+      context: ../../src/plugin-sidecar
+      additional_contexts:
+        plugins: ../../plugins
     deploy:
       resources:
         limits:

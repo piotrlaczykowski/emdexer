@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -25,7 +26,6 @@ import (
 	"github.com/piotrlaczykowski/emdexer/qdrantcreds"
 	"github.com/piotrlaczykowski/emdexer/queue"
 	"github.com/piotrlaczykowski/emdexer/registry"
-	"github.com/piotrlaczykowski/emdexer/safenet"
 	"github.com/piotrlaczykowski/emdexer/vfs"
 	"github.com/piotrlaczykowski/emdexer/watcher"
 
@@ -194,11 +194,13 @@ func newApp() *App {
 	initVFS(root)
 
 	// Create extract client and pipeline config after VFS, CB, and embedder are ready.
-	safeHTTP := safenet.NewSafeClient(60 * time.Second)
+	// Plain client, not safenet: the extractous/whisper/ffmpeg URLs are operator config and the sidecars run on
+	// private IPs (Docker networks, Kubernetes Services), which the SSRF guard refuses to dial.
+	sidecarHTTP := &http.Client{Timeout: 60 * time.Second}
 	extractClient := &extract.Client{
 		CB:              globalCB,
 		FS:              globalFS,
-		HTTP:            safeHTTP,
+		HTTP:            sidecarHTTP,
 		EnableOCR:       globalCfg.EnableOCR,
 		VisionEnabled:   globalCfg.VisionEnabled,
 		VisionMaxSizeMB: globalCfg.VisionMaxSizeMB,
@@ -211,7 +213,7 @@ func newApp() *App {
 		extractClient.Whisper = &extract.WhisperClient{
 			URL:      globalCfg.WhisperURL,
 			Model:    globalCfg.WhisperModel,
-			HTTP:     safeHTTP,
+			HTTP:     sidecarHTTP,
 			CB:       whisperCB,
 			Enabled:  globalCfg.WhisperEnabled,
 			MinChars: globalCfg.WhisperMinChars,
@@ -225,7 +227,7 @@ func newApp() *App {
 	if globalCfg.FrameEnabled && globalCfg.FFmpegURL != "" {
 		extractClient.Frames = &extract.FFmpegClient{
 			URL:         globalCfg.FFmpegURL,
-			HTTP:        safeHTTP,
+			HTTP:        sidecarHTTP,
 			IntervalSec: globalCfg.FrameIntervalSec,
 			MaxFrames:   globalCfg.MaxFrames,
 		}

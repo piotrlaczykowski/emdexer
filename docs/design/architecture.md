@@ -518,8 +518,8 @@ This prevents SSRF attacks where a malicious file path or Ollama host URL could 
 ### Topology C — Kubernetes (Helm)
 ```
 Namespace: emdexer
-  Deployment: emdex-gateway   (Helm chart: deploy/helm/emdexer-gateway)
-  DaemonSet:  emdex-node      (Helm chart: deploy/helm/emdexer-node)
+  Deployment: emdex-gateway   (Helm chart: deploy/charts/emdexer-gateway)
+  DaemonSet:  emdex-node      (Helm chart: deploy/charts/emdexer-node)
   StatefulSet: qdrant
 ```
 

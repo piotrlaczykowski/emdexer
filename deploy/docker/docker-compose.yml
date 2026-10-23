@@ -1,6 +1,6 @@
 services:
   qdrant:
-    image: qdrant/qdrant:v1.17.1
+    image: qdrant/qdrant:v1.20.0
     # No host port mappings — Qdrant is internal only.
     # Access via the emdexer-net Docker network (qdrant:6333/6334).
     deploy:
@@ -154,6 +154,8 @@ services:
     build:
       context: ../../src/plugin-sidecar
       dockerfile: Dockerfile
+      additional_contexts:
+        plugins: ../../plugins
     # No host port mappings — plugin-sidecar is internal only.
     # Access via the emdexer-net Docker network (plugin-sidecar:8003).
     deploy:
@@ -333,7 +335,7 @@ services:
   #         memory: 512M
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     restart: unless-stopped
     networks:
       - emdexer-net

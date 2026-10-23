@@ -34,7 +34,7 @@ type MetadataCache struct {
 }
 
 func NewMetadataCache(dbPath string) (*MetadataCache, error) {
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0750); err != nil {
 		return nil, err
 	}
 	db, err := sql.Open("sqlite", dbPath)
@@ -44,7 +44,7 @@ func NewMetadataCache(dbPath string) (*MetadataCache, error) {
 
 	// Wait a bit to ensure file is created by SQLite or create it if it doesn't exist
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		f, err := os.Create(dbPath)
+		f, err := os.Create(filepath.Clean(dbPath))
 		if err == nil {
 			f.Close()
 		}

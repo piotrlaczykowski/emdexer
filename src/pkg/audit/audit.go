@@ -123,11 +123,11 @@ func openLogFile() *os.File {
 		cwd, _ := os.Getwd()
 		logPath = filepath.Join(cwd, "logs", "audit.json")
 	}
-	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(logPath), 0750); err != nil {
 		log.Printf("[audit] failed to create log directory: %v", err)
 		return nil
 	}
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600) // #nosec G304 -- EMDEX_AUDIT_LOG_FILE is operator config
 	if err != nil {
 		log.Printf("[audit] failed to open log file: %v", err)
 		return nil

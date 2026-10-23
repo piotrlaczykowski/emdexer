@@ -22,8 +22,8 @@ type S3FileSystem struct {
 func NewS3FileSystem(endpoint, accessKey, secretKey, bucket string, useSSL bool) (*S3FileSystem, error) {
 	// No SSRF guard: the endpoint is operator config, and self-hosted S3 (MinIO, RustFS) lives on private IPs.
 	client, err := minio.New(endpoint, &minio.Options{
-		Creds:     credentials.NewStaticV4(accessKey, secretKey, ""),
-		Secure:    useSSL,
+		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure: useSSL,
 	})
 	if err != nil {
 		return nil, err
@@ -134,9 +134,9 @@ type S3File struct {
 }
 
 func (f *S3File) Read(p []byte) (int, error)                { return f.obj.Read(p) }
-func (f *S3File) Seek(off int64, whence int) (int64, error)  { return f.obj.Seek(off, whence) }
-func (f *S3File) ReadAt(p []byte, off int64) (int, error)    { return f.obj.ReadAt(p, off) }
-func (f *S3File) Close() error                               { return f.obj.Close() }
+func (f *S3File) Seek(off int64, whence int) (int64, error) { return f.obj.Seek(off, whence) }
+func (f *S3File) ReadAt(p []byte, off int64) (int, error)   { return f.obj.ReadAt(p, off) }
+func (f *S3File) Close() error                              { return f.obj.Close() }
 
 func (f *S3File) Stat() (fs.FileInfo, error) {
 	return &s3FileInfo{
@@ -158,17 +158,17 @@ type s3FileInfo struct {
 	etag    string
 }
 
-func (fi *s3FileInfo) Name() string        { return fi.name }
-func (fi *s3FileInfo) Size() int64         { return fi.size }
+func (fi *s3FileInfo) Name() string { return fi.name }
+func (fi *s3FileInfo) Size() int64  { return fi.size }
 func (fi *s3FileInfo) Mode() fs.FileMode {
 	if fi.isDir {
 		return 0755 | fs.ModeDir
 	}
 	return 0644
 }
-func (fi *s3FileInfo) ModTime() time.Time  { return fi.modTime }
-func (fi *s3FileInfo) IsDir() bool         { return fi.isDir }
-func (fi *s3FileInfo) Sys() interface{}    { return fi.etag }
+func (fi *s3FileInfo) ModTime() time.Time { return fi.modTime }
+func (fi *s3FileInfo) IsDir() bool        { return fi.isDir }
+func (fi *s3FileInfo) Sys() interface{}   { return fi.etag }
 
 // --- s3DirEntry ---
 
@@ -181,4 +181,4 @@ type s3DirEntry struct {
 func (e *s3DirEntry) Name() string               { return e.name }
 func (e *s3DirEntry) IsDir() bool                { return e.isDir }
 func (e *s3DirEntry) Type() fs.FileMode          { return e.info.Mode().Type() }
-func (e *s3DirEntry) Info() (fs.FileInfo, error)  { return e.info, nil }
+func (e *s3DirEntry) Info() (fs.FileInfo, error) { return e.info, nil }

@@ -3,12 +3,13 @@ package config
 import (
 	"bufio"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
 // LoadEnv reads a .env file and sets environment variables that are not already set.
 func LoadEnv(path string) {
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return
 	}

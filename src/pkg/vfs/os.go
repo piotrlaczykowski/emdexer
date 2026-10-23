@@ -33,7 +33,7 @@ func (o *OSFileSystem) Open(name string) (fs.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return os.Open(path)
+	return os.Open(path) // #nosec G304 -- resolve() confines path to Root
 }
 
 func (o *OSFileSystem) Stat(name string) (fs.FileInfo, error) {

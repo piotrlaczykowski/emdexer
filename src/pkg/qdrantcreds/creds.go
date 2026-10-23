@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -30,7 +31,7 @@ func Build(tlsEnabled bool, certFile, keyFile, caFile string) (grpc.DialOption, 
 	cfg := &tls.Config{}
 
 	if caFile != "" {
-		pem, err := os.ReadFile(caFile)
+		pem, err := os.ReadFile(filepath.Clean(caFile))
 		if err != nil {
 			return nil, fmt.Errorf("qdrantcreds: read CA cert %q: %w", caFile, err)
 		}

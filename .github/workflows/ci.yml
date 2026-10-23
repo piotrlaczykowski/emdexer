@@ -63,7 +63,7 @@ jobs:
         done
 
     - name: Install golangci-lint
-      run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.11.3
+      run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.15.0
 
     - name: Run golangci-lint on Gateway
       run: cd src/gateway && $(go env GOPATH)/bin/golangci-lint run ./...

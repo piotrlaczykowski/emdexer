@@ -17,10 +17,10 @@ FROM python:3.13-slim
 WORKDIR /app
 
 RUN pip install --no-cache-dir \
-    fastapi==0.115.12 \
-    uvicorn[standard]==0.34.3 \
-    prometheus-client==0.21.1 \
-    python-multipart==0.0.27
+    fastapi==0.161.1 \
+    uvicorn[standard]==0.54.0 \
+    prometheus-client==0.26.0 \
+    python-multipart==0.0.32
 
 COPY server.py .
 

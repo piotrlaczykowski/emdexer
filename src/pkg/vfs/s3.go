@@ -10,7 +10,6 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	"github.com/piotrlaczykowski/emdexer/safenet"
 )
 
 // S3FileSystem implements FileSystem for S3/MinIO-compatible object storage.
@@ -21,10 +20,10 @@ type S3FileSystem struct {
 
 // NewS3FileSystem creates an S3FileSystem connected to the given endpoint and bucket.
 func NewS3FileSystem(endpoint, accessKey, secretKey, bucket string, useSSL bool) (*S3FileSystem, error) {
+	// No SSRF guard: the endpoint is operator config, and self-hosted S3 (MinIO, RustFS) lives on private IPs.
 	client, err := minio.New(endpoint, &minio.Options{
 		Creds:     credentials.NewStaticV4(accessKey, secretKey, ""),
 		Secure:    useSSL,
-		Transport: safenet.NewSafeTransport(),
 	})
 	if err != nil {
 		return nil, err

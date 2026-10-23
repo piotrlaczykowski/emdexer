@@ -26,9 +26,9 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir \
     extractous==0.3.0 \
-    fastapi==0.115.12 \
-    uvicorn[standard]==0.34.3 \
-    python-multipart==0.0.27
+    fastapi==0.161.1 \
+    uvicorn[standard]==0.54.0 \
+    python-multipart==0.0.32
 
 COPY server.py .
 

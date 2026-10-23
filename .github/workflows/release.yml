@@ -131,7 +131,11 @@ jobs:
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Set up Helm
+        # Pinned to v4.3.1 (latest stable). Bump to the first release containing helm/helm#31964
+        # (fix: toPrettyJson HTML-escaping of &, <, > in chart templates) once it merges.
         uses: azure/setup-helm@v5
+        with:
+          version: v4.3.1
 
       - name: Log in to GHCR (Helm)
         run: |

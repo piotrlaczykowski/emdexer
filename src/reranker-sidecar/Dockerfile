@@ -26,10 +26,11 @@ RUN pip install --no-cache-dir \
     pydantic==2.11.3
 
 # Create non-root user and set up cache directory before model download.
-RUN adduser --disabled-password --gecos "" emdexer
+# Fixed numeric uid/gid: Kubernetes' runAsNonRoot can only verify a numeric USER.
+RUN addgroup --gid 10001 emdexer && adduser --disabled-password --gecos "" --uid 10001 --ingroup emdexer emdexer
 ENV HF_HOME=/app/.cache/huggingface
 RUN mkdir -p /app/.cache/huggingface && chown -R emdexer:emdexer /app/.cache/huggingface
-USER emdexer
+USER 10001:10001
 
 # Pre-download the model at build time so startup is instant at runtime.
 ARG RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2

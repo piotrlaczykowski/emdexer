@@ -1,0 +1,58 @@
+# Defaults for emdexer-node, rendered by the helm-framework library chart.
+# Environment, ingress and volumes are set per deployment: for the homelab in cluster-middleware
+# apps/emdexer/node.yaml, with the image tag pinned in apps/emdexer/image.yaml.
+image:
+  repository: harbor.k8s.laczyk.com/emdexer/node
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8081
+  targetPort: 8081
+
+healthChecks:
+  enabled: true
+  startupProbe:
+    path: "/healthz/startup"
+    periodSeconds: 5
+    failureThreshold: 60
+    successThreshold: 1
+    initialDelaySeconds: 5
+    timeoutSeconds: 3
+  livenessProbe:
+    path: "/healthz/liveness"
+    periodSeconds: 10
+    failureThreshold: 6
+    successThreshold: 1
+    initialDelaySeconds: 0
+    timeoutSeconds: 3
+  readinessProbe:
+    path: "/healthz/readiness"
+    periodSeconds: 10
+    failureThreshold: 3
+    successThreshold: 1
+    initialDelaySeconds: 0
+    timeoutSeconds: 3
+
+# The Go images create their user without a fixed uid; run as a fixed one so fsGroup makes
+# mounted volumes (registry / cache PVCs) writable.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi

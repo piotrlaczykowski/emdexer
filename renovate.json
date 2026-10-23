@@ -1,0 +1,79 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "baseBranchPatterns": [
+    "main"
+  ],
+  "timezone": "Europe/Warsaw",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "minimumReleaseAge": "3 days",
+  "rangeStrategy": "pin",
+  "semanticCommits": "enabled",
+  "labels": [
+    "dependencies"
+  ],
+  "separateMajorMinor": true,
+  "separateMultipleMajor": true,
+  "postUpdateOptions": [
+    "gomodTidy",
+    "gomodUpdateImportPaths"
+  ],
+  "packageRules": [
+    {
+      "description": "One PR a week for everything that is not a major.",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "minor and patch updates",
+      "groupSlug": "minor-patch"
+    },
+    {
+      "description": "whisper.cpp only publishes a moving `main` tag; pin it to a digest so deploys are reproducible.",
+      "matchPackageNames": [
+        "ghcr.io/ggml-org/whisper.cpp"
+      ],
+      "pinDigests": true
+    },
+    {
+      "description": "torch is installed as a +cpu build from the PyTorch index, which PyPI does not carry; bump it by hand.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchPackageNames": [
+        "torch"
+      ],
+      "enabled": false
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "description": "Security fixes skip the weekly window and the release-age wait.",
+    "labels": [
+      "security"
+    ],
+    "schedule": [
+      "at any time"
+    ],
+    "minimumReleaseAge": null
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Inline `pip install pkg==x.y.z` pins in the Dockerfiles (extractous, plugin, reranker sidecars).",
+      "managerFilePatterns": [
+        "/(^|/)Dockerfile[^/]*$/"
+      ],
+      "matchStrings": [
+        "\\s(?<depName>[A-Za-z0-9_.-]+)(?:\\[[^\\]]*\\])?==(?<currentValue>[0-9][^\\s\\\\\"']*)"
+      ],
+      "datasourceTemplate": "pypi"
+    }
+  ]
+}

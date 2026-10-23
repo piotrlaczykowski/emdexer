@@ -1,5 +1,8 @@
 name: CodeQL
 
+# All jobs run on the homelab ARC scale sets (cluster-middleware apps/arc-runners-emdexer*). Fork PRs are
+# skipped: those runners carry the in-cluster build credentials, so only branches of this repo may use them.
+
 on:
   push:
     branches: [ main ]
@@ -8,14 +11,19 @@ on:
   schedule:
     - cron: '0 3 * * 1' # Weekly on Monday 03:00 UTC
 
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   security-events: write
 
 jobs:
   analyze:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Analyze (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: arc-emdexer
     strategy:
       fail-fast: false
       matrix:
@@ -28,7 +36,7 @@ jobs:
         if: matrix.language == 'go'
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.2'
+          go-version-file: src/pkg/go.mod
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4

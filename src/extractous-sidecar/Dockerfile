@@ -32,8 +32,9 @@ RUN pip install --no-cache-dir \
 
 COPY server.py .
 
-RUN addgroup --system emdexer && adduser --system --ingroup emdexer emdexer
-USER emdexer
+# Fixed numeric uid/gid: Kubernetes' runAsNonRoot can only verify a numeric USER.
+RUN addgroup --system --gid 10001 emdexer && adduser --system --uid 10001 --ingroup emdexer emdexer
+USER 10001:10001
 
 EXPOSE 8000
 

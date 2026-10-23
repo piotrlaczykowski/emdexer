@@ -1,0 +1,10 @@
+apiVersion: v2
+name: emdexer-extractous
+description: Extractous text-extraction sidecar used by the node
+type: application
+version: 0.2.0
+appVersion: "1.0.0"
+dependencies:
+  - name: helm-framework
+    version: "1.6.0"
+    repository: "oci://ghcr.io/k8s-stuff"

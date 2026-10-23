@@ -41,7 +41,7 @@ Before opening or merging any feature PR, use the `emdexer-finalizer` skill or a
 | **docs** | `.env.example` updated with new env vars? |
 | **envs** | All new env vars have defaults in docker-compose + .env.example? |
 | **docker** | `deploy/docker/docker-compose.yml` updated? |
-| **helm** | `deploy/helm/emdexer-gateway/values.yaml` + `deployment.yaml` updated? |
+| **helm** | `deploy/charts/emdexer-*/values.yaml` defaults + homelab values in `cluster-middleware/apps/emdexer/*.yaml` updated? |
 | **backend** | `src/gateway/` + `src/pkg/` changes complete? |
 | **tests** | Unit tests added for new code? Existing tests still pass? |
 | **mcp** | `src/mcp/main.py` — does this feature affect the MCP surface? |

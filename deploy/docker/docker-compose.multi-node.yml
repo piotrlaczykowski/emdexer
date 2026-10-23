@@ -40,7 +40,10 @@ services:
   # ============================================================
 
   plugin-sidecar:
-    build: ../../src/plugin-sidecar
+    build:
+      context: ../../src/plugin-sidecar
+      additional_contexts:
+        plugins: ../../plugins
     deploy:
       resources:
         limits:

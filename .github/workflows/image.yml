@@ -1,0 +1,174 @@
+name: Image
+
+# Builds every emdexer image on the homelab ARC runners and pushes it to Harbor, then deploys main to
+# the homelab by pinning the commit sha in cluster-middleware apps/emdexer/image.yaml (ArgoCD syncs it).
+#
+# Every image is rebuilt on every main push, on purpose: all Applications share the one sha tag in
+# image.yaml, so an image skipped by a path filter would have no tag for the new sha and its pod would
+# sit in ImagePullBackOff. The registry build cache keeps unchanged images to a few seconds.
+#
+# Credentials (HARBOR_USERNAME / HARBOR_PASSWORD / CLUSTER_MIDDLEWARE_DEPLOY_KEY) come from the
+# `emdexer-build` Secret mounted on the runner pod (cluster-middleware apps/arc-runners-emdexer), never
+# from GitHub repository secrets, so they only ever exist inside the cluster.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "Push the images to Harbor (uncheck to build only)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: harbor.k8s.laczyk.com/emdexer
+
+jobs:
+  build:
+    name: Build ${{ matrix.image }}
+    runs-on: arc-emdexer
+    strategy:
+      fail-fast: false
+      # The scale set caps at a few runners; more parallel builds would only queue.
+      max-parallel: 3
+      matrix:
+        include:
+          - image: gateway
+            context: .
+            file: deploy/docker/Dockerfile.gateway
+          - image: node
+            context: .
+            file: deploy/docker/Dockerfile.node
+          - image: mcp
+            context: .
+            file: deploy/docker/Dockerfile.mcp
+          - image: extractous
+            context: src/extractous-sidecar
+            file: src/extractous-sidecar/Dockerfile
+          - image: plugin-sidecar
+            context: src/plugin-sidecar
+            file: src/plugin-sidecar/Dockerfile
+          - image: ragas-sidecar
+            context: src/ragas-sidecar
+            file: src/ragas-sidecar/Dockerfile
+          - image: ffmpeg-sidecar
+            context: src/ffmpeg-sidecar
+            file: src/ffmpeg-sidecar/Dockerfile
+          - image: reranker-sidecar
+            context: src/reranker-sidecar
+            file: src/reranker-sidecar/Dockerfile
+    steps:
+      - uses: actions/checkout@v6
+
+      # The runner's envFrom variables are real process env, but `${{ env.* }}` only sees workflow-level
+      # env, so promote them to $GITHUB_ENV (masked first) for the `with:` inputs below.
+      - name: Load build credentials from the runner environment
+        run: |
+          for v in HARBOR_USERNAME HARBOR_PASSWORD BUILDKIT_HOST; do
+            if [ -z "${!v:-}" ]; then
+              echo "::error::$v is not set on this runner. Check the emdexer-build Secret and apps/arc-runners-emdexer in cluster-middleware."
+              exit 1
+            fi
+          done
+          echo "::add-mask::$HARBOR_PASSWORD"
+          {
+            echo "HARBOR_USERNAME=$HARBOR_USERNAME"
+            echo "HARBOR_PASSWORD=$HARBOR_PASSWORD"
+            echo "BUILDKIT_HOST=$BUILDKIT_HOST"
+          } >> "$GITHUB_ENV"
+
+      - uses: docker/login-action@v4
+        with:
+          registry: harbor.k8s.laczyk.com
+          username: ${{ env.HARBOR_USERNAME }}
+          password: ${{ env.HARBOR_PASSWORD }}
+
+      # Remote driver: the runner has no Docker daemon; builds go to the shared rootless buildkitd.
+      - uses: docker/setup-buildx-action@v4
+        with:
+          driver: remote
+          endpoint: ${{ env.BUILDKIT_HOST }}
+
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ matrix.image }}
+          tags: |
+            type=sha,format=long,prefix=
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          # Bakes the repo's plugins/ into the plugin-sidecar image (docker-compose mounts them instead).
+          build-contexts: ${{ matrix.image == 'plugin-sidecar' && 'plugins=plugins' || '' }}
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+          # The remote builder has no local image store; the registry is the only output.
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ matrix.image }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ matrix.image }}:buildcache,mode=max
+
+  # Homelab is GitOps: ArgoCD (cluster-middleware) runs every emdexer Application at the sha pinned in
+  # apps/emdexer/image.yaml. Each main build moves that pin to itself; ArgoCD rolls it out.
+  deploy-homelab:
+    name: Deploy to homelab
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: arc-emdexer
+    steps:
+      - name: Bump the image pin in cluster-middleware
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          if [ -z "${CLUSTER_MIDDLEWARE_DEPLOY_KEY:-}" ]; then
+            echo "::error::CLUSTER_MIDDLEWARE_DEPLOY_KEY is not set on this runner. Check the emdexer-build Secret."
+            exit 1
+          fi
+          umask 077
+          mkdir -p ~/.ssh
+          trap 'rm -f ~/.ssh/cluster-middleware' EXIT
+          printf '%s\n' "$CLUSTER_MIDDLEWARE_DEPLOY_KEY" > ~/.ssh/cluster-middleware
+          # Pinned from `gh api meta`, so a hijacked github.com fails the push instead of receiving the key.
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" > ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/cluster-middleware -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
+
+          git clone --quiet --depth 1 --branch main git@github.com:piotrlaczykowski/cluster-middleware.git cm
+          cd cm
+          git config user.name "emdexer-ci"
+          git config user.email "emdexer-ci@users.noreply.github.com"
+
+          file=apps/emdexer/image.yaml
+          grep -qE '^  tag: "[0-9a-f]{40}"$' "$file" || { echo "::error::$file no longer has the expected '  tag: \"<sha>\"' line"; exit 1; }
+          sed -i -E "s/^  tag: \"[0-9a-f]{40}\"$/  tag: \"${SHA}\"/" "$file"
+          if git diff --quiet; then
+            echo "already pinned to ${SHA}"
+            exit 0
+          fi
+          git commit --quiet -am "chore(emdexer): deploy ${SHA::12} to the homelab" -m "From ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          # main may move under us (a human merge, or another app's deploy).
+          for attempt in 1 2 3 4 5; do
+            git push --quiet origin HEAD:main && break
+            [ "$attempt" = 5 ] && { echo "::error::push to cluster-middleware failed 5 times"; exit 1; }
+            sleep $((attempt * 3))
+            git pull --quiet --rebase origin main
+          done
+
+          {
+            echo "### Deploying to the homelab"
+            echo "cluster-middleware \`apps/emdexer/image.yaml\` now pins \`${SHA}\`; ArgoCD syncs it within ~3 minutes."
+          } >> "$GITHUB_STEP_SUMMARY"

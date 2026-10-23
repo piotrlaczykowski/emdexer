@@ -1,11 +1,12 @@
 package vfs
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"net"
 
-	"github.com/hirochachacha/go-smb2"
+	"github.com/cloudsoda/go-smb2"
 )
 
 type SMBFileSystem struct {
@@ -26,7 +27,7 @@ func NewSMBFileSystem(host, user, password, shareName string) (*SMBFileSystem, e
 		},
 	}
 
-	s, err := d.Dial(conn)
+	s, err := d.DialConn(context.Background(), conn, host+":445")
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial SMB: %w", err)
 	}

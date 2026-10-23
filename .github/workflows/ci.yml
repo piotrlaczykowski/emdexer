@@ -63,7 +63,9 @@ jobs:
         done
 
     - name: Install golangci-lint
-      run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.15.0
+      # go install, not install.sh: the module is verified against sum.golang.org (install.sh's tarball checksum
+      # check failed on the ARC runners), and it is built with the repo's Go so it reads that version's export data.
+      run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 
     - name: Run golangci-lint on Gateway
       run: cd src/gateway && $(go env GOPATH)/bin/golangci-lint run ./...
